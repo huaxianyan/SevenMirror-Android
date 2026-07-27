@@ -19,8 +19,10 @@ jobs:
           cache: gradle
       - uses: android-actions/setup-android@v3
       - name: Verify protocol
-        run: ./gradlew verifyVendoredProtocol
-      - name: Unit tests and lint
-        run: ./gradlew test lint
+        run: bash .github/scripts/gradle-step.sh verifyVendoredProtocol
+      - name: Unit tests
+        run: bash .github/scripts/gradle-step.sh test
+      - name: Lint
+        run: bash .github/scripts/gradle-step.sh lint
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: bash .github/scripts/gradle-step.sh assembleDebug
