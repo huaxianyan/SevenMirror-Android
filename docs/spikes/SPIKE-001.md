@@ -1,6 +1,6 @@
 # SPIKE-001 — Android notification capabilities
 
-Status: in progress
+Status: core capability validated on Pixel 10 Pro / Android 16 (API 36)
 
 ## Safety boundary
 
@@ -31,10 +31,17 @@ This spike is process-local. It does not log, persist, encrypt, or transmit noti
 8. Update a notification, retain an old action token in a debugger/test, and verify it returns `STALE_NOTIFICATION_VERSION`.
 9. Revoke notification access and verify local state clears after listener disconnection.
 
-## Exit evidence still required
+## Validation result
 
-- Successful CI build and lint
+- Local JDK 17 + SDK 35 build, unit tasks, lint and debug APK: passed
+- GitHub Actions: passed
+- Pixel 10 Pro / Android 16 (API 36): passed
+- Regular `PendingIntent` test action: matched expected result
+- Free-form `RemoteInput` reply: exact text received as expected
+- Action-triggered notification removal: passed
+
+## Follow-up compatibility evidence
+
 - Physical/emulated Android 10 result
-- Physical/emulated current Android result
 - Tests against at least two third-party apps with `RemoteInput`
 - Compatibility notes for unsupported multi-input or non-free-form actions
