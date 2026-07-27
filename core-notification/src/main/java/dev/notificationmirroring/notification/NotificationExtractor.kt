@@ -9,6 +9,7 @@ internal object NotificationExtractor {
         context: Context,
         sbn: StatusBarNotification,
         revision: Long,
+        isSilent: Boolean,
     ): NotificationSnapshot {
         val notification = sbn.notification
         val actions = notification.actions.orEmpty().mapIndexed { index, action ->
@@ -33,7 +34,7 @@ internal object NotificationExtractor {
             postedAtMillis = sbn.postTime,
             isClearable = sbn.isClearable,
             isOngoing = sbn.isOngoing,
-            isSilent = notification.silent,
+            isSilent = isSilent,
             groupKey = sbn.groupKey,
             isGroupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             actions = actions,

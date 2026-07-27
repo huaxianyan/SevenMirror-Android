@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 object LocalNotificationController {
     private data class RegisteredNotification(
         val revision: Long,
-        val actions: Array<Notification.Action>,
+        val actions: List<Notification.Action>,
     )
 
     private val nextRevision = AtomicLong(0)
@@ -29,10 +29,17 @@ object LocalNotificationController {
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
 
     @Synchronized
-    fun onPosted(context: Context, sbn: StatusBarNotification) {
+    fun onPosted(
+        context: Context,
+        sbn: StatusBarNotification,
+        isSilent: Boolean,
+    ) {
         val revision = nextRevision.incrementAndGet()
-        val snapshot = NotificationExtractor.extract(context, sbn, revision)
-        registered[sbn.key] = RegisteredNotification(revision, sbn.notification.actions.orEmpty())
+        val snapshot = NotificationExtractor.extract(context, sbn, revision, isSilent)
+        registered[sbn.key] = RegisteredNotification(
+            revision,
+            sbn.notification.actions.orEmpty().toList(),
+        )
         mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
             .sortedByDescending(NotificationSnapshot::postedAtMillis)
     }

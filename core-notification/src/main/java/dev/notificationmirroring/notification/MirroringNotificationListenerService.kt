@@ -1,6 +1,8 @@
 package dev.notificationmirroring.notification
 
+import android.app.NotificationManager
 import android.service.notification.NotificationListenerService
+import android.service.notification.NotificationListenerService.Ranking
 import android.service.notification.StatusBarNotification
 
 /**
@@ -10,7 +12,9 @@ import android.service.notification.StatusBarNotification
 class MirroringNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
-        activeNotifications.orEmpty().forEach { LocalNotificationController.onPosted(this, it) }
+        activeNotifications.orEmpty().forEach {
+            LocalNotificationController.onPosted(this, it, isSilent(it.key))
+        }
     }
 
     override fun onListenerDisconnected() {
@@ -19,10 +23,16 @@ class MirroringNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        sbn?.let { LocalNotificationController.onPosted(this, it) }
+        sbn?.let { LocalNotificationController.onPosted(this, it, isSilent(it.key)) }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         sbn?.key?.let(LocalNotificationController::onRemoved)
+    }
+
+    private fun isSilent(notificationKey: String): Boolean {
+        val ranking = Ranking()
+        return currentRanking.getRanking(notificationKey, ranking) &&
+            ranking.importance <= NotificationManager.IMPORTANCE_LOW
     }
 }
