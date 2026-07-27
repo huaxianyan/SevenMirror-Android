@@ -1,6 +1,6 @@
 # SPIKE-004: Authenticated HPKE interoperability
 
-Status: cryptographic core and Keystore-wrapped persistence validated on API 36; API 29 remains
+Status: cryptographic core and Keystore-wrapped persistence validated on API 29 and API 36
 
 ## Implementation
 
@@ -27,6 +27,7 @@ info = "SyncNotifications-E2EE-v1"
 - JVM unit tests pass.
 - Instrumented seal/open and sender-substitution test passes on Pixel 10 Pro / Android 16 (API 36).
 - Keystore-wrapped identity survives store recreation and remains usable on API 36.
+- GitHub Actions Android 10 / API 29 emulator runs both HPKE and Keystore persistence instrumented tests successfully.
 
 Vendored vector:
 
@@ -38,12 +39,10 @@ The authoritative vector and ADR-002 live in the server repository.
 
 ## Safety boundary
 
-The serialized private scalar and deterministic key derivation exist for spike vectors only. Production Android storage wraps generated HPKE private material with a non-exportable Android Keystore AES-GCM key; application backup is disabled. API 36 persistence/restore is proven without logging or transport, but API 29 and corruption/recovery UX still require validation. Real notification content remains blocked.
+The serialized private scalar and deterministic key derivation exist for spike vectors only. Production Android storage wraps generated HPKE private material with a non-exportable Android Keystore AES-GCM key; application backup is disabled. API 29 and API 36 persistence/restore are proven without logging or transport; corruption/recovery UX still requires validation. Real notification content remains blocked.
 
 ## Remaining evidence
 
-- Android 10 / API 29 instrumented execution
-- Keystore-wrapped key persistence/restore on API 29
 - corruption/lost-Keystore recovery UX
 - persistent atomic replay ledger
 - final routing-header/AAD codec
