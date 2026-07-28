@@ -21,6 +21,15 @@ Repository: <https://github.com/huaxianyan/SyncNotifications-Android>
 
 On Windows PowerShell or Command Prompt, use `gradlew.bat`.
 
+## Signing
+
+Distributable debug and release APKs use the project's fixed Android signing
+identity so later builds remain update-compatible. Local secret files are
+ignored by Git, and GitHub Actions reconstructs the keystore from repository
+secrets and verifies the certificate fingerprint. See
+[`docs/SIGNING.md`](docs/SIGNING.md) for fingerprints, backup locations, CI
+secret names, and recovery rules.
+
 ## Modules
 
 - `app`: Compose application and permission guidance
