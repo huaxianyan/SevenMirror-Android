@@ -1,7 +1,35 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+}
+
+val localSigningProperties = Properties().apply {
+    val propertiesFile = rootProject.file(".signing/signing.properties")
+    if (propertiesFile.isFile) {
+        propertiesFile.inputStream().use(::load)
+    }
+}
+
+fun signingValue(environmentName: String, propertyName: String): String? =
+    System.getenv(environmentName)?.takeIf(String::isNotBlank)
+        ?: localSigningProperties.getProperty(propertyName)?.takeIf(String::isNotBlank)
+
+val signingStoreFile = signingValue("ANDROID_SIGNING_STORE_FILE", "storeFile")
+val signingStorePassword = signingValue("ANDROID_SIGNING_STORE_PASSWORD", "storePassword")
+val signingKeyAlias = signingValue("ANDROID_SIGNING_KEY_ALIAS", "keyAlias")
+val signingKeyPassword = signingValue("ANDROID_SIGNING_KEY_PASSWORD", "keyPassword")
+val fixedSigningValues = listOf(
+    signingStoreFile,
+    signingStorePassword,
+    signingKeyAlias,
+    signingKeyPassword,
+)
+val hasFixedSigningIdentity = fixedSigningValues.all { it != null }
+require(fixedSigningValues.none { it != null } || hasFixedSigningIdentity) {
+    "Fixed Android signing configuration is incomplete; refusing to select a fallback identity"
 }
 
 android {
@@ -16,6 +44,26 @@ android {
         versionName = "0.1.0-dev"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    val fixedSigningConfig = if (hasFixedSigningIdentity) {
+        signingConfigs.create("fixed") {
+            storeFile = rootProject.file(requireNotNull(signingStoreFile))
+            storePassword = requireNotNull(signingStorePassword)
+            keyAlias = requireNotNull(signingKeyAlias)
+            keyPassword = requireNotNull(signingKeyPassword)
+        }
+    } else {
+        null
+    }
+
+    buildTypes {
+        getByName("debug") {
+            fixedSigningConfig?.let { signingConfig = it }
+        }
+        getByName("release") {
+            fixedSigningConfig?.let { signingConfig = it }
+        }
     }
 
     buildFeatures {
