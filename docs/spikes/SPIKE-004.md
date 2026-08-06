@@ -44,7 +44,7 @@ info = "SyncNotifications-E2EE-v1"
 - Android opens the Chrome-produced canonical action envelope and parses its notification ID and revision.
 - Instrumented action tests prove replay and persistent operation-idempotency records commit before the side-effect callback; a new envelope with the same idempotency key recovers the stored result without executing twice, an invalid payload still consumes its authenticated replay tuple, and an uncertain crash window fails closed as `OUTCOME_UNKNOWN`.
 - Android notification instrumented tests invoke a local test `PendingIntent` exactly once through the encrypted handler, then verify duplicate recovery, `STALE_NOTIFICATION_VERSION`, and `ACTION_NOT_FOUND` without further side effects.
-- Pixel 10 Pro / Android 16 (API 36) runtime execution passes all 7 `core-crypto` and 1 `core-notification` instrumented tests. A follow-up UI regression also confirms that ordinary actions and free-form `RemoteInput` replies still succeed after replacing action indexes with per-revision opaque action IDs.
+- Pixel 10 Pro / Android 16 (API 36) runtime execution passes all 7 `core-crypto` and 1 `core-notification` instrumented tests. A follow-up UI regression was performed after replacing action indexes with per-revision opaque action IDs; its observed outcome still requires explicit confirmation.
 
 Vendored vectors:
 
