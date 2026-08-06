@@ -13,6 +13,8 @@ class ActionRejectedException(val code: Code) : Exception(code.name) {
 
 data class ActionReceipt(
     val result: ActionResult,
+    /** Canonical payload bytes persisted by the operation ledger and ready to encrypt. */
+    val resultPayload: ByteArray,
     val recovered: Boolean,
 )
 
@@ -64,22 +66,32 @@ object AuthenticatedActionReceiver {
                     idempotencyKey,
                     encodedResult,
                 )
-                ActionReceipt(result, recovered = false)
+                ActionReceipt(result, encodedResult, recovered = false)
             }
             is AndroidOperationLedger.BeginResult.DuplicateCompleted -> {
                 val recovered = EncryptedPayloadCodecV1.decode(decision.resultPayload)
                 require(recovered.bodyCase == EncryptedPayload.BodyCase.ACTION_RESULT) {
                     "Stored operation result has the wrong payload type"
                 }
-                ActionReceipt(recovered.actionResult, recovered = true)
+                ActionReceipt(
+                    recovered.actionResult,
+                    decision.resultPayload.copyOf(),
+                    recovered = true,
+                )
             }
-            AndroidOperationLedger.BeginResult.DuplicatePending -> ActionReceipt(
-                ActionResult.newBuilder()
+            AndroidOperationLedger.BeginResult.DuplicatePending -> {
+                val result = ActionResult.newBuilder()
                     .setIdempotencyKey(ByteString.copyFrom(idempotencyKey))
                     .setStatus(ActionResultStatus.ACTION_RESULT_STATUS_OUTCOME_UNKNOWN)
-                    .build(),
-                recovered = true,
-            )
+                    .build()
+                val encodedResult = EncryptedPayloadCodecV1.encode(
+                    EncryptedPayload.newBuilder()
+                        .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
+                        .setActionResult(result)
+                        .build(),
+                )
+                ActionReceipt(result, encodedResult, recovered = true)
+            }
             AndroidOperationLedger.BeginResult.CapacityExceeded -> throw ActionRejectedException(
                 ActionRejectedException.Code.OPERATION_CAPACITY_EXCEEDED,
             )
