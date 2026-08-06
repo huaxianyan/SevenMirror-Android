@@ -142,7 +142,7 @@ private fun ActionControl(action: NotificationActionDescriptor) {
     val context = LocalContext.current
     val replies = remember { mutableStateMapOf<String, String>() }
     val results = remember { mutableStateMapOf<String, ActionExecutionStatus>() }
-    val key = "${action.token.notificationKey}:${action.token.notificationRevision}:${action.token.actionIndex}"
+    val key = "${action.token.notificationKey}:${action.token.notificationRevision}:${action.token.actionId.hex}"
     val reply = replies[key].orEmpty()
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

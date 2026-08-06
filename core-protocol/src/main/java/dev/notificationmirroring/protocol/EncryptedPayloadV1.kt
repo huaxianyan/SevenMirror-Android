@@ -2,6 +2,8 @@ package dev.notificationmirroring.protocol
 
 import com.google.protobuf.CodedInputStream
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
+import dev.notificationmirroring.protocol.generated.v1.ActionResult
+import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 
 object EncryptedPayloadCodecV1 {
@@ -9,6 +11,7 @@ object EncryptedPayloadCodecV1 {
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_REPLY_TEXT_BYTES = 4_000
+    const val MAX_RESULT_DETAIL_BYTES = 256
     const val IDENTIFIER_SIZE = 16
     const val MAX_NOTIFICATION_REVISION = Long.MAX_VALUE
 
@@ -25,7 +28,7 @@ object EncryptedPayloadCodecV1 {
         require(encoded.isNotEmpty() && encoded.size <= MAX_PLAINTEXT_SIZE) {
             "Encrypted payload size is out of range"
         }
-        validateWireFields(encoded, topLevel = true)
+        validateWireFields(encoded, WireMessage.TOP_LEVEL)
         val payload = EncryptedPayload.parseFrom(encoded)
         validate(payload)
         require(payload.toByteArray().contentEquals(encoded)) {
@@ -38,10 +41,13 @@ object EncryptedPayloadCodecV1 {
         require(payload.schemaVersion == SCHEMA_VERSION) {
             "Unsupported encrypted payload schema version"
         }
-        require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_INVOKE) {
-            "Exactly one supported encrypted payload body is required"
+        when (payload.bodyCase) {
+            EncryptedPayload.BodyCase.ACTION_INVOKE -> validateAction(payload.actionInvoke)
+            EncryptedPayload.BodyCase.ACTION_RESULT -> validateResult(payload.actionResult)
+            else -> throw IllegalArgumentException(
+                "Exactly one supported encrypted payload body is required",
+            )
         }
-        validateAction(payload.actionInvoke)
     }
 
     private fun validateAction(action: ActionInvoke) {
@@ -61,46 +67,57 @@ object EncryptedPayloadCodecV1 {
         }
     }
 
+    private fun validateResult(result: ActionResult) {
+        require(result.idempotencyKey.size() == IDENTIFIER_SIZE && result.idempotencyKey.any { it.toInt() != 0 }) {
+            "Idempotency key must be a non-zero 16-byte value"
+        }
+        require(
+            result.statusValue in
+                ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED_VALUE..
+                ActionResultStatus.ACTION_RESULT_STATUS_OUTCOME_UNKNOWN_VALUE,
+        ) { "Action result status is unsupported" }
+        if (result.hasDetail()) {
+            val size = result.detail.toByteArray().size
+            require(size in 1..MAX_RESULT_DETAIL_BYTES) { "Action result detail is out of range" }
+        }
+    }
+
     // protobuf-javalite intentionally hides unknown fields. Scan the small v1
     // wire schema first so unsupported and duplicate fields fail closed.
-    private fun validateWireFields(encoded: ByteArray, topLevel: Boolean) {
+    private fun validateWireFields(encoded: ByteArray, message: WireMessage) {
         val input = CodedInputStream.newInstance(encoded)
         var seen = 0
         while (!input.isAtEnd) {
             val tag = input.readTag()
-            val bit = when {
-                topLevel && tag == 8 -> {
-                    input.readUInt32()
-                    1
+            val bit = when (message) {
+                WireMessage.TOP_LEVEL -> when (tag) {
+                    8 -> { input.readUInt32(); 1 }
+                    82 -> { validateWireFields(input.readByteArray(), WireMessage.ACTION_INVOKE); 2 }
+                    90 -> { validateWireFields(input.readByteArray(), WireMessage.ACTION_RESULT); 4 }
+                    else -> invalidWireField()
                 }
-                topLevel && tag == 82 -> {
-                    validateWireFields(input.readByteArray(), topLevel = false)
-                    2
+                WireMessage.ACTION_INVOKE -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readUInt64(); 2 }
+                    26 -> { input.readByteArray(); 4 }
+                    34 -> { input.readByteArray(); 8 }
+                    42 -> { input.readByteArray(); 16 }
+                    else -> invalidWireField()
                 }
-                !topLevel && tag == 10 -> {
-                    input.readByteArray()
-                    1
+                WireMessage.ACTION_RESULT -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readEnum(); 2 }
+                    26 -> { input.readByteArray(); 4 }
+                    else -> invalidWireField()
                 }
-                !topLevel && tag == 16 -> {
-                    input.readUInt64()
-                    2
-                }
-                !topLevel && tag == 26 -> {
-                    input.readByteArray()
-                    4
-                }
-                !topLevel && tag == 34 -> {
-                    input.readByteArray()
-                    8
-                }
-                !topLevel && tag == 42 -> {
-                    input.readByteArray()
-                    16
-                }
-                else -> throw IllegalArgumentException("Encrypted payload contains an unknown field")
             }
             require(seen and bit == 0) { "Encrypted payload contains a duplicate field" }
             seen = seen or bit
         }
     }
+
+    private fun invalidWireField(): Nothing =
+        throw IllegalArgumentException("Encrypted payload contains an unknown field")
+
+    private enum class WireMessage { TOP_LEVEL, ACTION_INVOKE, ACTION_RESULT }
 }

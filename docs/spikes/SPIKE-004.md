@@ -22,7 +22,9 @@ info = "SyncNotifications-E2EE-v1"
 
 `core-protocol/EncryptedEnvelopeV1.kt` implements the bounded binary frame. `core-crypto/AuthenticatedEnvelopeReceiver.kt` validates recipient identity and expiry, authenticates HPKE with the original header bytes, and returns plaintext only after the replay tuple is atomically accepted.
 
-`core-protocol/EncryptedPayloadV1.kt` strictly validates canonical protobuf `action.invoke` payloads. `core-crypto/AndroidOperationLedger.kt` persists 30-day sender/idempotency tuples, and `AuthenticatedActionReceiver.kt` commits replay and operation records before exposing an action to its side-effect callback.
+`core-protocol/EncryptedPayloadV1.kt` strictly validates canonical protobuf `action.invoke` and `action.result` payloads. `core-crypto/AndroidOperationLedger.kt` persists 30-day sender/idempotency tuples plus completed canonical result bytes. `AuthenticatedActionReceiver.kt` commits replay and operation records before exposing an action, recovers completed results without re-execution, and returns `OUTCOME_UNKNOWN` for reserved operations whose result was lost.
+
+`core-notification/AuthenticatedNotificationActionHandler.kt` resolves a random per-revision 16-byte action ID against the process-local `PendingIntent`/`RemoteInput` table. No executable Android capability is serialized.
 
 ## Evidence
 
@@ -38,9 +40,10 @@ info = "SyncNotifications-E2EE-v1"
 - Kotlin encodes and decodes the same Routing Header v1 bytes as Go and TypeScript and rejects malformed magic, suite, flags, IDs, sequence, and timestamps.
 - Kotlin matches the Encrypted Envelope v1 vector, opens its Chrome-generated Auth HPKE ciphertext, and rejects truncation, trailing bytes, bad magic, invalid points, and invalid ciphertext lengths.
 - Instrumented receiver tests prove tampered HPKE ciphertext does not consume replay state, a valid frame is accepted once, and its repeat is rejected.
-- Kotlin matches the canonical encrypted payload bytes and rejects unknown, duplicate, non-canonical, oversized, and semantically invalid action fields.
+- Kotlin matches the canonical encrypted payload bytes and rejects unknown, duplicate, non-canonical, oversized, and semantically invalid action/result fields.
 - Android opens the Chrome-produced canonical action envelope and parses its notification ID and revision.
-- Instrumented action tests prove replay and persistent operation-idempotency records commit before the side-effect callback; a new envelope with the same idempotency key cannot execute twice, and an invalid payload still consumes its authenticated replay tuple.
+- Instrumented action tests prove replay and persistent operation-idempotency records commit before the side-effect callback; a new envelope with the same idempotency key recovers the stored result without executing twice, an invalid payload still consumes its authenticated replay tuple, and an uncertain crash window fails closed as `OUTCOME_UNKNOWN`.
+- Android notification instrumented tests invoke a local test `PendingIntent` exactly once through the encrypted handler, then verify duplicate recovery, `STALE_NOTIFICATION_VERSION`, and `ACTION_NOT_FOUND` without further side effects.
 
 Vendored vectors:
 
@@ -60,6 +63,6 @@ The serialized private scalar and deterministic key derivation exist for spike v
 ## Remaining evidence
 
 - corruption/lost-Keystore recovery UX
-- adapter to `LocalNotificationController`, including opaque action-ID mapping and result recovery
+- encrypt and send stored `action.result` payloads to Chrome and reconcile pending operations
 - authenticated production WebSocket endpoint (the bounded relay adapter is tested but deliberately not exposed)
 - pairing, rotation, revocation, and lost-device behavior

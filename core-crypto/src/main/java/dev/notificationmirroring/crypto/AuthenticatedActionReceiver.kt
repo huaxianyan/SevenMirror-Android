@@ -1,25 +1,34 @@
 package dev.notificationmirroring.crypto
 
+import com.google.protobuf.ByteString
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
+import dev.notificationmirroring.protocol.generated.v1.ActionResult
+import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
+import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 
 class ActionRejectedException(val code: Code) : Exception(code.name) {
-    enum class Code { DUPLICATE_OPERATION, OPERATION_CAPACITY_EXCEEDED }
+    enum class Code { OPERATION_CAPACITY_EXCEEDED }
 }
+
+data class ActionReceipt(
+    val result: ActionResult,
+    val recovered: Boolean,
+)
 
 /**
  * Complete receive boundary for action.invoke. Replay acceptance and operation
- * idempotency are durably committed before [execute] can observe the action.
+ * reservation are durably committed before [execute] can observe the action.
  */
 object AuthenticatedActionReceiver {
-    fun <T> receiveOnce(
+    fun receiveOnce(
         frameBytes: ByteArray,
         context: EnvelopeRecipientContext,
         replayLedger: AndroidReplayLedger,
         operationLedger: AndroidOperationLedger,
         nowUnixMs: Long,
-        execute: (ActionInvoke) -> T,
-    ): T {
+        execute: (ActionInvoke) -> ActionResult,
+    ): ActionReceipt {
         val opened = AuthenticatedEnvelopeReceiver.openOnce(
             frameBytes,
             context,
@@ -27,19 +36,51 @@ object AuthenticatedActionReceiver {
             nowUnixMs,
         )
         val payload = EncryptedPayloadCodecV1.decode(opened.plaintext)
+        require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_INVOKE) {
+            "Expected action.invoke payload"
+        }
         val action = payload.actionInvoke
+        val idempotencyKey = action.idempotencyKey.toByteArray()
         return when (
-            operationLedger.checkAndRecord(
+            val decision = operationLedger.beginOrRecover(
                 senderKeyId = opened.header.senderKeyId,
-                idempotencyKey = action.idempotencyKey.toByteArray(),
+                idempotencyKey = idempotencyKey,
                 nowUnixMs = nowUnixMs,
             )
         ) {
-            AndroidOperationLedger.Decision.ACCEPTED -> execute(action)
-            AndroidOperationLedger.Decision.DUPLICATE -> throw ActionRejectedException(
-                ActionRejectedException.Code.DUPLICATE_OPERATION,
+            AndroidOperationLedger.BeginResult.Accepted -> {
+                val result = execute(action)
+                require(result.idempotencyKey.toByteArray().contentEquals(idempotencyKey)) {
+                    "Action result idempotency key does not match request"
+                }
+                val encodedResult = EncryptedPayloadCodecV1.encode(
+                    EncryptedPayload.newBuilder()
+                        .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
+                        .setActionResult(result)
+                        .build(),
+                )
+                operationLedger.complete(
+                    opened.header.senderKeyId,
+                    idempotencyKey,
+                    encodedResult,
+                )
+                ActionReceipt(result, recovered = false)
+            }
+            is AndroidOperationLedger.BeginResult.DuplicateCompleted -> {
+                val recovered = EncryptedPayloadCodecV1.decode(decision.resultPayload)
+                require(recovered.bodyCase == EncryptedPayload.BodyCase.ACTION_RESULT) {
+                    "Stored operation result has the wrong payload type"
+                }
+                ActionReceipt(recovered.actionResult, recovered = true)
+            }
+            AndroidOperationLedger.BeginResult.DuplicatePending -> ActionReceipt(
+                ActionResult.newBuilder()
+                    .setIdempotencyKey(ByteString.copyFrom(idempotencyKey))
+                    .setStatus(ActionResultStatus.ACTION_RESULT_STATUS_OUTCOME_UNKNOWN)
+                    .build(),
+                recovered = true,
             )
-            AndroidOperationLedger.Decision.CAPACITY_EXCEEDED -> throw ActionRejectedException(
+            AndroidOperationLedger.BeginResult.CapacityExceeded -> throw ActionRejectedException(
                 ActionRejectedException.Code.OPERATION_CAPACITY_EXCEEDED,
             )
         }

@@ -9,6 +9,8 @@ import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderV1
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
+import dev.notificationmirroring.protocol.generated.v1.ActionResult
+import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -48,9 +50,10 @@ class AuthenticatedActionReceiverInstrumentedTest {
                 now,
             ) {
                 sideEffects += 1
-                it.notificationId
+                successResult(it)
             }
-            assertEquals("test.notification/42", result)
+            assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, result.result.status)
+            assertEquals(false, result.recovered)
             assertEquals(1, sideEffects)
 
             val replayDuplicate = assertThrows(EnvelopeRejectedException::class.java) {
@@ -60,26 +63,28 @@ class AuthenticatedActionReceiverInstrumentedTest {
                     replay,
                     operations,
                     now,
-                ) { sideEffects += 1 }
+                ) {
+                    sideEffects += 1
+                    successResult(it)
+                }
             }
             assertEquals(EnvelopeRejectedException.Code.DUPLICATE, replayDuplicate.code)
 
             operations.close()
             operations = AndroidOperationLedger(androidContext, name)
             val logicalDuplicate = frame(5, payload, now, workspace, recipientDevice, sender, recipient)
-            val operationDuplicate = assertThrows(ActionRejectedException::class.java) {
-                AuthenticatedActionReceiver.receiveOnce(
-                    logicalDuplicate,
-                    recipientContext,
-                    replay,
-                    operations,
-                    now,
-                ) { sideEffects += 1 }
+            val recovered = AuthenticatedActionReceiver.receiveOnce(
+                logicalDuplicate,
+                recipientContext,
+                replay,
+                operations,
+                now,
+            ) {
+                sideEffects += 1
+                successResult(it)
             }
-            assertEquals(
-                ActionRejectedException.Code.DUPLICATE_OPERATION,
-                operationDuplicate.code,
-            )
+            assertEquals(true, recovered.recovered)
+            assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, recovered.result.status)
             assertEquals(1, sideEffects)
 
             val invalid = frame(
@@ -98,7 +103,10 @@ class AuthenticatedActionReceiverInstrumentedTest {
                     replay,
                     operations,
                     now,
-                ) { sideEffects += 1 }
+                ) {
+                    sideEffects += 1
+                    successResult(it)
+                }
             }
             val consumedInvalid = assertThrows(EnvelopeRejectedException::class.java) {
                 AuthenticatedActionReceiver.receiveOnce(
@@ -107,22 +115,59 @@ class AuthenticatedActionReceiverInstrumentedTest {
                     replay,
                     operations,
                     now,
-                ) { sideEffects += 1 }
+                ) {
+                    sideEffects += 1
+                    successResult(it)
+                }
             }
             assertEquals(EnvelopeRejectedException.Code.DUPLICATE, consumedInvalid.code)
             assertEquals(1, sideEffects)
+
+            val uncertainPayload = canonicalActionPayload(0xc3)
+            val uncertain = frame(7, uncertainPayload, now, workspace, recipientDevice, sender, recipient)
+            assertThrows(IllegalStateException::class.java) {
+                AuthenticatedActionReceiver.receiveOnce(
+                    uncertain,
+                    recipientContext,
+                    replay,
+                    operations,
+                    now,
+                ) {
+                    sideEffects += 1
+                    throw IllegalStateException("simulated crash around side effect")
+                }
+            }
+            val uncertainRetry = frame(8, uncertainPayload, now, workspace, recipientDevice, sender, recipient)
+            val unknown = AuthenticatedActionReceiver.receiveOnce(
+                uncertainRetry,
+                recipientContext,
+                replay,
+                operations,
+                now,
+            ) {
+                sideEffects += 1
+                successResult(it)
+            }
+            assertEquals(true, unknown.recovered)
+            assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_OUTCOME_UNKNOWN, unknown.result.status)
+            assertEquals(2, sideEffects)
         } finally {
             replay.clear()
             operations.clear()
         }
     }
 
-    private fun canonicalActionPayload(): ByteArray {
+    private fun successResult(action: ActionInvoke): ActionResult = ActionResult.newBuilder()
+        .setIdempotencyKey(action.idempotencyKey)
+        .setStatus(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED)
+        .build()
+
+    private fun canonicalActionPayload(idempotencyByte: Int = 0xb2): ByteArray {
         val action = ActionInvoke.newBuilder()
             .setNotificationId("test.notification/42")
             .setNotificationRevision(7)
             .setActionId(ByteString.copyFrom(ByteArray(16) { 0xa1.toByte() }))
-            .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xb2.toByte() }))
+            .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { idempotencyByte.toByte() }))
             .setReplyText("acknowledged")
             .build()
         return EncryptedPayloadCodecV1.encode(

@@ -10,12 +10,15 @@ internal object NotificationExtractor {
         sbn: StatusBarNotification,
         revision: Long,
         isSilent: Boolean,
+        actionIds: List<NotificationActionId>,
     ): NotificationSnapshot {
         val notification = sbn.notification
-        val actions = notification.actions.orEmpty().mapIndexed { index, action ->
+        val platformActions = notification.actions.orEmpty()
+        require(platformActions.size == actionIds.size) { "action ID count mismatch" }
+        val actions = platformActions.mapIndexed { index, action ->
             val remoteInputs = action.remoteInputs.orEmpty()
             NotificationActionDescriptor(
-                token = NotificationActionToken(sbn.key, revision, index),
+                token = NotificationActionToken(sbn.key, revision, actionIds[index]),
                 title = action.title?.toString()?.takeIf(String::isNotBlank) ?: "Action ${index + 1}",
                 semanticAction = action.semanticAction,
                 requiresTextInput = remoteInputs.isNotEmpty(),

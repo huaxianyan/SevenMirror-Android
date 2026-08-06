@@ -25,10 +25,30 @@ data class NotificationActionDescriptor(
     val allowsFreeFormInput: Boolean,
 )
 
+@JvmInline
+value class NotificationActionId(val hex: String) {
+    init {
+        require(hex.matches(Regex("[0-9a-f]{32}"))) { "action id must be 16-byte lowercase hex" }
+    }
+
+    fun toByteArray(): ByteArray = hex.chunked(2)
+        .map { it.toInt(16).toByte() }
+        .toByteArray()
+
+    companion object {
+        fun fromBytes(value: ByteArray): NotificationActionId {
+            require(value.size == 16) { "action id must be 16 bytes" }
+            return NotificationActionId(
+                value.joinToString("") { "%02x".format(it.toInt() and 0xff) },
+            )
+        }
+    }
+}
+
 data class NotificationActionToken(
     val notificationKey: String,
     val notificationRevision: Long,
-    val actionIndex: Int,
+    val actionId: NotificationActionId,
 )
 
 enum class ActionExecutionStatus {

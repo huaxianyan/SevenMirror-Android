@@ -2,6 +2,8 @@ package dev.notificationmirroring.protocol
 
 import com.google.protobuf.ByteString
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
+import dev.notificationmirroring.protocol.generated.v1.ActionResult
+import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -18,6 +20,27 @@ class EncryptedPayloadV1Test {
         val decoded = EncryptedPayloadCodecV1.decode(encoded)
         assertEquals(7L, decoded.actionInvoke.notificationRevision)
         assertEquals("acknowledged", decoded.actionInvoke.replyText)
+    }
+
+    @Test
+    fun roundTripsCanonicalActionResult() {
+        val encoded = EncryptedPayloadCodecV1.encode(
+            EncryptedPayload.newBuilder()
+                .setSchemaVersion(1)
+                .setActionResult(
+                    ActionResult.newBuilder()
+                        .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xb2.toByte() }))
+                        .setStatus(ActionResultStatus.ACTION_RESULT_STATUS_STALE_NOTIFICATION_VERSION)
+                        .setDetail("revision changed"),
+                )
+                .build(),
+        )
+        assertArrayEquals(vector.actionResultEncoded, encoded)
+        val decoded = EncryptedPayloadCodecV1.decode(encoded)
+        assertEquals(
+            ActionResultStatus.ACTION_RESULT_STATUS_STALE_NOTIFICATION_VERSION,
+            decoded.actionResult.status,
+        )
     }
 
     @Test
@@ -53,13 +76,15 @@ class EncryptedPayloadV1Test {
         .build()
 
     private class Vector(private val json: String) {
-        val encoded: ByteArray
-            get() {
-                val value = Regex("\\\"encodedHex\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")
-                    .find(json)?.groupValues?.get(1)
-                    ?: error("Missing encodedHex")
-                return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-            }
+        val encoded: ByteArray get() = hex("encodedHex")
+        val actionResultEncoded: ByteArray get() = hex("actionResultEncodedHex")
+
+        private fun hex(name: String): ByteArray {
+            val value = Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")
+                .find(json)?.groupValues?.get(1)
+                ?: error("Missing $name")
+            return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
 
         companion object {
             fun load(): Vector {

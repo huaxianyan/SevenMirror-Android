@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
+import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,12 +18,18 @@ import kotlinx.coroutines.flow.asStateFlow
  * transmits notification content or PendingIntents.
  */
 object LocalNotificationController {
+    private data class RegisteredAction(
+        val id: NotificationActionId,
+        val action: Notification.Action,
+    )
+
     private data class RegisteredNotification(
         val revision: Long,
-        val actions: List<Notification.Action>,
+        val actions: List<RegisteredAction>,
     )
 
     private val nextRevision = AtomicLong(0)
+    private val secureRandom = SecureRandom()
     private val registered = mutableMapOf<String, RegisteredNotification>()
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
 
@@ -35,11 +42,17 @@ object LocalNotificationController {
         isSilent: Boolean,
     ) {
         val revision = nextRevision.incrementAndGet()
-        val snapshot = NotificationExtractor.extract(context, sbn, revision, isSilent)
-        registered[sbn.key] = RegisteredNotification(
+        val actions = sbn.notification.actions.orEmpty().map { action ->
+            RegisteredAction(randomActionId(), action)
+        }
+        val snapshot = NotificationExtractor.extract(
+            context,
+            sbn,
             revision,
-            sbn.notification.actions.orEmpty().toList(),
+            isSilent,
+            actions.map(RegisteredAction::id),
         )
+        registered[sbn.key] = RegisteredNotification(revision, actions)
         mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
             .sortedByDescending(NotificationSnapshot::postedAtMillis)
     }
@@ -67,7 +80,9 @@ object LocalNotificationController {
         if (notification.revision != token.notificationRevision) {
             return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
         }
-        val action = notification.actions.getOrNull(token.actionIndex)
+        val action = notification.actions
+            .firstOrNull { it.id == token.actionId }
+            ?.action
             ?: return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
         val remoteInputs = action.remoteInputs.orEmpty()
 
@@ -108,4 +123,8 @@ object LocalNotificationController {
             )
         }
     }
+
+    private fun randomActionId(): NotificationActionId = ByteArray(16)
+        .also(secureRandom::nextBytes)
+        .let(NotificationActionId::fromBytes)
 }

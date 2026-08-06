@@ -24,6 +24,7 @@ public  final class EncryptedPayload extends
   private java.lang.Object body_;
   public enum BodyCase {
     ACTION_INVOKE(10),
+    ACTION_RESULT(11),
     BODY_NOT_SET(0);
     private final int value;
     private BodyCase(int value) {
@@ -40,6 +41,7 @@ public  final class EncryptedPayload extends
     public static BodyCase forNumber(int value) {
       switch (value) {
         case 10: return ACTION_INVOKE;
+        case 11: return ACTION_RESULT;
         case 0: return BODY_NOT_SET;
         default: return null;
       }
@@ -134,6 +136,58 @@ public  final class EncryptedPayload extends
    */
   private void clearActionInvoke() {
     if (bodyCase_ == 10) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int ACTION_RESULT_FIELD_NUMBER = 11;
+  /**
+   * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+   */
+  @java.lang.Override
+  public boolean hasActionResult() {
+    return bodyCase_ == 11;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.ActionResult getActionResult() {
+    if (bodyCase_ == 11) {
+       return (dev.notificationmirroring.protocol.generated.v1.ActionResult) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.ActionResult.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setActionResult(dev.notificationmirroring.protocol.generated.v1.ActionResult value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 11;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeActionResult(dev.notificationmirroring.protocol.generated.v1.ActionResult value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 11 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.ActionResult.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.ActionResult.newBuilder((dev.notificationmirroring.protocol.generated.v1.ActionResult) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 11;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+   */
+  private void clearActionResult() {
+    if (bodyCase_ == 11) {
       bodyCase_ = 0;
       body_ = null;
     }
@@ -329,6 +383,54 @@ public  final class EncryptedPayload extends
       return this;
     }
 
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    @java.lang.Override
+    public boolean hasActionResult() {
+      return instance.hasActionResult();
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.ActionResult getActionResult() {
+      return instance.getActionResult();
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    public Builder setActionResult(dev.notificationmirroring.protocol.generated.v1.ActionResult value) {
+      copyOnWrite();
+      instance.setActionResult(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    public Builder setActionResult(
+        dev.notificationmirroring.protocol.generated.v1.ActionResult.Builder builderForValue) {
+      copyOnWrite();
+      instance.setActionResult(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    public Builder mergeActionResult(dev.notificationmirroring.protocol.generated.v1.ActionResult value) {
+      copyOnWrite();
+      instance.mergeActionResult(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResult action_result = 11 [json_name = "actionResult"];</code>
+     */
+    public Builder clearActionResult() {
+      copyOnWrite();
+      instance.clearActionResult();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.EncryptedPayload)
   }
   @java.lang.Override
@@ -349,9 +451,11 @@ public  final class EncryptedPayload extends
             "bodyCase_",
             "schemaVersion_",
             dev.notificationmirroring.protocol.generated.v1.ActionInvoke.class,
+            dev.notificationmirroring.protocol.generated.v1.ActionResult.class,
           };
           java.lang.String info =
-              "\u0000\u0002\u0001\u0000\u0001\n\u0002\u0000\u0000\u0000\u0001\u000b\n<\u0000";
+              "\u0000\u0003\u0001\u0000\u0001\u000b\u0003\u0000\u0000\u0000\u0001\u000b\n<\u0000" +
+              "\u000b<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through
