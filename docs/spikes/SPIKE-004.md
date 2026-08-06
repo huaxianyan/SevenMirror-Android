@@ -14,7 +14,7 @@ AES-128-GCM
 info = "SyncNotifications-E2EE-v1"
 ```
 
-`core-crypto/ReplayGuard.kt` demonstrates bounded duplicate and expiry decisions. It is not production persistence.
+`core-crypto/ReplayGuard.kt` retains the in-memory policy model. `core-crypto/AndroidReplayLedger.kt` implements the production persistence boundary with an atomic SQLite transaction keyed by the 32-byte sender key ID and 16-byte message ID. It purges expired entries, rejects duplicates after process/store recreation, and fails closed instead of evicting live entries when capacity is exhausted.
 
 `core-crypto/AndroidHpkeIdentityStore.kt` encrypts the serialized HPKE private scalar with a non-exportable Android Keystore AES-256-GCM key and fails closed on partial or undecryptable state.
 
@@ -27,7 +27,8 @@ info = "SyncNotifications-E2EE-v1"
 - JVM unit tests pass.
 - Instrumented seal/open and sender-substitution test passes on Pixel 10 Pro / Android 16 (API 36).
 - Keystore-wrapped identity survives store recreation and remains usable on API 36.
-- GitHub Actions Android 10 / API 29 emulator runs both HPKE and Keystore persistence instrumented tests successfully.
+- Persistent replay tuples remain rejected after ledger recreation; expired entries and capacity exhaustion follow fail-closed policy on API 36.
+- GitHub Actions Android 10 / API 29 emulator runs HPKE, Keystore persistence, and replay-ledger instrumented tests.
 
 Vendored vector:
 
@@ -44,6 +45,6 @@ The serialized private scalar and deterministic key derivation exist for spike v
 ## Remaining evidence
 
 - corruption/lost-Keystore recovery UX
-- persistent atomic replay ledger
+- integration that records replay tuples before applying notification side effects
 - final routing-header/AAD codec
 - pairing, rotation, revocation, and lost-device behavior

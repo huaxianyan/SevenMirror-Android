@@ -5,7 +5,7 @@ package dev.notificationmirroring.crypto
  * state before applying a decrypted side effect.
  */
 class ReplayGuard(private val maxEntries: Int = 4096) {
-    enum class Decision { ACCEPTED, DUPLICATE, EXPIRED }
+    enum class Decision { ACCEPTED, DUPLICATE, EXPIRED, CAPACITY_EXCEEDED }
 
     data class Token(
         val senderKeyId: String,
@@ -27,9 +27,7 @@ class ReplayGuard(private val maxEntries: Int = 4096) {
         val key = "${token.senderKeyId.length}:${token.senderKeyId}${token.messageId}"
         if (seen.containsKey(key)) return Decision.DUPLICATE
 
-        while (seen.size >= maxEntries) {
-            seen.remove(seen.keys.first())
-        }
+        if (seen.size >= maxEntries) return Decision.CAPACITY_EXCEEDED
         seen[key] = token.expiresAtUnixMs
         return Decision.ACCEPTED
     }

@@ -31,7 +31,7 @@ class ReplayGuardTest {
             guard.checkAndRecord(ReplayGuard.Token("sender", "one", now + 10), now),
         )
         assertEquals(
-            ReplayGuard.Decision.ACCEPTED,
+            ReplayGuard.Decision.CAPACITY_EXCEEDED,
             guard.checkAndRecord(ReplayGuard.Token("sender", "two", now + 20), now),
         )
     }
