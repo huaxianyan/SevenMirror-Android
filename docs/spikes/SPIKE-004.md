@@ -22,6 +22,8 @@ info = "SyncNotifications-E2EE-v1"
 
 `core-protocol/EncryptedEnvelopeV1.kt` implements the bounded binary frame. `core-crypto/AuthenticatedEnvelopeReceiver.kt` validates recipient identity and expiry, authenticates HPKE with the original header bytes, and returns plaintext only after the replay tuple is atomically accepted.
 
+`core-protocol/EncryptedPayloadV1.kt` strictly validates canonical protobuf `action.invoke` payloads. `core-crypto/AndroidOperationLedger.kt` persists 30-day sender/idempotency tuples, and `AuthenticatedActionReceiver.kt` commits replay and operation records before exposing an action to its side-effect callback.
+
 ## Evidence
 
 - Android opens the deterministic Chrome-produced authenticated fixture.
@@ -36,12 +38,16 @@ info = "SyncNotifications-E2EE-v1"
 - Kotlin encodes and decodes the same Routing Header v1 bytes as Go and TypeScript and rejects malformed magic, suite, flags, IDs, sequence, and timestamps.
 - Kotlin matches the Encrypted Envelope v1 vector, opens its Chrome-generated Auth HPKE ciphertext, and rejects truncation, trailing bytes, bad magic, invalid points, and invalid ciphertext lengths.
 - Instrumented receiver tests prove tampered HPKE ciphertext does not consume replay state, a valid frame is accepted once, and its repeat is rejected.
+- Kotlin matches the canonical encrypted payload bytes and rejects unknown, duplicate, non-canonical, oversized, and semantically invalid action fields.
+- Android opens the Chrome-produced canonical action envelope and parses its notification ID and revision.
+- Instrumented action tests prove replay and persistent operation-idempotency records commit before the side-effect callback; a new envelope with the same idempotency key cannot execute twice, and an invalid payload still consumes its authenticated replay tuple.
 
 Vendored vectors:
 
 ```text
 protocol/test-vectors/hpke-auth-p256-aes128gcm.json
 protocol/test-vectors/routing-header-v1.json
+protocol/test-vectors/encrypted-payload-v1.json
 protocol/test-vectors/encrypted-envelope-v1.json
 ```
 
@@ -54,6 +60,6 @@ The serialized private scalar and deterministic key derivation exist for spike v
 ## Remaining evidence
 
 - corruption/lost-Keystore recovery UX
-- integration with actual notification payload parsing and side effects
-- WebSocket pre-allocation frame-size enforcement
+- adapter to `LocalNotificationController`, including opaque action-ID mapping and result recovery
+- authenticated production WebSocket endpoint (the bounded relay adapter is tested but deliberately not exposed)
 - pairing, rotation, revocation, and lost-device behavior

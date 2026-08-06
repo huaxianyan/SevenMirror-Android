@@ -1,7 +1,9 @@
 package dev.notificationmirroring.crypto
 
 import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
+import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class EncryptedEnvelopeInteropTest {
@@ -24,6 +26,9 @@ class EncryptedEnvelopeInteropTest {
             aad = decoded.routingHeaderBytes,
         )
         assertArrayEquals(envelope.hex("plaintext"), plaintext)
+        val payload = EncryptedPayloadCodecV1.decode(plaintext)
+        assertEquals("test.notification/42", payload.actionInvoke.notificationId)
+        assertEquals(7L, payload.actionInvoke.notificationRevision)
     }
 
     private class JsonVector(private val json: String) {

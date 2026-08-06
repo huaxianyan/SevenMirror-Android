@@ -19,5 +19,6 @@ android {
 }
 
 dependencies {
+    api("com.google.protobuf:protobuf-javalite:4.29.3")
     testImplementation("junit:junit:4.13.2")
 }

@@ -24,6 +24,12 @@ tasks.register("verifyVendoredProtocol") {
         }
 
         verify("protocol/vendor/notification/v1/envelope.proto", "protocol/SCHEMA_SHA256")
+        verify("protocol/vendor/notification/v1/payload.proto", "protocol/PAYLOAD_SCHEMA_SHA256")
+        verify("protocol/encrypted-payload-v1.md", "protocol/PAYLOAD_SPEC_SHA256")
+        verify(
+            "protocol/test-vectors/encrypted-payload-v1.json",
+            "protocol/PAYLOAD_VECTOR_SHA256",
+        )
         verify("protocol/routing-header-v1.md", "protocol/ROUTING_HEADER_SPEC_SHA256")
         verify(
             "protocol/test-vectors/routing-header-v1.json",

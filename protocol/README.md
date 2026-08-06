@@ -12,4 +12,13 @@ Run `./gradlew verifyVendoredProtocol` after updating it. Do not edit the vendor
 
 `routing-header-v1.md` and `test-vectors/routing-header-v1.json` are vendored copies of the provisional fixed-width HPKE AAD codec specification and canonical vector.
 
-`encrypted-envelope-v1.md` and its vector define the bounded binary frame carrying the exact AAD, P-256 encapsulated key, and ciphertext.
+`encrypted-payload-v1.md`, `vendor/notification/v1/payload.proto`, and their vector define the canonical encrypted `action.invoke` payload.
+
+`encrypted-envelope-v1.md` and its vector define the bounded binary frame carrying the exact AAD, P-256 encapsulated key, and ciphertext. The canonical envelope plaintext is the payload vector.
+
+After updating vendored schemas, regenerate committed Java Lite sources with the pinned configuration:
+
+```sh
+buf lint
+buf generate
+```
