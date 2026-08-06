@@ -9,16 +9,25 @@ plugins {
 
 tasks.register("verifyVendoredProtocol") {
     group = "verification"
-    description = "Verifies the SHA-256 of the vendored protocol schema."
+    description = "Verifies SHA-256 hashes of vendored protocol assets."
     doLast {
-        val schema = file("protocol/vendor/notification/v1/envelope.proto")
-        val expected = file("protocol/SCHEMA_SHA256").readText().trim()
-        val actual = MessageDigest.getInstance("SHA-256")
-            .digest(schema.readBytes())
-            .joinToString("") { "%02x".format(it) }
-        check(actual == expected) {
-            "Vendored protocol hash mismatch: expected $expected, got $actual"
+        fun verify(assetPath: String, hashPath: String) {
+            val asset = file(assetPath)
+            val expected = file(hashPath).readText().trim()
+            val actual = MessageDigest.getInstance("SHA-256")
+                .digest(asset.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            check(actual == expected) {
+                "Vendored protocol hash mismatch for $assetPath: expected $expected, got $actual"
+            }
+            println("Protocol asset verified: $assetPath $actual")
         }
-        println("Protocol schema verified: $actual")
+
+        verify("protocol/vendor/notification/v1/envelope.proto", "protocol/SCHEMA_SHA256")
+        verify("protocol/routing-header-v1.md", "protocol/ROUTING_HEADER_SPEC_SHA256")
+        verify(
+            "protocol/test-vectors/routing-header-v1.json",
+            "protocol/ROUTING_HEADER_VECTOR_SHA256",
+        )
     }
 }

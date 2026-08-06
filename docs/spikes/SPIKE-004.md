@@ -18,6 +18,8 @@ info = "SyncNotifications-E2EE-v1"
 
 `core-crypto/AndroidHpkeIdentityStore.kt` encrypts the serialized HPKE private scalar with a non-exportable Android Keystore AES-256-GCM key and fails closed on partial or undecryptable state.
 
+`core-protocol/RoutingHeaderV1.kt` implements the fixed 160-byte big-endian Routing Header v1 codec. The exact encoded bytes are HPKE AAD; business message type and notification/action fields remain encrypted.
+
 ## Evidence
 
 - Android opens the deterministic Chrome-produced authenticated fixture.
@@ -29,11 +31,13 @@ info = "SyncNotifications-E2EE-v1"
 - Keystore-wrapped identity survives store recreation and remains usable on API 36.
 - Persistent replay tuples remain rejected after ledger recreation; expired entries and capacity exhaustion follow fail-closed policy on API 36.
 - GitHub Actions Android 10 / API 29 emulator runs HPKE, Keystore persistence, and replay-ledger instrumented tests.
+- Kotlin encodes and decodes the same Routing Header v1 bytes as Go and TypeScript and rejects malformed magic, suite, flags, IDs, sequence, and timestamps.
 
-Vendored vector:
+Vendored vectors:
 
 ```text
 protocol/test-vectors/hpke-auth-p256-aes128gcm.json
+protocol/test-vectors/routing-header-v1.json
 ```
 
 The authoritative vector and ADR-002 live in the server repository.
@@ -46,5 +50,5 @@ The serialized private scalar and deterministic key derivation exist for spike v
 
 - corruption/lost-Keystore recovery UX
 - integration that records replay tuples before applying notification side effects
-- final routing-header/AAD codec
+- final outer encrypted-envelope framing and transport size limits
 - pairing, rotation, revocation, and lost-device behavior

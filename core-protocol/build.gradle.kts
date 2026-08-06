@@ -12,4 +12,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    sourceSets.getByName("test").resources.srcDir(
+        rootProject.file("protocol/test-vectors"),
+    )
+}
+
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
