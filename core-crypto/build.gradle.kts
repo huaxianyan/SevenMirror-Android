@@ -22,6 +22,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":core-protocol"))
     implementation("org.bouncycastle:bcprov-jdk18on:1.85")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test:runner:1.6.2")

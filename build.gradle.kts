@@ -29,5 +29,13 @@ tasks.register("verifyVendoredProtocol") {
             "protocol/test-vectors/routing-header-v1.json",
             "protocol/ROUTING_HEADER_VECTOR_SHA256",
         )
+        verify(
+            "protocol/encrypted-envelope-v1.md",
+            "protocol/ENCRYPTED_ENVELOPE_SPEC_SHA256",
+        )
+        verify(
+            "protocol/test-vectors/encrypted-envelope-v1.json",
+            "protocol/ENCRYPTED_ENVELOPE_VECTOR_SHA256",
+        )
     }
 }

@@ -20,6 +20,8 @@ info = "SyncNotifications-E2EE-v1"
 
 `core-protocol/RoutingHeaderV1.kt` implements the fixed 160-byte big-endian Routing Header v1 codec. The exact encoded bytes are HPKE AAD; business message type and notification/action fields remain encrypted.
 
+`core-protocol/EncryptedEnvelopeV1.kt` implements the bounded binary frame. `core-crypto/AuthenticatedEnvelopeReceiver.kt` validates recipient identity and expiry, authenticates HPKE with the original header bytes, and returns plaintext only after the replay tuple is atomically accepted.
+
 ## Evidence
 
 - Android opens the deterministic Chrome-produced authenticated fixture.
@@ -32,12 +34,15 @@ info = "SyncNotifications-E2EE-v1"
 - Persistent replay tuples remain rejected after ledger recreation; expired entries and capacity exhaustion follow fail-closed policy on API 36.
 - GitHub Actions Android 10 / API 29 emulator runs HPKE, Keystore persistence, and replay-ledger instrumented tests.
 - Kotlin encodes and decodes the same Routing Header v1 bytes as Go and TypeScript and rejects malformed magic, suite, flags, IDs, sequence, and timestamps.
+- Kotlin matches the Encrypted Envelope v1 vector, opens its Chrome-generated Auth HPKE ciphertext, and rejects truncation, trailing bytes, bad magic, invalid points, and invalid ciphertext lengths.
+- Instrumented receiver tests prove tampered HPKE ciphertext does not consume replay state, a valid frame is accepted once, and its repeat is rejected.
 
 Vendored vectors:
 
 ```text
 protocol/test-vectors/hpke-auth-p256-aes128gcm.json
 protocol/test-vectors/routing-header-v1.json
+protocol/test-vectors/encrypted-envelope-v1.json
 ```
 
 The authoritative vector and ADR-002 live in the server repository.
@@ -49,6 +54,6 @@ The serialized private scalar and deterministic key derivation exist for spike v
 ## Remaining evidence
 
 - corruption/lost-Keystore recovery UX
-- integration that records replay tuples before applying notification side effects
-- final outer encrypted-envelope framing and transport size limits
+- integration with actual notification payload parsing and side effects
+- WebSocket pre-allocation frame-size enforcement
 - pairing, rotation, revocation, and lost-device behavior
