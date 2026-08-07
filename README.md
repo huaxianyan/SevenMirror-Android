@@ -4,7 +4,7 @@ Android source device for private, end-to-end encrypted notification mirroring. 
 
 Repository: <https://github.com/huaxianyan/SyncNotifications-Android>
 
-> Status: foundation scaffold. The notification listener deliberately performs no networking until mandatory E2EE is implemented.
+> Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, Keystore-wrapped transport credentials, and authenticated WebSocket transport cores are validated. The notification listener deliberately remains disconnected from networking until pairing trust and lifecycle integration are complete.
 
 ## Requirements
 
@@ -35,8 +35,9 @@ secret names, and recovery rules.
 - `app`: Compose application and permission guidance
 - `core-notification`: `NotificationListenerService` integration
 - `core-protocol`: protocol models and generated code location
-- `core-crypto`: E2EE boundary; currently hard-disabled
+- `core-crypto`: authenticated HPKE, replay/operation ledgers, encrypted action/result boundaries
 - `core-storage`: local persistence boundary
+- `core-transport`: strict code-gated registration, Keystore-wrapped transport credentials, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary; not yet wired to the app UI or notification listener
 
 ## Protocol
 

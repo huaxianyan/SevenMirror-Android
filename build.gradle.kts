@@ -43,5 +43,10 @@ tasks.register("verifyVendoredProtocol") {
             "protocol/test-vectors/encrypted-envelope-v1.json",
             "protocol/ENCRYPTED_ENVELOPE_VECTOR_SHA256",
         )
+        verify("protocol/device-auth-frame-v1.md", "protocol/DEVICE_AUTH_SPEC_SHA256")
+        verify(
+            "protocol/test-vectors/device-auth-frame-v1.json",
+            "protocol/DEVICE_AUTH_VECTOR_SHA256",
+        )
     }
 }

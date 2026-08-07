@@ -16,6 +16,8 @@ Run `./gradlew verifyVendoredProtocol` after updating it. Do not edit the vendor
 
 `encrypted-envelope-v1.md` and its vector define the bounded binary frame carrying the exact AAD, P-256 encapsulated key, and ciphertext. The canonical envelope plaintext is the payload vector.
 
+`device-auth-frame-v1.md` and `test-vectors/device-auth-frame-v1.json` define the fixed 68-byte first WebSocket authentication message. `DEVICE_AUTH_SPEC_SHA256` and `DEVICE_AUTH_VECTOR_SHA256` pin the server-owned copies. The fixture credential is public test material and must never be used for a real device.
+
 After updating vendored schemas, regenerate committed Java Lite sources with the pinned configuration:
 
 ```sh

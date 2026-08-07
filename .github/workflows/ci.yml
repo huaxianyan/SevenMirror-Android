@@ -75,7 +75,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  api29-secure-action-runtime:
+  api29-secure-runtime:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run crypto and notification-action instrumentation on Android 10
+      - name: Run crypto, notification-action, and transport instrumentation on Android 10
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 29
@@ -98,4 +98,4 @@ jobs:
           target: google_apis
           profile: pixel_2
           disable-animations: true
-          script: ./gradlew :core-crypto:connectedDebugAndroidTest :core-notification:connectedDebugAndroidTest --console=plain
+          script: ./gradlew :core-crypto:connectedDebugAndroidTest :core-notification:connectedDebugAndroidTest :core-transport:connectedDebugAndroidTest --console=plain
