@@ -21,6 +21,8 @@ class DeviceAuthFrameV1Test {
         assertArrayEquals(credential.workspaceId, decoded.workspaceId)
         assertArrayEquals(credential.deviceId, decoded.deviceId)
         assertArrayEquals(credential.authToken, decoded.authToken)
+        assertArrayEquals(vector.hex("successAckHex"), TransportAuthenticationSuccessV1.encode())
+        TransportAuthenticationSuccessV1.requireCanonical(vector.hex("successAckHex"))
     }
 
     @Test

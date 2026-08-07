@@ -6,6 +6,19 @@ data class DeviceTransportCredential(
     val authToken: ByteArray,
 )
 
+object TransportAuthenticationSuccessV1 {
+    const val ENCODED_SIZE = 4
+    private val encoded = byteArrayOf(0x53, 0x4e, 0x4f, 0x31) // SNO1
+
+    fun encode(): ByteArray = encoded.copyOf()
+
+    fun requireCanonical(frame: ByteArray) {
+        require(frame.contentEquals(encoded)) {
+            "invalid transport authentication success acknowledgement"
+        }
+    }
+}
+
 object DeviceAuthFrameCodecV1 {
     const val ENCODED_SIZE = 68
     const val AUTH_TOKEN_SIZE = 32
