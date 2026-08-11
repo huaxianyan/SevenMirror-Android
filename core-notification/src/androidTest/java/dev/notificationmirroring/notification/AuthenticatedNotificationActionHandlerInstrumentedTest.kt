@@ -13,10 +13,11 @@ import android.service.notification.StatusBarNotification
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.ByteString
+import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
+import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.AuthenticatedHpke
-import dev.notificationmirroring.crypto.EnvelopeRecipientContext
 import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedEnvelopePartsV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
@@ -30,6 +31,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,16 +61,22 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val name = "notification-action-${System.nanoTime()}"
         val replay = AndroidReplayLedger(context, name)
         val operations = AndroidOperationLedger(context, name)
+        val trustedPeers = AndroidTrustedPeerStore(context, name)
+        val outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val sender = AuthenticatedHpke.generateKeyPair()
         val recipient = AuthenticatedHpke.generateKeyPair()
         val workspace = ByteArray(16) { 1 }
         val recipientDevice = ByteArray(16) { 3 }
-        val recipientContext = EnvelopeRecipientContext(
-            workspace,
-            recipientDevice,
-            recipient,
-            sender.publicKey,
+        val dispatcher = AndroidActionInvokeDispatcher(
+            context = context,
+            workspaceId = workspace,
+            recipientDeviceId = recipientDevice,
+            recipientIdentity = recipient,
+            trustedPeers = trustedPeers,
+            replayLedger = replay,
+            operationLedger = operations,
+            resultOutbox = outbox,
         )
         ActionSideEffectReceiver.reset()
         val sideEffectReceiver = ActionSideEffectReceiver()
@@ -100,14 +108,11 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            val firstResult = AuthenticatedNotificationActionHandler.receiveOnce(
-                context,
-                first,
-                recipientContext,
-                replay,
-                operations,
-                now,
-            )
+            assertThrows(ActionSenderNotApprovedException::class.java) {
+                dispatcher.receiveOnce(first, now)
+            }
+            trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
+            val firstResult = dispatcher.receiveOnce(first, now)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, firstResult.result.status)
             assertEquals(false, firstResult.recovered)
             assertTrue(ActionSideEffectReceiver.latch.await(2, TimeUnit.SECONDS))
@@ -123,14 +128,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            val recovered = AuthenticatedNotificationActionHandler.receiveOnce(
-                context,
-                duplicate,
-                recipientContext,
-                replay,
-                operations,
-                now,
-            )
+            val recovered = dispatcher.receiveOnce(duplicate, now)
             assertEquals(true, recovered.recovered)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, recovered.result.status)
             assertEquals(1, ActionSideEffectReceiver.count.get())
@@ -146,14 +144,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            val staleResult = AuthenticatedNotificationActionHandler.receiveOnce(
-                context,
-                stale,
-                recipientContext,
-                replay,
-                operations,
-                now,
-            )
+            val staleResult = dispatcher.receiveOnce(stale, now)
             assertEquals(
                 ActionResultStatus.ACTION_RESULT_STATUS_STALE_NOTIFICATION_VERSION,
                 staleResult.result.status,
@@ -172,14 +163,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            val unknownResult = AuthenticatedNotificationActionHandler.receiveOnce(
-                context,
-                unknown,
-                recipientContext,
-                replay,
-                operations,
-                now,
-            )
+            val unknownResult = dispatcher.receiveOnce(unknown, now)
             assertEquals(
                 ActionResultStatus.ACTION_RESULT_STATUS_ACTION_NOT_FOUND,
                 unknownResult.result.status,
@@ -190,6 +174,8 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             LocalNotificationController.clear()
             replay.clear()
             operations.clear()
+            trustedPeers.clear()
+            outbox.clear()
         }
     }
 

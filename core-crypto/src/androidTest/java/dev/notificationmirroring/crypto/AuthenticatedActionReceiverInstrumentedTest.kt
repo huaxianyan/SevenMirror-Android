@@ -14,6 +14,7 @@ import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.security.MessageDigest
@@ -154,6 +155,127 @@ class AuthenticatedActionReceiverInstrumentedTest {
         } finally {
             replay.clear()
             operations.clear()
+        }
+    }
+
+    @Test
+    fun reservesResultCapacityBeforeExecutionAndCompletesCrashRecovery() {
+        val androidContext = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "queued-action-${System.nanoTime()}"
+        val replay = AndroidReplayLedger(androidContext, name)
+        val operations = AndroidOperationLedger(androidContext, name)
+        val outbox = AndroidActionResultOutbox(androidContext, name)
+        val now = 1_800_000_000_000L
+        val sender = AuthenticatedHpke.generateKeyPair()
+        val recipient = AuthenticatedHpke.generateKeyPair()
+        val workspace = ByteArray(16) { 1 }
+        val recipientDevice = ByteArray(16) { 3 }
+        val recipientContext = EnvelopeRecipientContext(
+            workspace,
+            recipientDevice,
+            recipient,
+            sender.publicKey,
+        )
+        val payload = canonicalActionPayload(0xc4)
+        var sideEffects = 0
+        try {
+            assertThrows(IllegalStateException::class.java) {
+                AuthenticatedActionReceiver.receiveAndQueueOnce(
+                    frame(9, payload, now, workspace, recipientDevice, sender, recipient),
+                    recipientContext,
+                    replay,
+                    operations,
+                    outbox,
+                    now,
+                ) {
+                    sideEffects += 1
+                    throw IllegalStateException("simulated crash after reservation")
+                }
+            }
+            assertEquals(1, sideEffects)
+            assertTrue(outbox.due(now).isEmpty())
+
+            val recovered = AuthenticatedActionReceiver.receiveAndQueueOnce(
+                frame(10, payload, now, workspace, recipientDevice, sender, recipient),
+                recipientContext,
+                replay,
+                operations,
+                outbox,
+                now + 1,
+            ) {
+                sideEffects += 1
+                successResult(it)
+            }
+            assertEquals(true, recovered.recovered)
+            assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_OUTCOME_UNKNOWN, recovered.result.status)
+            assertEquals(1, sideEffects)
+            assertEquals(1, outbox.due(now + 1).size)
+        } finally {
+            replay.clear()
+            operations.clear()
+            outbox.clear()
+        }
+    }
+
+    @Test
+    fun fullResultOutboxRejectsBeforeExecution() {
+        val androidContext = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "full-outbox-${System.nanoTime()}"
+        val replay = AndroidReplayLedger(androidContext, name)
+        val operations = AndroidOperationLedger(androidContext, name)
+        val outbox = AndroidActionResultOutbox(androidContext, name, maxEntries = 1)
+        val now = 1_800_000_000_000L
+        val sender = AuthenticatedHpke.generateKeyPair()
+        val recipient = AuthenticatedHpke.generateKeyPair()
+        val workspace = ByteArray(16) { 1 }
+        val recipientDevice = ByteArray(16) { 3 }
+        val recipientContext = EnvelopeRecipientContext(
+            workspace,
+            recipientDevice,
+            recipient,
+            sender.publicKey,
+        )
+        var sideEffects = 0
+        try {
+            assertEquals(
+                AndroidActionResultOutbox.ReserveResult.RESERVED,
+                outbox.reserve(
+                    ByteArray(16) { 8 },
+                    ByteArray(32) { 9 },
+                    ByteArray(16) { 10 },
+                    now,
+                ),
+            )
+            val rejected = assertThrows(ActionRejectedException::class.java) {
+                AuthenticatedActionReceiver.receiveAndQueueOnce(
+                    frame(
+                        11,
+                        canonicalActionPayload(0xc5),
+                        now,
+                        workspace,
+                        recipientDevice,
+                        sender,
+                        recipient,
+                    ),
+                    recipientContext,
+                    replay,
+                    operations,
+                    outbox,
+                    now,
+                ) {
+                    sideEffects += 1
+                    successResult(it)
+                }
+            }
+            assertEquals(
+                ActionRejectedException.Code.RESULT_OUTBOX_CAPACITY_EXCEEDED,
+                rejected.code,
+            )
+            assertEquals(0, sideEffects)
+        } finally {
+            replay.clear()
+            operations.clear()
+            outbox.clear()
         }
     }
 

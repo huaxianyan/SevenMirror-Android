@@ -5,7 +5,13 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Handler
 import android.os.Looper
+import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidHpkeIdentityStore
+import dev.notificationmirroring.crypto.AndroidOperationLedger
+import dev.notificationmirroring.crypto.AndroidReplayLedger
+import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
+import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
+import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
@@ -34,11 +40,15 @@ enum class AndroidTransportState {
     SECURITY_ERROR,
 }
 
-/** Process-lifetime transport owner. Business envelopes remain fail-closed until dispatch is wired. */
+/** Process-lifetime transport owner with serialized, fail-closed encrypted action dispatch. */
 class AndroidTransportCoordinator(context: Context) {
     private val applicationContext = context.applicationContext
     private val identityStore = AndroidHpkeIdentityStore(applicationContext)
     private val credentialStore = AndroidTransportCredentialStore(applicationContext)
+    private val trustedPeerStore = AndroidTrustedPeerStore(applicationContext)
+    private val replayLedger = AndroidReplayLedger(applicationContext)
+    private val operationLedger = AndroidOperationLedger(applicationContext)
+    private val resultOutbox = AndroidActionResultOutbox(applicationContext)
     private val httpClient = OkHttpClient()
     private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
     private val webSocketFactory = AuthenticatedWebSocketFactory(httpClient)
@@ -52,6 +62,7 @@ class AndroidTransportCoordinator(context: Context) {
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
+    private var resultDrainFuture: ScheduledFuture<*>? = null
     private var terminalGeneration = Long.MIN_VALUE
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
@@ -144,14 +155,33 @@ class AndroidTransportCoordinator(context: Context) {
             val identity = checkNotNull(identityStore.loadExisting()) {
                 "Transport credential exists without its bound E2EE identity"
             }
-            val keyId = try {
-                MessageDigest.getInstance("SHA-256").digest(identity.publicKey)
+            val (dispatcher, resultDrainer) = try {
+                val keyId = MessageDigest.getInstance("SHA-256").digest(identity.publicKey)
+                check(constantTimeEquals(keyId, credential.identityKeyId)) {
+                    "Transport credential E2EE identity binding does not match"
+                }
+                Pair(
+                    AndroidActionInvokeDispatcher(
+                        context = applicationContext,
+                        workspaceId = credential.workspaceId,
+                        recipientDeviceId = credential.deviceId,
+                        recipientIdentity = identity,
+                        trustedPeers = trustedPeerStore,
+                        replayLedger = replayLedger,
+                        operationLedger = operationLedger,
+                        resultOutbox = resultOutbox,
+                    ),
+                    ActionResultOutboxDrainer(
+                        workspaceId = credential.workspaceId,
+                        senderDeviceId = credential.deviceId,
+                        senderIdentity = identity,
+                        trustedPeers = trustedPeerStore,
+                        outbox = resultOutbox,
+                    ),
+                )
             } finally {
                 identity.publicKey.fill(0)
                 identity.privateKey.fill(0)
-            }
-            check(constantTimeEquals(keyId, credential.identityKeyId)) {
-                "Transport credential E2EE identity binding does not match"
             }
             if (generation.get() != requestedGeneration) return
             mutableState.value = AndroidTransportState.CONNECTING
@@ -163,6 +193,8 @@ class AndroidTransportCoordinator(context: Context) {
                             if (generation.get() == requestedGeneration) {
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
+                                cancelResultDrain()
+                                drainResults(requestedGeneration, webSocket, resultDrainer)
                             } else {
                                 webSocket.close(1000, "superseded connection")
                             }
@@ -170,12 +202,29 @@ class AndroidTransportCoordinator(context: Context) {
                     }
 
                     override fun onMessage(webSocket: WebSocket, text: String) {
-                        webSocket.close(1008, "relay messages must be binary")
+                        enqueueInboundRejection(requestedGeneration, webSocket)
                     }
 
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                        // Never silently discard an authenticated business envelope.
-                        webSocket.close(1008, "encrypted envelope handler unavailable")
+                        val frame = bytes.toByteArray()
+                        executor.execute {
+                            if (generation.get() != requestedGeneration ||
+                                this@AndroidTransportCoordinator.webSocket !== webSocket
+                            ) {
+                                frame.fill(0)
+                                return@execute
+                            }
+                            try {
+                                dispatcher.receiveOnce(frame, System.currentTimeMillis())
+                                // Execution returns only after the exact result is durable.
+                                cancelResultDrain()
+                                drainResults(requestedGeneration, webSocket, resultDrainer)
+                            } catch (_: Throwable) {
+                                rejectInbound(requestedGeneration, webSocket)
+                            } finally {
+                                frame.fill(0)
+                            }
+                        }
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -206,6 +255,21 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
+    private fun enqueueInboundRejection(requestedGeneration: Long, socket: WebSocket) {
+        executor.execute { rejectInbound(requestedGeneration, socket) }
+    }
+
+    private fun rejectInbound(requestedGeneration: Long, socket: WebSocket) {
+        if (generation.get() != requestedGeneration || terminalGeneration == requestedGeneration) {
+            return
+        }
+        terminalGeneration = requestedGeneration
+        cancelResultDrain()
+        if (webSocket === socket) webSocket = null
+        mutableState.value = AndroidTransportState.SECURITY_ERROR
+        socket.close(1008, "encrypted envelope rejected")
+    }
+
     private fun enqueueTermination(requestedGeneration: Long, socket: WebSocket) {
         executor.execute {
             if (generation.get() != requestedGeneration ||
@@ -214,9 +278,42 @@ class AndroidTransportCoordinator(context: Context) {
                 return@execute
             }
             terminalGeneration = requestedGeneration
+            cancelResultDrain()
             if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
+        }
+    }
+
+    private fun drainResults(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        drainer: ActionResultOutboxDrainer,
+    ) {
+        if (generation.get() != requestedGeneration || webSocket !== socket) return
+        val result = try {
+            drainer.drainDue(System.currentTimeMillis()) { frame ->
+                socket.send(ByteString.of(*frame))
+            }
+        } catch (_: Throwable) {
+            rejectInbound(requestedGeneration, socket)
+            return
+        }
+        if (result.attemptedEntries > result.acceptedSends) {
+            socket.cancel()
+            enqueueTermination(requestedGeneration, socket)
+            return
+        }
+        val nextWakeDelayMs = result.nextWakeDelayMs
+        if (nextWakeDelayMs != null && resultDrainFuture == null) {
+            resultDrainFuture = executor.schedule(
+                {
+                    resultDrainFuture = null
+                    drainResults(requestedGeneration, socket, drainer)
+                },
+                nextWakeDelayMs,
+                TimeUnit.MILLISECONDS,
+            )
         }
     }
 
@@ -238,6 +335,12 @@ class AndroidTransportCoordinator(context: Context) {
     private fun cancelReconnect() {
         reconnectFuture?.cancel(false)
         reconnectFuture = null
+        cancelResultDrain()
+    }
+
+    private fun cancelResultDrain() {
+        resultDrainFuture?.cancel(false)
+        resultDrainFuture = null
     }
 
     private fun stateAfterRegistrationFailure(): AndroidTransportState = try {

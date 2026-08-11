@@ -8,7 +8,7 @@ import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 
 class ActionRejectedException(val code: Code) : Exception(code.name) {
-    enum class Code { OPERATION_CAPACITY_EXCEEDED }
+    enum class Code { OPERATION_CAPACITY_EXCEEDED, RESULT_OUTBOX_CAPACITY_EXCEEDED }
 }
 
 data class ActionReceipt(
@@ -37,12 +37,81 @@ object AuthenticatedActionReceiver {
             replayLedger,
             nowUnixMs,
         )
+        return finishOpened(
+            opened = opened,
+            operationLedger = operationLedger,
+            nowUnixMs = nowUnixMs,
+            beforeOperation = { _, _ -> },
+            execute = execute,
+        )
+    }
+
+    /**
+     * Production receive boundary. Durable result capacity is reserved before [execute], and the
+     * exact result is completed into that reservation before this method returns.
+     */
+    fun receiveAndQueueOnce(
+        frameBytes: ByteArray,
+        context: EnvelopeRecipientContext,
+        replayLedger: AndroidReplayLedger,
+        operationLedger: AndroidOperationLedger,
+        resultOutbox: AndroidActionResultOutbox,
+        nowUnixMs: Long,
+        execute: (ActionInvoke) -> ActionResult,
+    ): ActionReceipt {
+        val opened = AuthenticatedEnvelopeReceiver.openOnce(
+            frameBytes,
+            context,
+            replayLedger,
+            nowUnixMs,
+        )
+        val receipt = finishOpened(
+            opened = opened,
+            operationLedger = operationLedger,
+            nowUnixMs = nowUnixMs,
+            beforeOperation = { envelope, action ->
+                when (
+                    resultOutbox.reserve(
+                        recipientDeviceId = envelope.header.senderDeviceId,
+                        recipientKeyId = envelope.header.senderKeyId,
+                        idempotencyKey = action.idempotencyKey.toByteArray(),
+                        nowUnixMs = nowUnixMs,
+                    )
+                ) {
+                    AndroidActionResultOutbox.ReserveResult.CAPACITY_EXCEEDED ->
+                        throw ActionRejectedException(
+                            ActionRejectedException.Code.RESULT_OUTBOX_CAPACITY_EXCEEDED,
+                        )
+                    AndroidActionResultOutbox.ReserveResult.RESERVED,
+                    AndroidActionResultOutbox.ReserveResult.ALREADY_RESERVED,
+                    -> Unit
+                }
+            },
+            execute = execute,
+        )
+        resultOutbox.complete(
+            recipientDeviceId = opened.header.senderDeviceId,
+            recipientKeyId = opened.header.senderKeyId,
+            canonicalResultPayload = receipt.resultPayload,
+            nowUnixMs = nowUnixMs,
+        )
+        return receipt
+    }
+
+    private fun finishOpened(
+        opened: OpenedEnvelope,
+        operationLedger: AndroidOperationLedger,
+        nowUnixMs: Long,
+        beforeOperation: (OpenedEnvelope, ActionInvoke) -> Unit,
+        execute: (ActionInvoke) -> ActionResult,
+    ): ActionReceipt {
         val payload = EncryptedPayloadCodecV1.decode(opened.plaintext)
         require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_INVOKE) {
             "Expected action.invoke payload"
         }
         val action = payload.actionInvoke
         val idempotencyKey = action.idempotencyKey.toByteArray()
+        beforeOperation(opened, action)
         return when (
             val decision = operationLedger.beginOrRecover(
                 senderKeyId = opened.header.senderKeyId,

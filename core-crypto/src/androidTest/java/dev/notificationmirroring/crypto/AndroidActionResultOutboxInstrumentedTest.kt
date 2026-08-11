@@ -3,6 +3,7 @@ package dev.notificationmirroring.crypto
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.ByteString
+import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.ActionResult
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
@@ -54,6 +55,70 @@ class AndroidActionResultOutboxInstrumentedTest {
             )
             assertEquals(0, outbox.due(3_001).single().attemptCount)
         } finally {
+            outbox.clear()
+        }
+    }
+
+    @Test
+    fun encryptsAndRetriesOnlyForStillApprovedRecipient() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "test-${UUID.randomUUID()}"
+        val outbox = AndroidActionResultOutbox(context, name)
+        val trustedPeers = AndroidTrustedPeerStore(context, name)
+        val workspace = ByteArray(16) { 1 }
+        val senderDeviceId = ByteArray(16) { 2 }
+        val recipientDeviceId = ByteArray(16) { 3 }
+        val sender = AuthenticatedHpke.generateKeyPair()
+        val recipient = AuthenticatedHpke.generateKeyPair()
+        val recipientKeyId = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(recipient.publicKey)
+        val payload = resultPayload(ByteArray(16) { 4 })
+        try {
+            trustedPeers.pinApproved(workspace, recipientDeviceId, recipient.publicKey)
+            assertEquals(
+                AndroidActionResultOutbox.EnqueueResult.ENQUEUED,
+                outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 1_000),
+            )
+            val drainer = ActionResultOutboxDrainer(
+                workspace,
+                senderDeviceId,
+                sender,
+                trustedPeers,
+                outbox,
+            )
+            var encryptedFrame: ByteArray? = null
+            val first = drainer.drainDue(1_000) { frame ->
+                encryptedFrame = frame.copyOf()
+                true
+            }
+            assertEquals(1, first.acceptedSends)
+            assertEquals(1_000L, first.nextWakeDelayMs)
+            val envelope = EncryptedEnvelopeCodecV1.decode(requireNotNull(encryptedFrame))
+            val opened = AuthenticatedHpke.open(
+                recipient,
+                sender.publicKey,
+                AuthenticatedHpke.Ciphertext(envelope.encapsulatedKey, envelope.ciphertext),
+                envelope.routingHeaderBytes,
+            )
+            assertArrayEquals(payload, opened)
+            assertEquals(1L, envelope.routingHeader.sequence)
+
+            assertEquals(2_000L, drainer.drainDue(2_000) { true }.nextWakeDelayMs)
+            assertEquals(4_000L, drainer.drainDue(4_000) { true }.nextWakeDelayMs)
+            assertEquals(8_000L, drainer.drainDue(8_000) { true }.nextWakeDelayMs)
+            val finalAttempt = drainer.drainDue(16_000) { true }
+            assertEquals(1, finalAttempt.acceptedSends)
+            assertEquals(null, finalAttempt.nextWakeDelayMs)
+            assertTrue(outbox.due(30_000).isEmpty())
+
+            trustedPeers.remove(workspace, recipientDeviceId)
+            assertEquals(
+                AndroidActionResultOutbox.EnqueueResult.ALREADY_ENQUEUED,
+                outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 31_000),
+            )
+            assertEquals(0, drainer.drainDue(31_000) { true }.attemptedEntries)
+        } finally {
+            trustedPeers.clear()
             outbox.clear()
         }
     }

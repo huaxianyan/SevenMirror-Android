@@ -2,6 +2,7 @@ package dev.notificationmirroring.notification
 
 import android.content.Context
 import dev.notificationmirroring.crypto.ActionReceipt
+import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AuthenticatedActionReceiver
@@ -24,7 +25,30 @@ object AuthenticatedNotificationActionHandler {
         replayLedger,
         operationLedger,
         nowUnixMs,
-    ) { request ->
+    ) { request -> execute(androidContext, request) }
+
+    /** Production boundary that reserves and completes durable result delivery around execution. */
+    fun receiveAndQueueOnce(
+        androidContext: Context,
+        frameBytes: ByteArray,
+        recipientContext: EnvelopeRecipientContext,
+        replayLedger: AndroidReplayLedger,
+        operationLedger: AndroidOperationLedger,
+        resultOutbox: AndroidActionResultOutbox,
+        nowUnixMs: Long,
+    ): ActionReceipt = AuthenticatedActionReceiver.receiveAndQueueOnce(
+        frameBytes,
+        recipientContext,
+        replayLedger,
+        operationLedger,
+        resultOutbox,
+        nowUnixMs,
+    ) { request -> execute(androidContext, request) }
+
+    private fun execute(
+        androidContext: Context,
+        request: dev.notificationmirroring.protocol.generated.v1.ActionInvoke,
+    ): ActionResult {
         val localResult = LocalNotificationController.invoke(
             androidContext,
             NotificationActionToken(
@@ -34,7 +58,7 @@ object AuthenticatedNotificationActionHandler {
             ),
             replyText = request.replyText.takeIf { request.hasReplyText() },
         )
-        ActionResult.newBuilder()
+        return ActionResult.newBuilder()
             .setIdempotencyKey(request.idempotencyKey)
             .setStatus(localResult.status.toProtocolStatus())
             .apply {

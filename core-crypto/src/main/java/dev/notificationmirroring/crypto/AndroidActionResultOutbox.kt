@@ -13,6 +13,8 @@ class AndroidActionResultOutbox(
     outboxName: String = "default",
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
 ) : AutoCloseable {
+    enum class ReserveResult { RESERVED, ALREADY_RESERVED, CAPACITY_EXCEEDED }
+    enum class CompleteResult { COMPLETED, ALREADY_COMPLETED }
     enum class EnqueueResult { ENQUEUED, ALREADY_ENQUEUED, CAPACITY_EXCEEDED }
 
     data class Entry(
@@ -39,12 +41,64 @@ class AndroidActionResultOutbox(
         require(maxEntries > 0) { "maxEntries must be positive" }
     }
 
-    fun enqueue(
+    /** Reserves durable capacity before an action is allowed to execute a local side effect. */
+    @Synchronized
+    fun reserve(
+        recipientDeviceId: ByteArray,
+        recipientKeyId: ByteArray,
+        idempotencyKey: ByteArray,
+        nowUnixMs: Long,
+    ): ReserveResult {
+        validateIdentifier(recipientDeviceId, 16, "recipientDeviceId")
+        validateIdentifier(recipientKeyId, 32, "recipientKeyId")
+        validateIdentifier(idempotencyKey, 16, "idempotencyKey")
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            purgeExpired(database, nowUnixMs)
+            val existing = findBinding(database, recipientKeyId, idempotencyKey)
+            val result = when {
+                existing != null -> {
+                    check(existing.recipientDeviceId.contentEquals(recipientDeviceId)) {
+                        "Result outbox key is already bound to a different recipient"
+                    }
+                    ReserveResult.ALREADY_RESERVED
+                }
+                count(database) >= maxEntries -> ReserveResult.CAPACITY_EXCEEDED
+                else -> {
+                    val rowId = database.insertOrThrow(
+                        OUTBOX_TABLE,
+                        null,
+                        ContentValues(7).apply {
+                            put(RECIPIENT_DEVICE_ID, recipientDeviceId.copyOf())
+                            put(RECIPIENT_KEY_ID, recipientKeyId.toHex())
+                            put(IDEMPOTENCY_KEY, idempotencyKey.toHex())
+                            put(CREATED_AT, nowUnixMs)
+                            put(EXPIRES_AT, Math.addExact(nowUnixMs, RETENTION_MS))
+                            put(NEXT_ATTEMPT_AT, nowUnixMs)
+                            put(ATTEMPT_COUNT, 0)
+                        },
+                    )
+                    check(rowId != -1L) { "Unable to reserve action result outbox entry" }
+                    ReserveResult.RESERVED
+                }
+            }
+            database.setTransactionSuccessful()
+            result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    /** Completes a reservation with the exact canonical result and makes it due for sending. */
+    @Synchronized
+    fun complete(
         recipientDeviceId: ByteArray,
         recipientKeyId: ByteArray,
         canonicalResultPayload: ByteArray,
         nowUnixMs: Long,
-    ): EnqueueResult {
+    ): CompleteResult {
         validateIdentifier(recipientDeviceId, 16, "recipientDeviceId")
         validateIdentifier(recipientKeyId, 32, "recipientKeyId")
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
@@ -54,54 +108,69 @@ class AndroidActionResultOutbox(
         }
         val idempotencyKey = payload.actionResult.idempotencyKey.toByteArray()
         validateIdentifier(idempotencyKey, 16, "idempotencyKey")
-        val expiresAtUnixMs = Math.addExact(nowUnixMs, RETENTION_MS)
         val database = helper.writableDatabase
         database.beginTransaction()
         return try {
             purgeExpired(database, nowUnixMs)
-            val existing = find(database, recipientKeyId, idempotencyKey)
-            val result = when {
-                existing != null -> {
-                    check(
-                        existing.recipientDeviceId.contentEquals(recipientDeviceId) &&
-                            existing.resultPayload.contentEquals(canonicalResultPayload),
-                    ) { "Result outbox key is already bound to different bytes" }
-                    val updated = database.update(
-                        OUTBOX_TABLE,
-                        ContentValues(2).apply {
-                            put(NEXT_ATTEMPT_AT, nowUnixMs)
-                            put(ATTEMPT_COUNT, 0)
-                        },
-                        "rowid = ?",
-                        arrayOf(existing.rowId.toString()),
-                    )
-                    check(updated == 1) { "Action result outbox entry disappeared" }
-                    EnqueueResult.ALREADY_ENQUEUED
-                }
-                count(database) >= maxEntries -> EnqueueResult.CAPACITY_EXCEEDED
-                else -> {
-                    val rowId = database.insertOrThrow(
-                        OUTBOX_TABLE,
-                        null,
-                        ContentValues(8).apply {
-                            put(RECIPIENT_DEVICE_ID, recipientDeviceId.copyOf())
-                            put(RECIPIENT_KEY_ID, recipientKeyId.toHex())
-                            put(IDEMPOTENCY_KEY, idempotencyKey.toHex())
-                            put(RESULT_PAYLOAD, canonicalResultPayload.copyOf())
-                            put(CREATED_AT, nowUnixMs)
-                            put(EXPIRES_AT, expiresAtUnixMs)
-                            put(NEXT_ATTEMPT_AT, nowUnixMs)
-                            put(ATTEMPT_COUNT, 0)
-                        },
-                    )
-                    check(rowId != -1L) { "Unable to persist action result outbox entry" }
-                    EnqueueResult.ENQUEUED
-                }
+            val existing = findBinding(database, recipientKeyId, idempotencyKey)
+                ?: error("Action result outbox reservation is missing")
+            check(existing.recipientDeviceId.contentEquals(recipientDeviceId)) {
+                "Result outbox key is already bound to a different recipient"
             }
+            val result = if (existing.resultPayload == null) {
+                CompleteResult.COMPLETED
+            } else {
+                check(existing.resultPayload.contentEquals(canonicalResultPayload)) {
+                    "Result outbox key is already bound to different bytes"
+                }
+                CompleteResult.ALREADY_COMPLETED
+            }
+            val updated = database.update(
+                OUTBOX_TABLE,
+                ContentValues(3).apply {
+                    put(RESULT_PAYLOAD, canonicalResultPayload.copyOf())
+                    put(NEXT_ATTEMPT_AT, nowUnixMs)
+                    put(ATTEMPT_COUNT, 0)
+                },
+                "rowid = ?",
+                arrayOf(existing.rowId.toString()),
+            )
+            check(updated == 1) { "Action result outbox entry disappeared" }
             database.setTransactionSuccessful()
             result
         } finally {
             database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun enqueue(
+        recipientDeviceId: ByteArray,
+        recipientKeyId: ByteArray,
+        canonicalResultPayload: ByteArray,
+        nowUnixMs: Long,
+    ): EnqueueResult {
+        val payload = EncryptedPayloadCodecV1.decode(canonicalResultPayload)
+        require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_RESULT) {
+            "Expected canonical action.result payload"
+        }
+        return when (
+            reserve(
+                recipientDeviceId,
+                recipientKeyId,
+                payload.actionResult.idempotencyKey.toByteArray(),
+                nowUnixMs,
+            )
+        ) {
+            ReserveResult.CAPACITY_EXCEEDED -> EnqueueResult.CAPACITY_EXCEEDED
+            ReserveResult.RESERVED -> {
+                complete(recipientDeviceId, recipientKeyId, canonicalResultPayload, nowUnixMs)
+                EnqueueResult.ENQUEUED
+            }
+            ReserveResult.ALREADY_RESERVED -> {
+                complete(recipientDeviceId, recipientKeyId, canonicalResultPayload, nowUnixMs)
+                EnqueueResult.ALREADY_ENQUEUED
+            }
         }
     }
 
@@ -124,7 +193,7 @@ class AndroidActionResultOutbox(
                     EXPIRES_AT,
                     ATTEMPT_COUNT,
                 ),
-                "$NEXT_ATTEMPT_AT <= ?",
+                "$RESULT_PAYLOAD IS NOT NULL AND $NEXT_ATTEMPT_AT <= ?",
                 arrayOf(nowUnixMs.toString()),
                 null,
                 null,
@@ -250,11 +319,11 @@ class AndroidActionResultOutbox(
         }
     }
 
-    private fun find(
+    private fun findBinding(
         database: SQLiteDatabase,
         recipientKeyId: ByteArray,
         idempotencyKey: ByteArray,
-    ): Entry? = database.query(
+    ): StoredEntry? = database.query(
         OUTBOX_TABLE,
         arrayOf(
             "rowid",
@@ -273,17 +342,18 @@ class AndroidActionResultOutbox(
         null,
         "1",
     ).use { cursor ->
-        if (!cursor.moveToFirst()) null else Entry(
+        if (!cursor.moveToFirst()) null else StoredEntry(
             rowId = cursor.getLong(0),
             recipientDeviceId = cursor.getBlob(1).copyOf(),
-            recipientKeyId = cursor.getString(2).hexToBytes(),
-            idempotencyKey = cursor.getString(3).hexToBytes(),
-            resultPayload = cursor.getBlob(4).copyOf(),
-            createdAtUnixMs = cursor.getLong(5),
-            expiresAtUnixMs = cursor.getLong(6),
-            attemptCount = cursor.getInt(7),
+            resultPayload = if (cursor.isNull(4)) null else cursor.getBlob(4).copyOf(),
         )
     }
+
+    private data class StoredEntry(
+        val rowId: Long,
+        val recipientDeviceId: ByteArray,
+        val resultPayload: ByteArray?,
+    )
 
     private fun purgeExpired(database: SQLiteDatabase, nowUnixMs: Long) {
         database.delete(OUTBOX_TABLE, "$EXPIRES_AT <= ?", arrayOf(nowUnixMs.toString()))
@@ -306,7 +376,7 @@ class AndroidActionResultOutbox(
                     "$RECIPIENT_DEVICE_ID BLOB NOT NULL, " +
                     "$RECIPIENT_KEY_ID TEXT NOT NULL, " +
                     "$IDEMPOTENCY_KEY TEXT NOT NULL, " +
-                    "$RESULT_PAYLOAD BLOB NOT NULL, " +
+                    "$RESULT_PAYLOAD BLOB, " +
                     "$CREATED_AT INTEGER NOT NULL, " +
                     "$EXPIRES_AT INTEGER NOT NULL, " +
                     "$NEXT_ATTEMPT_AT INTEGER NOT NULL, " +
@@ -317,19 +387,34 @@ class AndroidActionResultOutbox(
                 "CREATE INDEX action_result_due_idx ON $OUTBOX_TABLE ($NEXT_ATTEMPT_AT)",
             )
             database.execSQL(
-                "CREATE TABLE $SEQUENCE_TABLE (" +
+                "CREATE TABLE IF NOT EXISTS $SEQUENCE_TABLE (" +
                     "$RECIPIENT_KEY_ID TEXT PRIMARY KEY, " +
                     "$NEXT_SEQUENCE INTEGER NOT NULL)",
             )
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion == 1 && newVersion == 2) {
+                database.execSQL("ALTER TABLE $OUTBOX_TABLE RENAME TO ${OUTBOX_TABLE}_v1")
+                database.execSQL("DROP INDEX action_result_due_idx")
+                onCreate(database)
+                database.execSQL(
+                    "INSERT INTO $OUTBOX_TABLE " +
+                        "($RECIPIENT_DEVICE_ID, $RECIPIENT_KEY_ID, $IDEMPOTENCY_KEY, " +
+                        "$RESULT_PAYLOAD, $CREATED_AT, $EXPIRES_AT, $NEXT_ATTEMPT_AT, $ATTEMPT_COUNT) " +
+                        "SELECT $RECIPIENT_DEVICE_ID, $RECIPIENT_KEY_ID, $IDEMPOTENCY_KEY, " +
+                        "$RESULT_PAYLOAD, $CREATED_AT, $EXPIRES_AT, $NEXT_ATTEMPT_AT, $ATTEMPT_COUNT " +
+                        "FROM ${OUTBOX_TABLE}_v1",
+                )
+                database.execSQL("DROP TABLE ${OUTBOX_TABLE}_v1")
+                return
+            }
             throw IllegalStateException("Action result outbox migration missing: $oldVersion -> $newVersion")
         }
     }
 
     private companion object {
-        const val DATABASE_VERSION = 1
+        const val DATABASE_VERSION = 2
         const val DEFAULT_MAX_ENTRIES = 16_384
         const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000
         const val OUTBOX_TABLE = "action_result_outbox"

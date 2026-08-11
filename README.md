@@ -32,10 +32,10 @@ secret names, and recovery rules.
 
 ## Modules
 
-- `app`: Compose application, permission guidance, synthetic-only registration UI, and process-lifetime authenticated transport coordinator
-- `core-notification`: `NotificationListenerService` integration
+- `app`: Compose application, permission guidance, synthetic-only registration UI, and process-lifetime authenticated transport/action coordinator
+- `core-notification`: `NotificationListenerService` integration and approved-sender action dispatcher
 - `core-protocol`: protocol models and generated code location
-- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, durable action-result outbox/sequence allocation, and encrypted action/result boundaries
+- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
 - `core-storage`: local persistence boundary
 - `core-transport`: strict code-gated registration, Keystore-wrapped transport credentials, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
 
@@ -45,7 +45,7 @@ The server repository is the canonical protocol source. This repository vendors 
 
 ## Security status
 
-The listener maintains notification/action capabilities only in process memory. Registration and authenticated transport may use synthetic test data, but inbound business envelopes are closed rather than discarded because trusted-device approval and the E2EE dispatcher are not connected. Socket failures use jittered exponential retry from 1 to 60 seconds; duplicate terminal callbacks are collapsed per connection generation, successful `SNO1` resets the sequence, and Android network availability triggers an immediate fresh attempt. Persistent credential/identity failures remain `SECURITY_ERROR` and are not retried as network failures. Real notification content must not be transmitted until approval, revocation/rotation, offline convergence, and security-review gates pass. Cleartext transport is denied globally except explicit loopback development origins.
+The listener maintains notification/action capabilities only in process memory. The authenticated transport now serializes inbound envelopes through active-route checks, immutable approved-peer pins, Auth HPKE, replay/operation ledgers, execute-once, pre-execution result reservation, and bounded encrypted result draining. Any inbound rejection enters `SECURITY_ERROR`. There is still no production approved-peer provisioning, so an unapproved sender cannot reach HPKE, replay, or action execution; registration and transport remain synthetic-only. Socket failures use jittered exponential retry from 1 to 60 seconds; duplicate terminal callbacks are collapsed per connection generation, successful `SNO1` resets the sequence, and Android network availability triggers an immediate fresh attempt. Persistent credential/identity failures remain `SECURITY_ERROR` and are not retried as network failures. Real notification content must not be transmitted until approval, revocation/rotation, offline convergence, and security-review gates pass. Cleartext transport is denied globally except explicit loopback development origins.
 
 ## License
 
