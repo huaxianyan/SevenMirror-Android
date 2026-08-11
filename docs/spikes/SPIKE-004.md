@@ -24,6 +24,8 @@ info = "SyncNotifications-E2EE-v1"
 
 `core-protocol/EncryptedPayloadV1.kt` strictly validates canonical protobuf `action.invoke` and `action.result` payloads. `core-crypto/AndroidOperationLedger.kt` persists 30-day sender/idempotency tuples plus completed canonical result bytes. `AuthenticatedActionReceiver.kt` commits replay and operation records before exposing an action, recovers completed results without re-execution, and returns `OUTCOME_UNKNOWN` for reserved operations whose result was lost.
 
+`core-protocol/TrustedDevicePairingV1.kt` implements the server-independent canonical offer/approval records and `sntrust1:` QR representation used by the forthcoming approval UI. It validates the complete P-256 point on-curve, non-zero identifiers/nonces, bounded timestamps, exact offer hash, distinct device/key pairs, canonical base64url, and the transcript-derived 60-bit safety code. Decoding or scanning does not write `AndroidTrustedPeerStore`; explicit confirmation remains a separate required step.
+
 `core-notification/AuthenticatedNotificationActionHandler.kt` resolves a random per-revision 16-byte action ID against the process-local `PendingIntent`/`RemoteInput` table. No executable Android capability is serialized.
 
 ## Evidence
@@ -41,6 +43,7 @@ info = "SyncNotifications-E2EE-v1"
 - Kotlin matches the Encrypted Envelope v1 vector, opens its Chrome-generated Auth HPKE ciphertext, and rejects truncation, trailing bytes, bad magic, invalid points, and invalid ciphertext lengths.
 - Instrumented receiver tests prove tampered HPKE ciphertext does not consume replay state, a valid frame is accepted once, and its repeat is rejected.
 - Kotlin matches the canonical encrypted payload bytes and rejects unknown, duplicate, non-canonical, oversized, and semantically invalid action/result fields.
+- Kotlin matches Go's fixed Trusted Device Pairing v1 offer, approval, QR, and `4AFH-Q91K-PGVG` safety-code vector. Exact transcript mutation, wrong offer hash, invalid P-256 point, expired record, padded QR, and whitespace fail closed; no test path creates an approved-peer pin by scanning alone. Local vendored-protocol verification, all `core-protocol` tests, full lint, and `assembleDebug` pass; the pairing-transcript commit requires its own CI evidence before independent CI validation is claimed.
 - Android opens the Chrome-produced canonical action envelope and parses its notification ID and revision.
 - Instrumented action tests prove replay and persistent operation-idempotency records commit before the side-effect callback; a new envelope with the same idempotency key recovers the stored result without executing twice, an invalid payload still consumes its authenticated replay tuple, and an uncertain crash window fails closed as `OUTCOME_UNKNOWN`.
 - Android notification instrumented tests invoke a local test `PendingIntent` exactly once through the encrypted handler, then verify duplicate recovery, `STALE_NOTIFICATION_VERSION`, and `ACTION_NOT_FOUND` without further side effects.
@@ -65,6 +68,7 @@ protocol/test-vectors/hpke-auth-p256-aes128gcm.json
 protocol/test-vectors/routing-header-v1.json
 protocol/test-vectors/encrypted-payload-v1.json
 protocol/test-vectors/encrypted-envelope-v1.json
+protocol/test-vectors/trusted-device-pairing-v1.json
 ```
 
 The authoritative vector and ADR-002 live in the server repository.
