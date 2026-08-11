@@ -1,5 +1,6 @@
 package dev.notificationmirroring.transport
 
+import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
@@ -146,7 +147,13 @@ class AuthenticatedWebSocketTest {
             assertTrue(serverClosed.await(5, TimeUnit.SECONDS))
         } finally {
             client.dispatcher.executorService.shutdown()
-            server.shutdown()
+            try {
+                server.shutdown()
+            } catch (error: IOException) {
+                // MockWebServer can race its internal upgrade task after the terminal WebSocket
+                // callback. The callback assertion above proves that the tested socket ended.
+                assertEquals(0L, serverClosed.count)
+            }
         }
     }
 
