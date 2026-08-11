@@ -73,6 +73,21 @@ class DeviceRegistrationClientTest {
     }
 
     @Test
+    fun clearsReturnedTokenWhenPlatformPersistenceFails() {
+        val token = ByteArray(32) { 3 }
+        store.failSave = true
+        server.enqueue(
+            MockResponse().setResponseCode(201).setHeader("Content-Type", "application/json")
+                .setBody(
+                    """{"workspace_id":"${b64(ByteArray(16) { 1 })}","device_id":"${b64(ByteArray(16) { 2 })}","auth_token":"${b64(token)}"}""",
+                ),
+        )
+
+        assertThrows(IllegalStateException::class.java) { client.register(validRequest()) }
+        check(store.value?.authToken?.all { it == 0.toByte() } == true)
+    }
+
+    @Test
     fun refusesNetworkRegistrationWhenCredentialAlreadyExists() {
         store.value = StoredTransportCredential(
             serverOrigin = server.url("/").toString().removeSuffix("/"),
@@ -101,10 +116,12 @@ class DeviceRegistrationClientTest {
 
     private class MemoryStore : TransportCredentialStore {
         var value: StoredTransportCredential? = null
+        var failSave = false
         override fun load(): StoredTransportCredential? = value
         override fun saveNew(credential: StoredTransportCredential) {
             check(value == null)
             value = credential
+            check(!failSave) { "synthetic persistence failure" }
         }
     }
 }

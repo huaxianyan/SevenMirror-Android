@@ -4,7 +4,7 @@ Android source device for private, end-to-end encrypted notification mirroring. 
 
 Repository: <https://github.com/huaxianyan/SyncNotifications-Android>
 
-> Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, Keystore-wrapped transport credentials, and authenticated WebSocket transport cores are validated. The notification listener deliberately remains disconnected from networking until pairing trust and lifecycle integration are complete.
+> Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, Keystore-wrapped transport credentials, and authenticated WebSocket transport are validated. The app now exposes synthetic-only code-gated registration and process-start connection restoration; business-envelope dispatch remains deliberately disconnected until trusted-device approval is complete.
 
 ## Requirements
 
@@ -32,12 +32,12 @@ secret names, and recovery rules.
 
 ## Modules
 
-- `app`: Compose application and permission guidance
+- `app`: Compose application, permission guidance, synthetic-only registration UI, and process-lifetime authenticated transport coordinator
 - `core-notification`: `NotificationListenerService` integration
 - `core-protocol`: protocol models and generated code location
 - `core-crypto`: authenticated HPKE, replay/operation ledgers, encrypted action/result boundaries
 - `core-storage`: local persistence boundary
-- `core-transport`: strict code-gated registration, Keystore-wrapped transport credentials, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary; not yet wired to the app UI or notification listener
+- `core-transport`: strict code-gated registration, Keystore-wrapped transport credentials, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
 
 ## Protocol
 
@@ -45,7 +45,7 @@ The server repository is the canonical protocol source. This repository vendors 
 
 ## Security status
 
-The listener currently discards callbacks. It must not log, persist or transmit real notification content before the E2EE ADR and implementation are verified on API 29.
+The listener maintains notification/action capabilities only in process memory. Registration and authenticated transport may use synthetic test data, but inbound business envelopes are closed rather than discarded because trusted-device approval and the E2EE dispatcher are not connected. Real notification content must not be transmitted until approval, revocation/rotation, offline convergence, and security-review gates pass. Cleartext transport is denied globally except explicit loopback development origins.
 
 ## License
 

@@ -32,13 +32,13 @@ class AndroidHpkeIdentityStore(
     private val keyAlias = "syncnotifications.hpke.wrap.$safeName"
 
     @Synchronized
-    fun loadOrCreate(): AuthenticatedHpke.KeyPair {
+    fun loadExisting(): AuthenticatedHpke.KeyPair? {
         val publicEncoded = preferences.getString(KEY_PUBLIC, null)
         val privateCiphertextEncoded = preferences.getString(KEY_PRIVATE_CIPHERTEXT, null)
         val ivEncoded = preferences.getString(KEY_IV, null)
         val presentCount = listOf(publicEncoded, privateCiphertextEncoded, ivEncoded).count { it != null }
 
-        if (presentCount == 0) return createAndPersist()
+        if (presentCount == 0) return null
         check(presentCount == 3) { "Partial HPKE identity state; refusing silent rotation" }
 
         val publicKey = publicEncoded!!.decodeBase64()
@@ -47,6 +47,9 @@ class AndroidHpkeIdentityStore(
         val privateKey = decryptPrivate(publicKey, iv, privateCiphertext)
         return AuthenticatedHpke.KeyPair(publicKey, privateKey)
     }
+
+    @Synchronized
+    fun loadOrCreate(): AuthenticatedHpke.KeyPair = loadExisting() ?: createAndPersist()
 
     @Synchronized
     fun clear() {

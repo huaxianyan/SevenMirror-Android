@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -26,10 +27,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import dev.notificationmirroring.notification.ActionExecutionStatus
@@ -51,6 +56,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 NotificationCapabilityScreen(
+                    transportCoordinator =
+                    (application as NotificationMirroringApplication).transportCoordinator,
                     onOpenNotificationAccess = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
@@ -75,42 +82,147 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun NotificationCapabilityScreen(
+    transportCoordinator: AndroidTransportCoordinator,
     onOpenNotificationAccess: () -> Unit,
     onPostDebugNotification: () -> Unit,
 ) {
     val notifications by LocalNotificationController.notifications.collectAsState()
     val debugActionResult by DebugActionState.lastResult.collectAsState()
+    val transportState by transportCoordinator.state.collectAsState()
+    var serverOrigin by remember { mutableStateOf("") }
+    var pairingCode by remember { mutableStateOf("") }
+    var deviceName by remember { mutableStateOf("Android") }
+    var registrationMessage by remember { mutableStateOf<String?>(null) }
 
-    Column(
+    LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Notification Mirroring", style = MaterialTheme.typography.headlineSmall)
-        Text(
-            "Phase 0 local capability test. Notification content never leaves this process.",
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenNotificationAccess) {
-                Text("Open notification access")
-            }
-            Button(onClick = onPostDebugNotification) {
-                Text("Post local action test notification")
-            }
+        item {
+            Text("Notification Mirroring", style = MaterialTheme.typography.headlineSmall)
         }
-        Text("Debug receiver: $debugActionResult", style = MaterialTheme.typography.bodySmall)
-        Text("Active notifications: ${notifications.size}")
-        if (notifications.isEmpty()) {
-            Text("Grant access and generate a notification to test extraction and actions.")
-        } else {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                items(notifications, key = { it.key }) { snapshot ->
-                    NotificationCard(snapshot)
+        item {
+            Text(
+                "Transport registration uses synthetic data only. Real notification sync remains disabled.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        item {
+            TransportRegistrationCard(
+                state = transportState,
+                serverOrigin = serverOrigin,
+                onServerOriginChanged = { serverOrigin = it },
+                pairingCode = pairingCode,
+                onPairingCodeChanged = { pairingCode = it.take(32) },
+                deviceName = deviceName,
+                onDeviceNameChanged = { deviceName = it.take(100) },
+                message = registrationMessage,
+                onReconnect = transportCoordinator::connect,
+                onRegister = {
+                    val oneTimeCode = pairingCode
+                    pairingCode = ""
+                    registrationMessage = "Registration started"
+                    transportCoordinator.register(
+                        serverOrigin = serverOrigin,
+                        pairingCode = oneTimeCode,
+                        deviceName = deviceName,
+                    ) { succeeded ->
+                        registrationMessage = if (succeeded) {
+                            "Registered; waiting for authenticated connection"
+                        } else {
+                            "Registration failed; verify server, code, and device name"
+                        }
+                    }
+                },
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onOpenNotificationAccess) {
+                    Text("Open notification access")
+                }
+                Button(onClick = onPostDebugNotification) {
+                    Text("Post local action test notification")
                 }
             }
+        }
+        item {
+            Text("Debug receiver: $debugActionResult", style = MaterialTheme.typography.bodySmall)
+        }
+        item { Text("Active notifications: ${notifications.size}") }
+        if (notifications.isEmpty()) {
+            item { Text("Grant access and generate a notification to test extraction and actions.") }
+        } else {
+            items(notifications, key = { it.key }) { snapshot ->
+                NotificationCard(snapshot)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TransportRegistrationCard(
+    state: AndroidTransportState,
+    serverOrigin: String,
+    onServerOriginChanged: (String) -> Unit,
+    pairingCode: String,
+    onPairingCodeChanged: (String) -> Unit,
+    deviceName: String,
+    onDeviceNameChanged: (String) -> Unit,
+    message: String?,
+    onReconnect: () -> Unit,
+    onRegister: () -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Private server", style = MaterialTheme.typography.titleMedium)
+            Text("Transport: ${state.name}", style = MaterialTheme.typography.bodySmall)
+            if (state == AndroidTransportState.NOT_CONFIGURED) {
+                OutlinedTextField(
+                    value = serverOrigin,
+                    onValueChange = onServerOriginChanged,
+                    label = { Text("Server origin") },
+                    placeholder = { Text("https://notify.example") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = pairingCode,
+                    onValueChange = onPairingCodeChanged,
+                    label = { Text("One-time pairing code") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = deviceName,
+                    onValueChange = onDeviceNameChanged,
+                    label = { Text("Device name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = onRegister,
+                    enabled = serverOrigin.isNotBlank() && pairingCode.length == 32 &&
+                        deviceName.isNotBlank(),
+                ) {
+                    Text("Register this Android device")
+                }
+            }
+            if (state == AndroidTransportState.OFFLINE) {
+                Button(onClick = onReconnect) { Text("Retry connection") }
+            }
+            if (state == AndroidTransportState.SECURITY_ERROR) {
+                Text(
+                    "Stored identity or credential state failed security validation; no replacement was created.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

@@ -4,6 +4,8 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.bouncycastle.crypto.InvalidCipherTextException
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,7 +20,9 @@ class AuthenticatedHpkeInstrumentedTest {
         firstStore.clear()
 
         try {
+            assertNull(firstStore.loadExisting())
             val first = firstStore.loadOrCreate()
+            assertNotNull(firstStore.loadExisting())
             val restored = AndroidHpkeIdentityStore(context, identityName).loadOrCreate()
             assertArrayEquals(first.publicKey, restored.publicKey)
             assertArrayEquals(first.privateKey, restored.privateKey)

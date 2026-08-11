@@ -39,9 +39,17 @@ class AuthenticatedWebSocketFactory(
         val webSocketScheme = if (origin.scheme == "https") "wss" else "ws"
         val relayUrl = URI(webSocketScheme, null, origin.host, origin.port, "/v1/relay", null, null)
         val request = Request.Builder().url(relayUrl.toString()).build()
-        return webSocketClient.newWebSocket(
-            request,
-            object : WebSocketListener() {
+        val authenticationFrame = DeviceAuthFrameCodecV1.encode(
+            DeviceTransportCredential(
+                credential.workspaceId,
+                credential.deviceId,
+                credential.authToken,
+            ),
+        )
+        return try {
+            webSocketClient.newWebSocket(
+                request,
+                object : WebSocketListener() {
                 private var openingResponse: Response? = null
                 @Volatile private var authenticated = false
                 private var acknowledgementTimer: Timer? = null
@@ -49,6 +57,7 @@ class AuthenticatedWebSocketFactory(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     observe(TransportDiagnosticEvent.SOCKET_OPEN)
                     if (response.request.url != request.url) {
+                        authenticationFrame.fill(0)
                         webSocket.close(1008, "relay endpoint changed")
                         listener.onFailure(
                             webSocket,
@@ -57,17 +66,10 @@ class AuthenticatedWebSocketFactory(
                         )
                         return
                     }
-                    val frame = DeviceAuthFrameCodecV1.encode(
-                        DeviceTransportCredential(
-                            credential.workspaceId,
-                            credential.deviceId,
-                            credential.authToken,
-                        ),
-                    )
                     val accepted = try {
-                        webSocket.send(frame.toByteString())
+                        webSocket.send(authenticationFrame.toByteString())
                     } finally {
-                        frame.fill(0)
+                        authenticationFrame.fill(0)
                     }
                     if (!accepted) {
                         webSocket.close(1008, "authentication send failed")
@@ -139,10 +141,15 @@ class AuthenticatedWebSocketFactory(
                 override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
                     acknowledgementTimer?.cancel()
                     acknowledgementTimer = null
+                    if (!authenticated) authenticationFrame.fill(0)
                     observe(TransportDiagnosticEvent.SOCKET_FAILURE)
                     listener.onFailure(webSocket, error, response)
                 }
-            },
-        )
+                },
+            )
+        } catch (error: Throwable) {
+            authenticationFrame.fill(0)
+            throw error
+        }
     }
 }

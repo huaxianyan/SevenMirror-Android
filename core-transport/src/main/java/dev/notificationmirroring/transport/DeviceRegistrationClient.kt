@@ -81,7 +81,12 @@ class DeviceRegistrationClient(
                 authToken = decodeBase64Url(parsed.authToken, 32, "auth_token"),
                 identityKeyId = request.identityKeyId.copyOf(),
             )
-            credentialStore.saveNew(credential)
+            try {
+                credentialStore.saveNew(credential)
+            } catch (error: Throwable) {
+                credential.authToken.fill(0)
+                throw error
+            }
             return credential
         }
     }

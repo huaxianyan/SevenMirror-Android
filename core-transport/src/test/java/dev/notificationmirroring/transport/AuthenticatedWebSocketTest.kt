@@ -65,6 +65,13 @@ class AuthenticatedWebSocketTest {
         server.start()
         val events = mutableListOf<String>()
         val credential = credential(server)
+        val expectedAuthenticationFrame = DeviceAuthFrameCodecV1.encode(
+            DeviceTransportCredential(
+                credential.workspaceId,
+                credential.deviceId,
+                credential.authToken,
+            ),
+        )
         val client = OkHttpClient()
         try {
             val socket = AuthenticatedWebSocketFactory(client) {
@@ -78,18 +85,10 @@ class AuthenticatedWebSocketTest {
                     }
                 },
             )
+            credential.authToken.fill(0)
             assertTrue(received.await(5, TimeUnit.SECONDS))
             assertTrue(applicationOpened.await(5, TimeUnit.SECONDS))
-            assertArrayEquals(
-                DeviceAuthFrameCodecV1.encode(
-                    DeviceTransportCredential(
-                        credential.workspaceId,
-                        credential.deviceId,
-                        credential.authToken,
-                    ),
-                ),
-                firstMessage,
-            )
+            assertArrayEquals(expectedAuthenticationFrame, firstMessage)
             synchronized(events) {
                 assertEquals(
                     listOf("SOCKET_OPEN", "AUTH_FRAME_SENT", "AUTHENTICATED", "APPLICATION_OPEN"),
