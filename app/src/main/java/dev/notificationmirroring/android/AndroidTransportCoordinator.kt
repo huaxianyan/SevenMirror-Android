@@ -1,15 +1,20 @@
 package dev.notificationmirroring.android
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.Handler
 import android.os.Looper
 import dev.notificationmirroring.crypto.AndroidHpkeIdentityStore
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
+import dev.notificationmirroring.transport.BoundedReconnectBackoff
 import dev.notificationmirroring.transport.DeviceRegistrationClient
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,26 +36,45 @@ enum class AndroidTransportState {
 
 /** Process-lifetime transport owner. Business envelopes remain fail-closed until dispatch is wired. */
 class AndroidTransportCoordinator(context: Context) {
-    private val identityStore = AndroidHpkeIdentityStore(context)
-    private val credentialStore = AndroidTransportCredentialStore(context)
+    private val applicationContext = context.applicationContext
+    private val identityStore = AndroidHpkeIdentityStore(applicationContext)
+    private val credentialStore = AndroidTransportCredentialStore(applicationContext)
     private val httpClient = OkHttpClient()
     private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
     private val webSocketFactory = AuthenticatedWebSocketFactory(httpClient)
-    private val executor = Executors.newSingleThreadExecutor { task ->
+    private val executor = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "notification-transport").apply { isDaemon = true }
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
+    private val reconnectBackoff = BoundedReconnectBackoff()
     private val mutableState = MutableStateFlow(AndroidTransportState.NOT_CONFIGURED)
 
-    @Volatile
     private var webSocket: WebSocket? = null
+    private var reconnectFuture: ScheduledFuture<*>? = null
+    private var terminalGeneration = Long.MIN_VALUE
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
 
+    init {
+        applicationContext.getSystemService(ConnectivityManager::class.java)
+            .registerDefaultNetworkCallback(
+                object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        if (mutableState.value == AndroidTransportState.OFFLINE) connect()
+                    }
+                },
+            )
+    }
+
+    /** Explicit and network-available requests connect immediately and reset stale backoff state. */
     fun connect() {
         val requestedGeneration = generation.incrementAndGet()
-        executor.execute { connectInternal(requestedGeneration) }
+        executor.execute {
+            cancelReconnect()
+            reconnectBackoff.reset()
+            connectInternal(requestedGeneration)
+        }
     }
 
     fun register(
@@ -62,6 +86,8 @@ class AndroidTransportCoordinator(context: Context) {
         val requestedGeneration = generation.incrementAndGet()
         mutableState.value = AndroidTransportState.REGISTERING
         executor.execute {
+            cancelReconnect()
+            reconnectBackoff.reset()
             var success = false
             try {
                 webSocket?.close(1000, "replaced by registration")
@@ -90,15 +116,7 @@ class AndroidTransportCoordinator(context: Context) {
                 connectInternal(requestedGeneration)
             } catch (_: Throwable) {
                 if (generation.get() == requestedGeneration) {
-                    mutableState.value = try {
-                        if (credentialStore.load() == null) {
-                            AndroidTransportState.NOT_CONFIGURED
-                        } else {
-                            AndroidTransportState.OFFLINE
-                        }
-                    } catch (_: Throwable) {
-                        AndroidTransportState.SECURITY_ERROR
-                    }
+                    mutableState.value = stateAfterRegistrationFailure()
                 }
             } finally {
                 mainHandler.post { completed(success) }
@@ -108,15 +126,17 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun connectInternal(requestedGeneration: Long) {
         if (generation.get() != requestedGeneration) return
+        terminalGeneration = Long.MIN_VALUE
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
-        var credential = try {
+        val credential = try {
             credentialStore.load()
         } catch (_: Throwable) {
             mutableState.value = AndroidTransportState.SECURITY_ERROR
             return
         }
         if (credential == null) {
+            reconnectBackoff.reset()
             mutableState.value = AndroidTransportState.NOT_CONFIGURED
             return
         }
@@ -139,10 +159,13 @@ class AndroidTransportCoordinator(context: Context) {
                 credential,
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
-                        if (generation.get() == requestedGeneration) {
-                            mutableState.value = AndroidTransportState.ONLINE
-                        } else {
-                            webSocket.close(1000, "superseded connection")
+                        executor.execute {
+                            if (generation.get() == requestedGeneration) {
+                                reconnectBackoff.reset()
+                                mutableState.value = AndroidTransportState.ONLINE
+                            } else {
+                                webSocket.close(1000, "superseded connection")
+                            }
                         }
                     }
 
@@ -156,33 +179,76 @@ class AndroidTransportCoordinator(context: Context) {
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        markOffline(requestedGeneration)
+                        enqueueTermination(requestedGeneration, webSocket)
                     }
 
-                    override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
-                        markOffline(requestedGeneration)
+                    override fun onFailure(
+                        webSocket: WebSocket,
+                        error: Throwable,
+                        response: Response?,
+                    ) {
+                        enqueueTermination(requestedGeneration, webSocket)
                     }
                 },
             )
-            credential.authToken.fill(0)
-            credential = null
             if (generation.get() != requestedGeneration) {
                 socket.close(1000, "superseded connection")
                 return
             }
             webSocket = socket
         } catch (_: Throwable) {
-            credential?.authToken?.fill(0)
             if (generation.get() == requestedGeneration) {
+                // Local credential/identity/endpoint failures require explicit recovery.
                 mutableState.value = AndroidTransportState.SECURITY_ERROR
             }
+        } finally {
+            credential.authToken.fill(0)
         }
     }
 
-    private fun markOffline(requestedGeneration: Long) {
-        if (generation.get() == requestedGeneration) {
+    private fun enqueueTermination(requestedGeneration: Long, socket: WebSocket) {
+        executor.execute {
+            if (generation.get() != requestedGeneration ||
+                terminalGeneration == requestedGeneration
+            ) {
+                return@execute
+            }
+            terminalGeneration = requestedGeneration
+            if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
+            scheduleReconnect(requestedGeneration)
         }
+    }
+
+    private fun scheduleReconnect(requestedGeneration: Long) {
+        if (generation.get() != requestedGeneration || reconnectFuture != null) return
+        val delayMs = reconnectBackoff.nextDelayMs()
+        reconnectFuture = executor.schedule(
+            {
+                reconnectFuture = null
+                if (generation.get() != requestedGeneration) return@schedule
+                val nextGeneration = generation.incrementAndGet()
+                connectInternal(nextGeneration)
+            },
+            delayMs,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun cancelReconnect() {
+        reconnectFuture?.cancel(false)
+        reconnectFuture = null
+    }
+
+    private fun stateAfterRegistrationFailure(): AndroidTransportState = try {
+        val stored = credentialStore.load()
+        try {
+            if (stored == null) AndroidTransportState.NOT_CONFIGURED else AndroidTransportState.OFFLINE
+        } finally {
+            stored?.authToken?.fill(0)
+        }
+    } catch (_: Throwable) {
+        AndroidTransportState.SECURITY_ERROR
     }
 
     private fun constantTimeEquals(left: ByteArray, right: ByteArray): Boolean {
