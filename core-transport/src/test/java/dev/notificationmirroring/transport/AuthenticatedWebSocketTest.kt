@@ -105,11 +105,20 @@ class AuthenticatedWebSocketTest {
     @Test
     fun rejectsMalformedAuthenticationAcknowledgementWithoutApplicationOpen() {
         val server = MockWebServer()
+        val serverClosed = CountDownLatch(1)
         server.enqueue(
             MockResponse().withWebSocketUpgrade(
                 object : WebSocketListener() {
                     override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
                         webSocket.send(byteArrayOf(1, 2, 3, 4).toByteString())
+                    }
+
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        serverClosed.countDown()
+                    }
+
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        serverClosed.countDown()
                     }
                 },
             ),
@@ -134,6 +143,7 @@ class AuthenticatedWebSocketTest {
             assertTrue(failed.await(5, TimeUnit.SECONDS))
             assertFalse(applicationOpened)
             socket.cancel()
+            assertTrue(serverClosed.await(5, TimeUnit.SECONDS))
         } finally {
             client.dispatcher.executorService.shutdown()
             server.shutdown()
