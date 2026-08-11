@@ -32,6 +32,17 @@ object AuthenticatedHpke {
         return hpke.deriveKeyPair(ikm).serialize(hpke)
     }
 
+    fun requireValidPublicKey(publicKey: ByteArray) {
+        require(publicKey.size == 65 && publicKey[0] == 0x04.toByte()) {
+            "HPKE public key must be a 65-byte uncompressed P-256 point"
+        }
+        val hpke = newEngine()
+        val decoded = hpke.deserializePublicKey(publicKey)
+        require(hpke.serializePublicKey(decoded).contentEquals(publicKey)) {
+            "HPKE public key is not canonical"
+        }
+    }
+
     fun seal(
         recipientPublicKey: ByteArray,
         sender: KeyPair,
