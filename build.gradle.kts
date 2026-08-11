@@ -48,5 +48,13 @@ tasks.register("verifyVendoredProtocol") {
             "protocol/test-vectors/device-auth-frame-v1.json",
             "protocol/DEVICE_AUTH_VECTOR_SHA256",
         )
+        verify(
+            "protocol/trusted-device-pairing-v1.md",
+            "protocol/TRUST_PAIRING_SPEC_SHA256",
+        )
+        verify(
+            "protocol/test-vectors/trusted-device-pairing-v1.json",
+            "protocol/TRUST_PAIRING_VECTOR_SHA256",
+        )
     }
 }
