@@ -1,6 +1,8 @@
 package dev.notificationmirroring.android
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -19,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -58,6 +61,8 @@ class MainActivity : ComponentActivity() {
                 NotificationCapabilityScreen(
                     transportCoordinator =
                     (application as NotificationMirroringApplication).transportCoordinator,
+                    trustPairingController =
+                    (application as NotificationMirroringApplication).trustPairingController,
                     onOpenNotificationAccess = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
@@ -83,12 +88,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun NotificationCapabilityScreen(
     transportCoordinator: AndroidTransportCoordinator,
+    trustPairingController: AndroidTrustPairingController,
     onOpenNotificationAccess: () -> Unit,
     onPostDebugNotification: () -> Unit,
 ) {
     val notifications by LocalNotificationController.notifications.collectAsState()
     val debugActionResult by DebugActionState.lastResult.collectAsState()
     val transportState by transportCoordinator.state.collectAsState()
+    val pairingState by trustPairingController.state.collectAsState()
     var serverOrigin by remember { mutableStateOf("") }
     var pairingCode by remember { mutableStateOf("") }
     var deviceName by remember { mutableStateOf("Android") }
@@ -127,6 +134,7 @@ private fun NotificationCapabilityScreen(
                         pairingCode = oneTimeCode,
                         deviceName = deviceName,
                     ) { succeeded ->
+                        if (succeeded) trustPairingController.refresh()
                         registrationMessage = if (succeeded) {
                             "Registered; waiting for authenticated connection"
                         } else {
@@ -134,6 +142,16 @@ private fun NotificationCapabilityScreen(
                         }
                     }
                 },
+            )
+        }
+        item {
+            TrustPairingCard(
+                state = pairingState,
+                onCreateOffer = trustPairingController::createOffer,
+                onImportPayload = trustPairingController::importPayload,
+                onConfirm = trustPairingController::confirmSafetyCode,
+                onCancel = trustPairingController::cancel,
+                onRefresh = trustPairingController::refresh,
             )
         }
         item {
@@ -224,6 +242,138 @@ private fun TransportRegistrationCard(
             }
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
+    }
+}
+
+@Composable
+private fun TrustPairingCard(
+    state: AndroidTrustPairingState,
+    onCreateOffer: () -> Unit,
+    onImportPayload: (String) -> Unit,
+    onConfirm: (String) -> Unit,
+    onCancel: () -> Unit,
+    onRefresh: () -> Unit,
+) {
+    val context = LocalContext.current
+    var importedPayload by remember { mutableStateOf("") }
+    var safetyConfirmed by remember(state) { mutableStateOf(false) }
+    fun copyPayload(label: String, value: String) {
+        context.getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText(label, value))
+    }
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("Trusted E2EE device", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Synthetic testing only. Exchange the QR payload out of band and compare the complete safety code on both devices.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            when (state) {
+                AndroidTrustPairingState.Loading -> Text("Loading pairing state…")
+                AndroidTrustPairingState.NotConfigured -> Text("Register this Android device first.")
+                AndroidTrustPairingState.Idle,
+                AndroidTrustPairingState.Approved,
+                is AndroidTrustPairingState.Error,
+                -> {
+                    if (state == AndroidTrustPairingState.Approved) {
+                        Text("Peer approved locally. The other device must confirm independently.")
+                    }
+                    if (state is AndroidTrustPairingState.Error) {
+                        Text(state.message, style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(onClick = onCreateOffer) { Text("Create trust offer") }
+                    PairingPayloadImport(
+                        value = importedPayload,
+                        onValueChange = { importedPayload = it.take(512) },
+                        onImport = {
+                            val payload = importedPayload
+                            importedPayload = ""
+                            onImportPayload(payload)
+                        },
+                    )
+                    if (state is AndroidTrustPairingState.Error) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onRefresh) { Text("Restore session") }
+                            Button(onClick = onCancel) { Text("Cancel session") }
+                        }
+                    }
+                }
+                is AndroidTrustPairingState.OfferCreated -> {
+                    OutlinedTextField(
+                        value = state.offerPayload,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Offer QR payload") },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Button(onClick = { copyPayload("Trust offer", state.offerPayload) }) {
+                        Text("Copy offer payload")
+                    }
+                    PairingPayloadImport(
+                        value = importedPayload,
+                        onValueChange = { importedPayload = it.take(512) },
+                        onImport = {
+                            val payload = importedPayload
+                            importedPayload = ""
+                            onImportPayload(payload)
+                        },
+                    )
+                    Button(onClick = onCancel) { Text("Cancel pairing") }
+                }
+                is AndroidTrustPairingState.CompareSafetyCode -> {
+                    state.approvalPayload?.let { payload ->
+                        OutlinedTextField(
+                            value = payload,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Approval QR payload") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(onClick = { copyPayload("Trust approval", payload) }) {
+                            Text("Copy approval payload")
+                        }
+                    }
+                    Text("Safety code", style = MaterialTheme.typography.labelLarge)
+                    Text(state.safetyCode, style = MaterialTheme.typography.headlineSmall)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = safetyConfirmed,
+                            onCheckedChange = { safetyConfirmed = it },
+                        )
+                        Text("I compared the complete code on both devices and it matches")
+                    }
+                    Button(
+                        enabled = safetyConfirmed,
+                        onClick = { onConfirm(state.safetyCode) },
+                    ) {
+                        Text("Approve this peer")
+                    }
+                    Button(onClick = onCancel) { Text("Reject and cancel") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PairingPayloadImport(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onImport: () -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text("Scanned or copied QR payload") },
+        placeholder = { Text("sntrust1:…") },
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Button(enabled = value.isNotBlank(), onClick = onImport) {
+        Text("Import pairing payload")
     }
 }
 
