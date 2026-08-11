@@ -50,6 +50,7 @@ info = "SyncNotifications-E2EE-v1"
 - Pixel 10 Pro / Android 16 (API 36) confirms Keystore-wrapped transport credential restoration and silent-replacement refusal in an instrumented runtime test.
 - The Compose app now exposes synthetic-only Android code-gated registration. `NotificationMirroringApplication` owns a process-lifetime transport coordinator that restores an existing credential, requires the existing Keystore-wrapped HPKE identity, verifies the full SHA-256 key ID binding, reports `ONLINE` only after `SNO1`, and clears temporary token and decrypted identity byte arrays. Corrupt/partial identity or credential state enters `SECURITY_ERROR` without replacement. Inbound business frames close fail-closed until the E2EE dispatcher is connected.
 - Android Network Security Configuration denies cleartext globally and permits it only for loopback development origins; production non-loopback registration remains HTTPS/WSS-only.
+- GitHub Actions run `31453307739` passed protocol verification, unit tests, lint, fixed-signature APK builds, and API 29 crypto/notification/transport instrumentation for commit `300ca32`. The malformed-acknowledgement WebSocket test now waits for server-side socket termination before shutting down `MockWebServer`, removing a teardown race without weakening the fail-closed assertions.
 
 Vendored vectors:
 
@@ -68,7 +69,8 @@ The serialized private scalar and deterministic key derivation exist for spike v
 
 ## Remaining evidence
 
+- physical-device UI validation of registration, `SNO1`-confirmed online state, process restart restoration, and manual reconnect
 - corruption/lost-Keystore recovery UX
 - encrypt and send stored `action.result` payloads to Chrome and reconcile pending operations
-- authenticated production WebSocket endpoint (the bounded relay adapter is tested but deliberately not exposed)
-- pairing, rotation, revocation, and lost-device behavior
+- bounded reconnect/backoff and network-change handling
+- pairing approval, rotation, revocation, and lost-device behavior
