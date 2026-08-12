@@ -269,7 +269,17 @@ private fun TrustPairingCard(
         ) {
             Text("Trusted E2EE device", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Synthetic testing only. Exchange the QR payload out of band and compare the complete safety code on both devices.",
+                when (state) {
+                    is AndroidTrustPairingState.OfferCreated ->
+                        "Step 2 — Send this offer, then import the approval response"
+                    is AndroidTrustPairingState.CompareSafetyCode ->
+                        "Step 3 — Compare the complete safety code and approve independently"
+                    else -> "Step 1 — Create or import an offer"
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                "Synthetic testing only. The first payload is an offer; importing it creates a different approval response that must be sent back. Compare the complete safety code on both devices.",
                 style = MaterialTheme.typography.bodySmall,
             )
             when (state) {
@@ -307,7 +317,7 @@ private fun TrustPairingCard(
                         value = state.offerPayload,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Offer QR payload") },
+                        label = { Text("Offer — send this once to the other device") },
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Button(onClick = { copyPayload("Trust offer", state.offerPayload) }) {
@@ -330,7 +340,7 @@ private fun TrustPairingCard(
                             value = payload,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Approval QR payload") },
+                            label = { Text("Approval response — send this back to the offer creator") },
                             modifier = Modifier.fillMaxWidth(),
                         )
                         Button(onClick = { copyPayload("Trust approval", payload) }) {
@@ -368,12 +378,12 @@ private fun PairingPayloadImport(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text("Scanned or copied QR payload") },
+        label = { Text("Payload received from the other device") },
         placeholder = { Text("sntrust1:…") },
         modifier = Modifier.fillMaxWidth(),
     )
     Button(enabled = value.isNotBlank(), onClick = onImport) {
-        Text("Import pairing payload")
+        Text("Import received payload")
     }
 }
 

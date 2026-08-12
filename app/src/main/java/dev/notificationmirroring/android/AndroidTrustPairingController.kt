@@ -97,11 +97,31 @@ class AndroidTrustPairingController(context: Context) {
         executor.execute {
             try {
                 block()
-            } catch (_: Throwable) {
-                mutableState.value = AndroidTrustPairingState.Error(
-                    "Pairing failed closed. Verify the payload, expiry, workspace, and safety code.",
-                )
+            } catch (error: Throwable) {
+                mutableState.value = AndroidTrustPairingState.Error(pairingFailureMessage(error))
             }
+        }
+    }
+
+    private fun pairingFailureMessage(error: Throwable): String {
+        val message = error.message.orEmpty()
+        return when {
+            "expired" in message ->
+                "Import rejected: this pairing payload expired. Cancel both sides and create a new offer."
+            "different workspace" in message ->
+                "Import rejected: the devices are registered in different workspaces."
+            "exact trust offer" in message || "does not match this approval" in message ->
+                "Import rejected: this approval response does not belong to the active offer."
+            "base64url" in message || "prefix" in message || "magic" in message ||
+                "bytes" in message || "length" in message ->
+                "Import rejected: the copied pairing payload is incomplete or malformed."
+            "No offer is awaiting" in message || "No active trust pairing" in message ->
+                "Import rejected: this device no longer has the offer session required by the approval response."
+            "already exists" in message || "Cancel the active" in message ->
+                "Import rejected: another pairing session is active. Cancel it before importing a new offer."
+            "Safety code" in message ->
+                "Approval rejected: the safety code does not match the active transcript."
+            else -> "Pairing failed closed. Verify the payload, expiry, workspace, and active step."
         }
     }
 
