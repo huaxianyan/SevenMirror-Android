@@ -172,7 +172,7 @@ private fun NotificationCapabilityScreen(
             item { Text("Grant access and generate a notification to test extraction and actions.") }
         } else {
             items(notifications, key = { it.key }) { snapshot ->
-                NotificationCard(snapshot)
+                NotificationCard(snapshot, trustPairingController)
             }
         }
     }
@@ -388,7 +388,11 @@ private fun PairingPayloadImport(
 }
 
 @Composable
-private fun NotificationCard(snapshot: NotificationSnapshot) {
+private fun NotificationCard(
+    snapshot: NotificationSnapshot,
+    trustPairingController: AndroidTrustPairingController,
+) {
+    val context = LocalContext.current
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -404,9 +408,40 @@ private fun NotificationCard(snapshot: NotificationSnapshot) {
                     if (snapshot.isOngoing) " · ongoing" else "",
                 style = MaterialTheme.typography.bodySmall,
             )
-            snapshot.actions.forEach { action -> ActionControl(action) }
+            snapshot.actions.forEach { action ->
+                if (snapshot.packageName == context.packageName && !action.requiresTextInput) {
+                    SyntheticRelayActionControl(snapshot, action, trustPairingController)
+                }
+                ActionControl(action)
+            }
         }
     }
+}
+
+@Composable
+private fun SyntheticRelayActionControl(
+    snapshot: NotificationSnapshot,
+    action: NotificationActionDescriptor,
+    trustPairingController: AndroidTrustPairingController,
+) {
+    val context = LocalContext.current
+    var message by remember(snapshot.revision, action.token.actionId.hex) { mutableStateOf<String?>(null) }
+    Button(
+        onClick = {
+            try {
+                val target = trustPairingController.syntheticActionTarget(snapshot, action)
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
+                    ClipData.newPlainText("Synthetic relay action target", target),
+                )
+                message = "Synthetic target copied for Chrome Options"
+            } catch (_: Throwable) {
+                message = "Synthetic target unavailable; verify registration"
+            }
+        },
+    ) {
+        Text("Copy synthetic relay target")
+    }
+    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable

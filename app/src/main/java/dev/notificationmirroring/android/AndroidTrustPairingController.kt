@@ -7,9 +7,12 @@ import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.LocalTrustIdentity
 import dev.notificationmirroring.crypto.TrustPairingCoordinator
 import dev.notificationmirroring.crypto.TrustPairingView
+import dev.notificationmirroring.notification.NotificationActionDescriptor
+import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import org.json.JSONObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -76,6 +79,34 @@ class AndroidTrustPairingController(context: Context) {
     fun confirmSafetyCode(safetyCode: String) = withLocal { local ->
         coordinator.confirmSafetyCode(safetyCode, local)
         mutableState.value = AndroidTrustPairingState.Approved
+    }
+
+    /** Public identifiers/capability reference for the app-owned synthetic notification only. */
+    fun syntheticActionTarget(
+        snapshot: NotificationSnapshot,
+        action: NotificationActionDescriptor,
+    ): String {
+        require(snapshot.packageName == appContext.packageName) {
+            "Only the app-owned synthetic notification can be exported"
+        }
+        require(action.token.notificationKey == snapshot.key &&
+            action.token.notificationRevision == snapshot.revision &&
+            !action.requiresTextInput) {
+            "Synthetic action target is inconsistent"
+        }
+        val credential = credentials.load() ?: error("Transport registration is required")
+        return try {
+            JSONObject()
+                .put("version", 1)
+                .put("targetDeviceId", credential.deviceId.toHex())
+                .put("targetKeyId", credential.identityKeyId.toHex())
+                .put("notificationId", action.token.notificationKey)
+                .put("notificationRevision", action.token.notificationRevision.toString())
+                .put("actionId", action.token.actionId.hex)
+                .toString()
+        } finally {
+            credential.authToken.fill(0)
+        }
     }
 
     fun cancel() = execute {
@@ -148,6 +179,9 @@ class AndroidTrustPairingController(context: Context) {
             credential.authToken.fill(0)
         }
     }
+
+    private fun ByteArray.toHex(): String =
+        joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun TrustPairingView.toState(): AndroidTrustPairingState = when (this) {
         is TrustPairingView.OfferCreated -> AndroidTrustPairingState.OfferCreated(
