@@ -17,6 +17,14 @@ class AndroidActionResultOutbox(
     enum class CompleteResult { COMPLETED, ALREADY_COMPLETED }
     enum class EnqueueResult { ENQUEUED, ALREADY_ENQUEUED, CAPACITY_EXCEEDED }
 
+    data class Snapshot(
+        val reservations: Int,
+        val completedResults: Int,
+        val dueResults: Int,
+        val dormantResults: Int,
+        val acceptedSendAttempts: Int,
+    )
+
     data class Entry(
         val rowId: Long,
         val recipientDeviceId: ByteArray,
@@ -219,6 +227,38 @@ class AndroidActionResultOutbox(
             }
             database.setTransactionSuccessful()
             entries
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    /** Redacted aggregate state; never exposes recipient, idempotency, or result bytes. */
+    @Synchronized
+    fun snapshot(nowUnixMs: Long): Snapshot {
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            purgeExpired(database, nowUnixMs)
+            val values = database.rawQuery(
+                "SELECT COUNT(*), " +
+                    "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL THEN 1 ELSE 0 END), " +
+                    "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL AND $NEXT_ATTEMPT_AT <= ? THEN 1 ELSE 0 END), " +
+                    "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL AND $NEXT_ATTEMPT_AT >= $EXPIRES_AT THEN 1 ELSE 0 END), " +
+                    "COALESCE(SUM($ATTEMPT_COUNT), 0) FROM $OUTBOX_TABLE",
+                arrayOf(nowUnixMs.toString()),
+            ).use { cursor ->
+                check(cursor.moveToFirst()) { "Unable to read action result outbox snapshot" }
+                Snapshot(
+                    reservations = cursor.getInt(0),
+                    completedResults = cursor.getInt(1),
+                    dueResults = cursor.getInt(2),
+                    dormantResults = cursor.getInt(3),
+                    acceptedSendAttempts = cursor.getInt(4),
+                )
+            }
+            database.setTransactionSuccessful()
+            values
         } finally {
             database.endTransaction()
         }

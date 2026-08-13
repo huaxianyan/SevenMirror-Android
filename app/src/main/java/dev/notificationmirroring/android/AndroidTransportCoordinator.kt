@@ -67,6 +67,9 @@ class AndroidTransportCoordinator(context: Context) {
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
 
+    fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
+        resultOutbox.snapshot(System.currentTimeMillis())
+
     init {
         applicationContext.getSystemService(ConnectivityManager::class.java)
             .registerDefaultNetworkCallback(

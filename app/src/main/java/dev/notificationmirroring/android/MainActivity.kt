@@ -94,6 +94,7 @@ private fun NotificationCapabilityScreen(
 ) {
     val notifications by LocalNotificationController.notifications.collectAsState()
     val debugActionResult by DebugActionState.lastResult.collectAsState()
+    val regularActionCount by DebugActionState.regularActionCount.collectAsState()
     val transportState by transportCoordinator.state.collectAsState()
     val pairingState by trustPairingController.state.collectAsState()
     var serverOrigin by remember { mutableStateOf("") }
@@ -166,6 +167,20 @@ private fun NotificationCapabilityScreen(
         }
         item {
             Text("Debug receiver: $debugActionResult", style = MaterialTheme.typography.bodySmall)
+            Text("Synthetic regular side-effect count: $regularActionCount", style = MaterialTheme.typography.bodySmall)
+            Button(
+                onClick = {
+                    val snapshot = transportCoordinator.syntheticResultOutboxSnapshot()
+                    DebugActionState.update(
+                        "Result outbox: reservations=${snapshot.reservations}, " +
+                            "completed=${snapshot.completedResults}, due=${snapshot.dueResults}, " +
+                            "dormant=${snapshot.dormantResults}, " +
+                            "accepted sends=${snapshot.acceptedSendAttempts}",
+                    )
+                },
+            ) {
+                Text("Refresh synthetic outbox status")
+            }
         }
         item { Text("Active notifications: ${notifications.size}") }
         if (notifications.isEmpty()) {

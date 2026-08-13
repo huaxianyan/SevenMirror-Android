@@ -35,6 +35,16 @@ class AndroidActionResultOutboxInstrumentedTest {
                 AndroidActionResultOutbox.EnqueueResult.ALREADY_ENQUEUED,
                 outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 1_001),
             )
+            assertEquals(
+                AndroidActionResultOutbox.Snapshot(
+                    reservations = 1,
+                    completedResults = 1,
+                    dueResults = 1,
+                    dormantResults = 0,
+                    acceptedSendAttempts = 0,
+                ),
+                outbox.snapshot(1_001),
+            )
             val first = outbox.due(1_001).single()
             assertArrayEquals(payload, first.resultPayload)
             assertEquals(0, first.attemptCount)
@@ -49,6 +59,16 @@ class AndroidActionResultOutboxInstrumentedTest {
             assertEquals(2L, outbox.allocateSequence(recipientKeyId))
             outbox.recordSendAttempt(recovered.rowId, 3_000, maximumAttempts = 2)
             assertTrue(outbox.due(3_000).isEmpty())
+            assertEquals(
+                AndroidActionResultOutbox.Snapshot(
+                    reservations = 1,
+                    completedResults = 1,
+                    dueResults = 0,
+                    dormantResults = 1,
+                    acceptedSendAttempts = 2,
+                ),
+                outbox.snapshot(3_000),
+            )
             assertEquals(
                 AndroidActionResultOutbox.EnqueueResult.ALREADY_ENQUEUED,
                 outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 3_001),

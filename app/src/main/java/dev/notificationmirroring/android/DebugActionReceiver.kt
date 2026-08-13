@@ -10,7 +10,7 @@ class DebugActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             DebugNotificationPublisher.ACTION_MARK_HANDLED -> {
-                DebugActionState.update("Regular PendingIntent action received")
+                DebugActionState.recordRegularAction(context)
             }
 
             DebugNotificationPublisher.ACTION_REPLY -> {

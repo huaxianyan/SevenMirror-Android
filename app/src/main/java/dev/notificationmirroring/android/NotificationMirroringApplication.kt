@@ -10,6 +10,7 @@ class NotificationMirroringApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        DebugActionState.restore(this)
         transportCoordinator = AndroidTransportCoordinator(this)
         trustPairingController = AndroidTrustPairingController(this)
         transportCoordinator.connect()
