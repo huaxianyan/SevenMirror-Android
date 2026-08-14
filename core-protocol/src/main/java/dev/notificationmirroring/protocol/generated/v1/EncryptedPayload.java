@@ -25,6 +25,7 @@ public  final class EncryptedPayload extends
   public enum BodyCase {
     ACTION_INVOKE(10),
     ACTION_RESULT(11),
+    ACTION_RESULT_ACK(12),
     BODY_NOT_SET(0);
     private final int value;
     private BodyCase(int value) {
@@ -42,6 +43,7 @@ public  final class EncryptedPayload extends
       switch (value) {
         case 10: return ACTION_INVOKE;
         case 11: return ACTION_RESULT;
+        case 12: return ACTION_RESULT_ACK;
         case 0: return BODY_NOT_SET;
         default: return null;
       }
@@ -188,6 +190,58 @@ public  final class EncryptedPayload extends
    */
   private void clearActionResult() {
     if (bodyCase_ == 11) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int ACTION_RESULT_ACK_FIELD_NUMBER = 12;
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   */
+  @java.lang.Override
+  public boolean hasActionResultAck() {
+    return bodyCase_ == 12;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.ActionResultAck getActionResultAck() {
+    if (bodyCase_ == 12) {
+       return (dev.notificationmirroring.protocol.generated.v1.ActionResultAck) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.ActionResultAck.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setActionResultAck(dev.notificationmirroring.protocol.generated.v1.ActionResultAck value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 12;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeActionResultAck(dev.notificationmirroring.protocol.generated.v1.ActionResultAck value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 12 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.ActionResultAck.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.ActionResultAck.newBuilder((dev.notificationmirroring.protocol.generated.v1.ActionResultAck) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 12;
+  }
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   */
+  private void clearActionResultAck() {
+    if (bodyCase_ == 12) {
       bodyCase_ = 0;
       body_ = null;
     }
@@ -431,6 +485,54 @@ public  final class EncryptedPayload extends
       return this;
     }
 
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    @java.lang.Override
+    public boolean hasActionResultAck() {
+      return instance.hasActionResultAck();
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.ActionResultAck getActionResultAck() {
+      return instance.getActionResultAck();
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    public Builder setActionResultAck(dev.notificationmirroring.protocol.generated.v1.ActionResultAck value) {
+      copyOnWrite();
+      instance.setActionResultAck(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    public Builder setActionResultAck(
+        dev.notificationmirroring.protocol.generated.v1.ActionResultAck.Builder builderForValue) {
+      copyOnWrite();
+      instance.setActionResultAck(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    public Builder mergeActionResultAck(dev.notificationmirroring.protocol.generated.v1.ActionResultAck value) {
+      copyOnWrite();
+      instance.mergeActionResultAck(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+     */
+    public Builder clearActionResultAck() {
+      copyOnWrite();
+      instance.clearActionResultAck();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.EncryptedPayload)
   }
   @java.lang.Override
@@ -452,10 +554,11 @@ public  final class EncryptedPayload extends
             "schemaVersion_",
             dev.notificationmirroring.protocol.generated.v1.ActionInvoke.class,
             dev.notificationmirroring.protocol.generated.v1.ActionResult.class,
+            dev.notificationmirroring.protocol.generated.v1.ActionResultAck.class,
           };
           java.lang.String info =
-              "\u0000\u0003\u0001\u0000\u0001\u000b\u0003\u0000\u0000\u0000\u0001\u000b\n<\u0000" +
-              "\u000b<\u0000";
+              "\u0000\u0004\u0001\u0000\u0001\f\u0004\u0000\u0000\u0000\u0001\u000b\n<\u0000\u000b" +
+              "<\u0000\f<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

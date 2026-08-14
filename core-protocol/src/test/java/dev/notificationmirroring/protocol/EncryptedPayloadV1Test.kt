@@ -3,6 +3,7 @@ package dev.notificationmirroring.protocol
 import com.google.protobuf.ByteString
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
 import dev.notificationmirroring.protocol.generated.v1.ActionResult
+import dev.notificationmirroring.protocol.generated.v1.ActionResultAck
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import org.junit.Assert.assertArrayEquals
@@ -44,6 +45,36 @@ class EncryptedPayloadV1Test {
     }
 
     @Test
+    fun roundTripsCanonicalActionResultAck() {
+        val payload = EncryptedPayload.newBuilder()
+            .setSchemaVersion(1)
+            .setActionResultAck(
+                ActionResultAck.newBuilder()
+                    .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xb2.toByte() }))
+                    .setResultSha256(ByteString.copyFrom(vector.actionResultSha256)),
+            )
+            .build()
+        val encoded = EncryptedPayloadCodecV1.encode(payload)
+        assertArrayEquals(vector.actionResultAckEncoded, encoded)
+        assertArrayEquals(
+            vector.actionResultSha256,
+            EncryptedPayloadCodecV1.decode(encoded).actionResultAck.resultSha256.toByteArray(),
+        )
+
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.encode(
+                payload.toBuilder()
+                    .setActionResultAck(
+                        payload.actionResultAck.toBuilder().setResultSha256(
+                            ByteString.copyFrom(ByteArray(32)),
+                        ),
+                    )
+                    .build(),
+            )
+        }
+    }
+
+    @Test
     fun rejectsDuplicateUnknownAndInvalidSemanticFields() {
         val valid = vector.encoded
         listOf(
@@ -78,6 +109,8 @@ class EncryptedPayloadV1Test {
     private class Vector(private val json: String) {
         val encoded: ByteArray get() = hex("encodedHex")
         val actionResultEncoded: ByteArray get() = hex("actionResultEncodedHex")
+        val actionResultSha256: ByteArray get() = hex("actionResultSha256Hex")
+        val actionResultAckEncoded: ByteArray get() = hex("actionResultAckEncodedHex")
 
         private fun hex(name: String): ByteArray {
             val value = Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")

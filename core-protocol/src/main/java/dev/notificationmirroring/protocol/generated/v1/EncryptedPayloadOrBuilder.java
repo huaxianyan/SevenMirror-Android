@@ -37,5 +37,16 @@ public interface EncryptedPayloadOrBuilder extends
    */
   dev.notificationmirroring.protocol.generated.v1.ActionResult getActionResult();
 
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   * @return Whether the actionResultAck field is set.
+   */
+  boolean hasActionResultAck();
+  /**
+   * <code>.notification.mirroring.v1.ActionResultAck action_result_ack = 12 [json_name = "actionResultAck"];</code>
+   * @return The actionResultAck.
+   */
+  dev.notificationmirroring.protocol.generated.v1.ActionResultAck getActionResultAck();
+
   public dev.notificationmirroring.protocol.generated.v1.EncryptedPayload.BodyCase getBodyCase();
 }
