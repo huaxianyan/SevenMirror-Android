@@ -68,6 +68,7 @@ class AndroidActionResultOutbox(
         return try {
             purgeExpired(database, nowUnixMs)
             val existing = findBinding(database, recipientKeyId, idempotencyKey)
+            val acknowledged = findAcknowledged(database, recipientKeyId, idempotencyKey)
             val result = when {
                 existing != null -> {
                     check(existing.recipientDeviceId.contentEquals(recipientDeviceId)) {
@@ -75,22 +76,34 @@ class AndroidActionResultOutbox(
                     }
                     ReserveResult.ALREADY_RESERVED
                 }
+                acknowledged != null -> {
+                    check(acknowledged.recipientDeviceId.contentEquals(recipientDeviceId)) {
+                        "Acknowledged result key is bound to a different recipient"
+                    }
+                    val deleted = database.delete(
+                        ACK_TABLE,
+                        "$RECIPIENT_KEY_ID = ? AND $IDEMPOTENCY_KEY = ?",
+                        arrayOf(recipientKeyId.toHex(), idempotencyKey.toHex()),
+                    )
+                    check(deleted == 1) { "Acknowledged result entry disappeared" }
+                    insertReservation(
+                        database,
+                        recipientDeviceId,
+                        recipientKeyId,
+                        idempotencyKey,
+                        nowUnixMs,
+                    )
+                    ReserveResult.RESERVED
+                }
                 countRetainedEntries(database) >= maxEntries -> ReserveResult.CAPACITY_EXCEEDED
                 else -> {
-                    val rowId = database.insertOrThrow(
-                        OUTBOX_TABLE,
-                        null,
-                        ContentValues(7).apply {
-                            put(RECIPIENT_DEVICE_ID, recipientDeviceId.copyOf())
-                            put(RECIPIENT_KEY_ID, recipientKeyId.toHex())
-                            put(IDEMPOTENCY_KEY, idempotencyKey.toHex())
-                            put(CREATED_AT, nowUnixMs)
-                            put(EXPIRES_AT, Math.addExact(nowUnixMs, RETENTION_MS))
-                            put(NEXT_ATTEMPT_AT, nowUnixMs)
-                            put(ATTEMPT_COUNT, 0)
-                        },
+                    insertReservation(
+                        database,
+                        recipientDeviceId,
+                        recipientKeyId,
+                        idempotencyKey,
+                        nowUnixMs,
                     )
-                    check(rowId != -1L) { "Unable to reserve action result outbox entry" }
                     ReserveResult.RESERVED
                 }
             }
@@ -431,6 +444,29 @@ class AndroidActionResultOutbox(
         check(appContext.deleteDatabase(databaseName) || !appContext.getDatabasePath(databaseName).exists()) {
             "Unable to delete action result outbox"
         }
+    }
+
+    private fun insertReservation(
+        database: SQLiteDatabase,
+        recipientDeviceId: ByteArray,
+        recipientKeyId: ByteArray,
+        idempotencyKey: ByteArray,
+        nowUnixMs: Long,
+    ) {
+        val rowId = database.insertOrThrow(
+            OUTBOX_TABLE,
+            null,
+            ContentValues(7).apply {
+                put(RECIPIENT_DEVICE_ID, recipientDeviceId.copyOf())
+                put(RECIPIENT_KEY_ID, recipientKeyId.toHex())
+                put(IDEMPOTENCY_KEY, idempotencyKey.toHex())
+                put(CREATED_AT, nowUnixMs)
+                put(EXPIRES_AT, Math.addExact(nowUnixMs, RETENTION_MS))
+                put(NEXT_ATTEMPT_AT, nowUnixMs)
+                put(ATTEMPT_COUNT, 0)
+            },
+        )
+        check(rowId != -1L) { "Unable to reserve action result outbox entry" }
     }
 
     private fun findBinding(

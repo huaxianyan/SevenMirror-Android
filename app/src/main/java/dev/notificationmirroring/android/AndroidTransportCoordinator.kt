@@ -218,7 +218,7 @@ class AndroidTransportCoordinator(context: Context) {
                                 return@execute
                             }
                             try {
-                                dispatcher.receiveOnce(frame, System.currentTimeMillis())
+                                dispatcher.receiveAnyOnce(frame, System.currentTimeMillis())
                                 // Execution returns only after the exact result is durable.
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, resultDrainer)

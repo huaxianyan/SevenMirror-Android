@@ -65,8 +65,32 @@ object AuthenticatedActionReceiver {
             replayLedger,
             nowUnixMs,
         )
-        val receipt = finishOpened(
+        val payload = EncryptedPayloadCodecV1.decode(opened.plaintext)
+        return receiveDecodedAndQueue(
             opened = opened,
+            payload = payload,
+            operationLedger = operationLedger,
+            resultOutbox = resultOutbox,
+            nowUnixMs = nowUnixMs,
+            execute = execute,
+        )
+    }
+
+    /** Continues after one shared HPKE open/replay commit and one canonical payload decode. */
+    fun receiveDecodedAndQueue(
+        opened: OpenedEnvelope,
+        payload: EncryptedPayload,
+        operationLedger: AndroidOperationLedger,
+        resultOutbox: AndroidActionResultOutbox,
+        nowUnixMs: Long,
+        execute: (ActionInvoke) -> ActionResult,
+    ): ActionReceipt {
+        require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_INVOKE) {
+            "Expected action.invoke payload"
+        }
+        val receipt = finishDecoded(
+            opened = opened,
+            action = payload.actionInvoke,
             operationLedger = operationLedger,
             nowUnixMs = nowUnixMs,
             beforeOperation = { envelope, action ->
@@ -109,7 +133,24 @@ object AuthenticatedActionReceiver {
         require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_INVOKE) {
             "Expected action.invoke payload"
         }
-        val action = payload.actionInvoke
+        return finishDecoded(
+            opened,
+            payload.actionInvoke,
+            operationLedger,
+            nowUnixMs,
+            beforeOperation,
+            execute,
+        )
+    }
+
+    private fun finishDecoded(
+        opened: OpenedEnvelope,
+        action: ActionInvoke,
+        operationLedger: AndroidOperationLedger,
+        nowUnixMs: Long,
+        beforeOperation: (OpenedEnvelope, ActionInvoke) -> Unit,
+        execute: (ActionInvoke) -> ActionResult,
+    ): ActionReceipt {
         val idempotencyKey = action.idempotencyKey.toByteArray()
         beforeOperation(opened, action)
         return when (

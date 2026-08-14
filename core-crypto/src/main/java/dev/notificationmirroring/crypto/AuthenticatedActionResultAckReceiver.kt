@@ -29,18 +29,33 @@ object AuthenticatedActionResultAckReceiver {
             replayLedger = replayLedger,
             nowUnixMs = nowUnixMs,
         )
-        val (idempotencyKey, resultSha256) = try {
+        return try {
             val payload = EncryptedPayloadCodecV1.decode(opened.plaintext)
-            require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_RESULT_ACK) {
-                "Expected action_result_ack payload"
-            }
-            Pair(
-                payload.actionResultAck.idempotencyKey.toByteArray(),
-                payload.actionResultAck.resultSha256.toByteArray(),
+            receiveDecoded(
+                opened = opened,
+                payload = payload,
+                operationLedger = operationLedger,
+                resultOutbox = resultOutbox,
+                nowUnixMs = nowUnixMs,
             )
         } finally {
             opened.plaintext.fill(0)
         }
+    }
+
+    /** Continues after one shared HPKE open/replay commit and one canonical payload decode. */
+    fun receiveDecoded(
+        opened: OpenedEnvelope,
+        payload: EncryptedPayload,
+        operationLedger: AndroidOperationLedger,
+        resultOutbox: AndroidActionResultOutbox,
+        nowUnixMs: Long,
+    ): AndroidActionResultOutbox.AcknowledgeResult {
+        require(payload.bodyCase == EncryptedPayload.BodyCase.ACTION_RESULT_ACK) {
+            "Expected action_result_ack payload"
+        }
+        val idempotencyKey = payload.actionResultAck.idempotencyKey.toByteArray()
+        val resultSha256 = payload.actionResultAck.resultSha256.toByteArray()
         val durableResult = when (
             val operation = operationLedger.lookup(
                 senderKeyId = opened.header.senderKeyId,

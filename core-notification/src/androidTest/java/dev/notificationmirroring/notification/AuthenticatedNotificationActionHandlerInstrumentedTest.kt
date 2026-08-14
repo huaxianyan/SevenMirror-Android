@@ -24,6 +24,7 @@ import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderV1
 import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
+import dev.notificationmirroring.protocol.generated.v1.ActionResultAck
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
@@ -117,6 +118,23 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             assertEquals(false, firstResult.recovered)
             assertTrue(ActionSideEffectReceiver.latch.await(2, TimeUnit.SECONDS))
             assertEquals(1, ActionSideEffectReceiver.count.get())
+
+            val durableResult = outbox.due(now).single().resultPayload
+            val ackReceipt = dispatcher.receiveAnyOnce(
+                ackFrame(
+                    14,
+                    ByteArray(16) { 0xb2.toByte() },
+                    sha256(durableResult),
+                    now,
+                    workspace,
+                    recipientDevice,
+                    sender,
+                    recipient,
+                ),
+                now,
+            )
+            assertTrue(ackReceipt is AuthenticatedInboundReceipt.ResultAck)
+            assertEquals(0, outbox.snapshot(now).completedResults)
 
             val duplicate = actionFrame(
                 11,
@@ -246,6 +264,46 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             EncryptedPayload.newBuilder()
                 .setSchemaVersion(1)
                 .setActionInvoke(request)
+                .build(),
+        )
+        val header = RoutingHeaderCodecV1.encode(
+            RoutingHeaderV1(
+                workspaceId = workspace,
+                senderDeviceId = ByteArray(16) { 2 },
+                recipientDeviceId = recipientDevice,
+                senderKeyId = sha256(sender.publicKey),
+                recipientKeyId = sha256(recipient.publicKey),
+                messageId = ByteArray(16) { messageByte.toByte() },
+                sequence = messageByte.toLong(),
+                createdAtUnixMs = now,
+                expiresAtUnixMs = now + 60_000,
+            ),
+        )
+        val encrypted = AuthenticatedHpke.seal(recipient.publicKey, sender, plaintext, header)
+        return EncryptedEnvelopeCodecV1.encode(
+            EncryptedEnvelopePartsV1(header, encrypted.encapsulatedKey, encrypted.ciphertext),
+        )
+    }
+
+    private fun ackFrame(
+        messageByte: Int,
+        idempotencyKey: ByteArray,
+        resultDigest: ByteArray,
+        now: Long,
+        workspace: ByteArray,
+        recipientDevice: ByteArray,
+        sender: AuthenticatedHpke.KeyPair,
+        recipient: AuthenticatedHpke.KeyPair,
+    ): ByteArray {
+        val plaintext = EncryptedPayloadCodecV1.encode(
+            EncryptedPayload.newBuilder()
+                .setSchemaVersion(1)
+                .setActionResultAck(
+                    ActionResultAck.newBuilder()
+                        .setIdempotencyKey(ByteString.copyFrom(idempotencyKey))
+                        .setResultSha256(ByteString.copyFrom(resultDigest))
+                        .build(),
+                )
                 .build(),
         )
         val header = RoutingHeaderCodecV1.encode(

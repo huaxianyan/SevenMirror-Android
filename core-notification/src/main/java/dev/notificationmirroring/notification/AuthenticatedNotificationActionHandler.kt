@@ -7,6 +7,8 @@ import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AuthenticatedActionReceiver
 import dev.notificationmirroring.crypto.EnvelopeRecipientContext
+import dev.notificationmirroring.crypto.OpenedEnvelope
+import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.ActionResult
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 
@@ -40,6 +42,22 @@ object AuthenticatedNotificationActionHandler {
         frameBytes,
         recipientContext,
         replayLedger,
+        operationLedger,
+        resultOutbox,
+        nowUnixMs,
+    ) { request -> execute(androidContext, request) }
+
+    /** Continues production dispatch after the shared authenticated envelope boundary. */
+    fun receiveDecodedAndQueue(
+        androidContext: Context,
+        opened: OpenedEnvelope,
+        payload: EncryptedPayload,
+        operationLedger: AndroidOperationLedger,
+        resultOutbox: AndroidActionResultOutbox,
+        nowUnixMs: Long,
+    ): ActionReceipt = AuthenticatedActionReceiver.receiveDecodedAndQueue(
+        opened,
+        payload,
         operationLedger,
         resultOutbox,
         nowUnixMs,
