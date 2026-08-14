@@ -18,6 +18,12 @@ class AndroidOperationLedger(
         data object CapacityExceeded : BeginResult
     }
 
+    sealed interface LookupResult {
+        data object Unknown : LookupResult
+        data object Pending : LookupResult
+        data class Completed(val resultPayload: ByteArray) : LookupResult
+    }
+
     private val appContext = context.applicationContext
     private val safeName = ledgerName.also {
         require(it.length in 1..64 && it.matches(Regex("[A-Za-z0-9_.-]+"))) {
@@ -67,6 +73,33 @@ class AndroidOperationLedger(
                         BeginResult.Accepted
                     }
                 }
+            }
+            database.setTransactionSuccessful()
+            result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    /** Looks up the exact durable result without creating or changing an operation. */
+    fun lookup(
+        senderKeyId: ByteArray,
+        idempotencyKey: ByteArray,
+        nowUnixMs: Long,
+    ): LookupResult {
+        validateKey(senderKeyId, 32, "senderKeyId")
+        validateKey(idempotencyKey, 16, "idempotencyKey")
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            database.delete(TABLE, "$EXPIRES_AT <= ?", arrayOf(nowUnixMs.toString()))
+            val result = when (val existing = find(database, senderKeyId, idempotencyKey)) {
+                null -> LookupResult.Unknown
+                BeginResult.DuplicatePending -> LookupResult.Pending
+                is BeginResult.DuplicateCompleted ->
+                    LookupResult.Completed(existing.resultPayload.copyOf())
+                else -> error("Stored operation lookup returned an impossible state")
             }
             database.setTransactionSuccessful()
             result

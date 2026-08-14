@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import java.security.MessageDigest
 
 /** Durable canonical results waiting for bounded recipient-specific encryption/send attempts. */
 class AndroidActionResultOutbox(
@@ -16,6 +17,7 @@ class AndroidActionResultOutbox(
     enum class ReserveResult { RESERVED, ALREADY_RESERVED, CAPACITY_EXCEEDED }
     enum class CompleteResult { COMPLETED, ALREADY_COMPLETED }
     enum class EnqueueResult { ENQUEUED, ALREADY_ENQUEUED, CAPACITY_EXCEEDED }
+    enum class AcknowledgeResult { ACKNOWLEDGED, ALREADY_ACKNOWLEDGED, UNKNOWN }
 
     data class Snapshot(
         val reservations: Int,
@@ -73,7 +75,7 @@ class AndroidActionResultOutbox(
                     }
                     ReserveResult.ALREADY_RESERVED
                 }
-                count(database) >= maxEntries -> ReserveResult.CAPACITY_EXCEEDED
+                countRetainedEntries(database) >= maxEntries -> ReserveResult.CAPACITY_EXCEEDED
                 else -> {
                     val rowId = database.insertOrThrow(
                         OUTBOX_TABLE,
@@ -317,6 +319,78 @@ class AndroidActionResultOutbox(
         }
     }
 
+    /**
+     * Atomically verifies the recipient binding and exact result digest before deleting the live
+     * result. A bounded tombstone makes a valid duplicate ACK idempotent without weakening sender
+     * or digest checks.
+     */
+    @Synchronized
+    fun acknowledge(
+        recipientDeviceId: ByteArray,
+        recipientKeyId: ByteArray,
+        idempotencyKey: ByteArray,
+        resultSha256: ByteArray,
+        nowUnixMs: Long,
+    ): AcknowledgeResult {
+        validateIdentifier(recipientDeviceId, 16, "recipientDeviceId")
+        validateIdentifier(recipientKeyId, 32, "recipientKeyId")
+        validateIdentifier(idempotencyKey, 16, "idempotencyKey")
+        require(resultSha256.size == 32) { "resultSha256 must be 32 bytes" }
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            purgeExpired(database, nowUnixMs)
+            val existing = findBinding(database, recipientKeyId, idempotencyKey)
+            val result = if (existing != null) {
+                check(existing.recipientDeviceId.contentEquals(recipientDeviceId)) {
+                    "Result ACK sender does not match the outbox recipient"
+                }
+                val resultPayload = checkNotNull(existing.resultPayload) {
+                    "Result ACK cannot acknowledge an incomplete reservation"
+                }
+                check(MessageDigest.isEqual(sha256(resultPayload), resultSha256)) {
+                    "Result ACK digest does not match the durable result"
+                }
+                val deleted = database.delete(
+                    OUTBOX_TABLE,
+                    "rowid = ?",
+                    arrayOf(existing.rowId.toString()),
+                )
+                check(deleted == 1) { "Action result outbox entry disappeared" }
+                database.insertOrThrow(
+                    ACK_TABLE,
+                    null,
+                    ContentValues(5).apply {
+                        put(RECIPIENT_DEVICE_ID, recipientDeviceId.copyOf())
+                        put(RECIPIENT_KEY_ID, recipientKeyId.toHex())
+                        put(IDEMPOTENCY_KEY, idempotencyKey.toHex())
+                        put(RESULT_SHA256, resultSha256.copyOf())
+                        put(EXPIRES_AT, existing.expiresAtUnixMs)
+                    },
+                )
+                AcknowledgeResult.ACKNOWLEDGED
+            } else {
+                val acknowledged = findAcknowledged(database, recipientKeyId, idempotencyKey)
+                if (acknowledged == null) {
+                    AcknowledgeResult.UNKNOWN
+                } else {
+                    check(acknowledged.recipientDeviceId.contentEquals(recipientDeviceId)) {
+                        "Duplicate result ACK sender does not match"
+                    }
+                    check(MessageDigest.isEqual(acknowledged.resultSha256, resultSha256)) {
+                        "Duplicate result ACK digest does not match"
+                    }
+                    AcknowledgeResult.ALREADY_ACKNOWLEDGED
+                }
+            }
+            database.setTransactionSuccessful()
+            result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
     /** Allocates a persistent positive sequence for one recipient key. */
     fun allocateSequence(recipientKeyId: ByteArray): Long {
         validateIdentifier(recipientKeyId, 32, "recipientKeyId")
@@ -386,6 +460,27 @@ class AndroidActionResultOutbox(
             rowId = cursor.getLong(0),
             recipientDeviceId = cursor.getBlob(1).copyOf(),
             resultPayload = if (cursor.isNull(4)) null else cursor.getBlob(4).copyOf(),
+            expiresAtUnixMs = cursor.getLong(6),
+        )
+    }
+
+    private fun findAcknowledged(
+        database: SQLiteDatabase,
+        recipientKeyId: ByteArray,
+        idempotencyKey: ByteArray,
+    ): AcknowledgedEntry? = database.query(
+        ACK_TABLE,
+        arrayOf(RECIPIENT_DEVICE_ID, RESULT_SHA256),
+        "$RECIPIENT_KEY_ID = ? AND $IDEMPOTENCY_KEY = ?",
+        arrayOf(recipientKeyId.toHex(), idempotencyKey.toHex()),
+        null,
+        null,
+        null,
+        "1",
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) null else AcknowledgedEntry(
+            recipientDeviceId = cursor.getBlob(0).copyOf(),
+            resultSha256 = cursor.getBlob(1).copyOf(),
         )
     }
 
@@ -393,14 +488,24 @@ class AndroidActionResultOutbox(
         val rowId: Long,
         val recipientDeviceId: ByteArray,
         val resultPayload: ByteArray?,
+        val expiresAtUnixMs: Long,
+    )
+
+    private data class AcknowledgedEntry(
+        val recipientDeviceId: ByteArray,
+        val resultSha256: ByteArray,
     )
 
     private fun purgeExpired(database: SQLiteDatabase, nowUnixMs: Long) {
         database.delete(OUTBOX_TABLE, "$EXPIRES_AT <= ?", arrayOf(nowUnixMs.toString()))
+        database.delete(ACK_TABLE, "$EXPIRES_AT <= ?", arrayOf(nowUnixMs.toString()))
     }
 
-    private fun count(database: SQLiteDatabase): Long =
-        database.compileStatement("SELECT COUNT(*) FROM $OUTBOX_TABLE").use { it.simpleQueryForLong() }
+    private fun countRetainedEntries(database: SQLiteDatabase): Long =
+        database.compileStatement(
+            "SELECT (SELECT COUNT(*) FROM $OUTBOX_TABLE) + " +
+                "(SELECT COUNT(*) FROM $ACK_TABLE)",
+        ).use { it.simpleQueryForLong() }
 
     private fun validateIdentifier(value: ByteArray, size: Int, name: String) {
         require(value.size == size && value.any { it.toInt() != 0 }) {
@@ -431,10 +536,23 @@ class AndroidActionResultOutbox(
                     "$RECIPIENT_KEY_ID TEXT PRIMARY KEY, " +
                     "$NEXT_SEQUENCE INTEGER NOT NULL)",
             )
+            database.execSQL(
+                "CREATE TABLE IF NOT EXISTS $ACK_TABLE (" +
+                    "$RECIPIENT_DEVICE_ID BLOB NOT NULL, " +
+                    "$RECIPIENT_KEY_ID TEXT NOT NULL, " +
+                    "$IDEMPOTENCY_KEY TEXT NOT NULL, " +
+                    "$RESULT_SHA256 BLOB NOT NULL, " +
+                    "$EXPIRES_AT INTEGER NOT NULL, " +
+                    "PRIMARY KEY ($RECIPIENT_KEY_ID, $IDEMPOTENCY_KEY))",
+            )
+            database.execSQL(
+                "CREATE INDEX IF NOT EXISTS action_result_ack_expiry_idx " +
+                    "ON $ACK_TABLE ($EXPIRES_AT)",
+            )
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion == 1 && newVersion == 2) {
+            if (oldVersion == 1) {
                 database.execSQL("ALTER TABLE $OUTBOX_TABLE RENAME TO ${OUTBOX_TABLE}_v1")
                 database.execSQL("DROP INDEX action_result_due_idx")
                 onCreate(database)
@@ -449,16 +567,32 @@ class AndroidActionResultOutbox(
                 database.execSQL("DROP TABLE ${OUTBOX_TABLE}_v1")
                 return
             }
+            if (oldVersion == 2 && newVersion == 3) {
+                database.execSQL(
+                    "CREATE TABLE $ACK_TABLE (" +
+                        "$RECIPIENT_DEVICE_ID BLOB NOT NULL, " +
+                        "$RECIPIENT_KEY_ID TEXT NOT NULL, " +
+                        "$IDEMPOTENCY_KEY TEXT NOT NULL, " +
+                        "$RESULT_SHA256 BLOB NOT NULL, " +
+                        "$EXPIRES_AT INTEGER NOT NULL, " +
+                        "PRIMARY KEY ($RECIPIENT_KEY_ID, $IDEMPOTENCY_KEY))",
+                )
+                database.execSQL(
+                    "CREATE INDEX action_result_ack_expiry_idx ON $ACK_TABLE ($EXPIRES_AT)",
+                )
+                return
+            }
             throw IllegalStateException("Action result outbox migration missing: $oldVersion -> $newVersion")
         }
     }
 
     private companion object {
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
         const val DEFAULT_MAX_ENTRIES = 16_384
         const val RETENTION_MS = 30L * 24 * 60 * 60 * 1000
         const val OUTBOX_TABLE = "action_result_outbox"
         const val SEQUENCE_TABLE = "outbound_sequence"
+        const val ACK_TABLE = "action_result_acknowledgement"
         const val RECIPIENT_DEVICE_ID = "recipient_device_id"
         const val RECIPIENT_KEY_ID = "recipient_key_id"
         const val IDEMPOTENCY_KEY = "idempotency_key"
@@ -468,6 +602,9 @@ class AndroidActionResultOutbox(
         const val NEXT_ATTEMPT_AT = "next_attempt_at_unix_ms"
         const val ATTEMPT_COUNT = "attempt_count"
         const val NEXT_SEQUENCE = "next_sequence"
+        const val RESULT_SHA256 = "result_sha256"
+
+        fun sha256(value: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(value)
 
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
