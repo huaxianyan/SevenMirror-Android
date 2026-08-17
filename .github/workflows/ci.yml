@@ -19,6 +19,11 @@ jobs:
           java-version: '17'
           cache: gradle
       - uses: android-actions/setup-android@v3
+      - name: Verify project license
+        run: |
+          echo '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986  LICENSE' | sha256sum --check -
+          grep -Fq 'GPL-3.0-only' LICENSE-TRANSITION.md
+          grep -Fq 'fbfd370e11730d250d8d3dd6cc9fdfeebea7b0b7' LICENSE-TRANSITION.md
       - name: Verify protocol
         run: bash .github/scripts/gradle-step.sh verifyVendoredProtocol
       - name: Unit tests

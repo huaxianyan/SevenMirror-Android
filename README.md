@@ -49,4 +49,4 @@ The listener maintains notification/action capabilities only in process memory. 
 
 ## License
 
-MIT
+Current revisions are licensed under [`GPL-3.0-only`](LICENSE). Commercial use is permitted subject to GPLv3. See [`LICENSE-TRANSITION.md`](LICENSE-TRANSITION.md) for the exact non-retroactive MIT-to-GPL boundary; the boundary revision and its ancestors remain available under MIT.
