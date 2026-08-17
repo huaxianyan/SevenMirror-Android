@@ -100,6 +100,7 @@ private fun NotificationCapabilityScreen(
     var serverOrigin by remember { mutableStateOf("") }
     var pairingCode by remember { mutableStateOf("") }
     var deviceName by remember { mutableStateOf("Android") }
+    var rotationCode by remember { mutableStateOf("") }
     var registrationMessage by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
@@ -124,8 +125,22 @@ private fun NotificationCapabilityScreen(
                 onPairingCodeChanged = { pairingCode = it.take(32) },
                 deviceName = deviceName,
                 onDeviceNameChanged = { deviceName = it.take(100) },
+                rotationCode = rotationCode,
+                onRotationCodeChanged = { rotationCode = it.take(32) },
                 message = registrationMessage,
                 onReconnect = transportCoordinator::connect,
+                onRotate = {
+                    val oneTimeCode = rotationCode
+                    rotationCode = ""
+                    registrationMessage = "Credential rotation started; current remains until pending SNO1"
+                    transportCoordinator.rotateCredential(oneTimeCode) { requestConfirmed ->
+                        registrationMessage = if (requestConfirmed) {
+                            "Rotation request accepted; pending authentication must receive SNO1"
+                        } else {
+                            "Rotation was not confirmed; durable attempted state, if created, will probe pending then current"
+                        }
+                    }
+                },
                 onRegister = {
                     val oneTimeCode = pairingCode
                     pairingCode = ""
@@ -203,8 +218,11 @@ private fun TransportRegistrationCard(
     onPairingCodeChanged: (String) -> Unit,
     deviceName: String,
     onDeviceNameChanged: (String) -> Unit,
+    rotationCode: String,
+    onRotationCodeChanged: (String) -> Unit,
     message: String?,
     onReconnect: () -> Unit,
+    onRotate: () -> Unit,
     onRegister: () -> Unit,
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -245,6 +263,29 @@ private fun TransportRegistrationCard(
                         deviceName.isNotBlank(),
                 ) {
                     Text("Register this Android device")
+                }
+            }
+            if (state != AndroidTransportState.NOT_CONFIGURED &&
+                state != AndroidTransportState.REGISTERING
+            ) {
+                Text(
+                    "Rotation keeps current until pending receives authenticated SNO1. Interrupted retries reuse exact pending.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = rotationCode,
+                    onValueChange = onRotationCodeChanged,
+                    label = { Text("One-time credential rotation code") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = onRotate,
+                    enabled = rotationCode.length == 32 && state != AndroidTransportState.ROTATING,
+                ) {
+                    Text("Start recoverable credential rotation")
                 }
             }
             if (state == AndroidTransportState.OFFLINE) {

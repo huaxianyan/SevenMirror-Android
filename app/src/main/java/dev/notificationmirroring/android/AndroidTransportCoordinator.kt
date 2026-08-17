@@ -16,11 +16,14 @@ import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
 import dev.notificationmirroring.transport.BoundedReconnectBackoff
+import dev.notificationmirroring.transport.CredentialCandidateSource
 import dev.notificationmirroring.transport.DeviceRegistrationClient
+import dev.notificationmirroring.transport.TransportCredentialRotationClient
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,6 +37,7 @@ import okio.ByteString
 enum class AndroidTransportState {
     NOT_CONFIGURED,
     REGISTERING,
+    ROTATING,
     CONNECTING,
     ONLINE,
     OFFLINE,
@@ -51,6 +55,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val resultOutbox = AndroidActionResultOutbox(applicationContext)
     private val httpClient = OkHttpClient()
     private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
+    private val rotationClient = TransportCredentialRotationClient(httpClient, credentialStore)
     private val webSocketFactory = AuthenticatedWebSocketFactory(httpClient)
     private val executor = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "notification-transport").apply { isDaemon = true }
@@ -64,6 +69,7 @@ class AndroidTransportCoordinator(context: Context) {
     private var reconnectFuture: ScheduledFuture<*>? = null
     private var resultDrainFuture: ScheduledFuture<*>? = null
     private var terminalGeneration = Long.MIN_VALUE
+    private var preferCurrentFallback = false
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
 
@@ -138,22 +144,59 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
+    fun rotateCredential(rotationCode: String, completed: (Boolean) -> Unit) {
+        val requestedGeneration = generation.incrementAndGet()
+        mutableState.value = AndroidTransportState.ROTATING
+        executor.execute {
+            cancelReconnect()
+            reconnectBackoff.reset()
+            webSocket?.close(1000, "replaced by credential rotation")
+            webSocket = null
+            var requestConfirmed = false
+            try {
+                rotationClient.rotate(rotationCode)
+                requestConfirmed = true
+            } catch (_: Throwable) {
+                // An interrupted request may already have committed server-side. Durable attempted
+                // state is resolved by pending authentication, never by assuming request failure.
+            }
+            try {
+                credentialStore.loadRotation()?.let { rotation ->
+                    rotation.current.authToken.fill(0)
+                    rotation.pendingAuthToken.fill(0)
+                }
+            } catch (_: Throwable) {
+                mutableState.value = AndroidTransportState.SECURITY_ERROR
+            }
+            if (mutableState.value != AndroidTransportState.SECURITY_ERROR &&
+                generation.get() == requestedGeneration
+            ) {
+                // Malformed/preparation failures safely restore current; attempted state probes
+                // pending first. Neither path invents a replacement credential.
+                connectInternal(requestedGeneration)
+            }
+            mainHandler.post { completed(requestConfirmed) }
+        }
+    }
+
     private fun connectInternal(requestedGeneration: Long) {
         if (generation.get() != requestedGeneration) return
         terminalGeneration = Long.MIN_VALUE
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
-        val credential = try {
-            credentialStore.load()
+        val candidate = try {
+            credentialStore.loadConnectionCandidate(preferCurrentFallback)
         } catch (_: Throwable) {
             mutableState.value = AndroidTransportState.SECURITY_ERROR
             return
         }
-        if (credential == null) {
+        if (candidate == null) {
             reconnectBackoff.reset()
             mutableState.value = AndroidTransportState.NOT_CONFIGURED
             return
         }
+        val credential = candidate.credential
+        val credentialSource = candidate.source
         try {
             val identity = checkNotNull(identityStore.loadExisting()) {
                 "Transport credential exists without its bound E2EE identity"
@@ -188,18 +231,34 @@ class AndroidTransportCoordinator(context: Context) {
             }
             if (generation.get() != requestedGeneration) return
             mutableState.value = AndroidTransportState.CONNECTING
+            val receivedSno1 = AtomicBoolean(false)
             val socket = webSocketFactory.open(
                 credential,
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
+                        receivedSno1.set(true)
                         executor.execute {
-                            if (generation.get() == requestedGeneration) {
+                            if (generation.get() != requestedGeneration) {
+                                webSocket.close(1000, "superseded connection")
+                                return@execute
+                            }
+                            try {
+                                if (credentialSource == CredentialCandidateSource.PENDING) {
+                                    credentialStore.promotePending().authToken.fill(0)
+                                }
+                                preferCurrentFallback = false
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, resultDrainer)
-                            } else {
-                                webSocket.close(1000, "superseded connection")
+                            } catch (_: Throwable) {
+                                terminalGeneration = requestedGeneration
+                                cancelResultDrain()
+                                if (this@AndroidTransportCoordinator.webSocket === webSocket) {
+                                    this@AndroidTransportCoordinator.webSocket = null
+                                }
+                                mutableState.value = AndroidTransportState.SECURITY_ERROR
+                                webSocket.close(1008, "pending credential promotion failed")
                             }
                         }
                     }
@@ -231,7 +290,12 @@ class AndroidTransportCoordinator(context: Context) {
                     }
 
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        enqueueTermination(requestedGeneration, webSocket)
+                        enqueueTermination(
+                            requestedGeneration,
+                            webSocket,
+                            credentialSource,
+                            receivedSno1.get(),
+                        )
                     }
 
                     override fun onFailure(
@@ -239,7 +303,12 @@ class AndroidTransportCoordinator(context: Context) {
                         error: Throwable,
                         response: Response?,
                     ) {
-                        enqueueTermination(requestedGeneration, webSocket)
+                        enqueueTermination(
+                            requestedGeneration,
+                            webSocket,
+                            credentialSource,
+                            receivedSno1.get(),
+                        )
                     }
                 },
             )
@@ -273,7 +342,12 @@ class AndroidTransportCoordinator(context: Context) {
         socket.close(1008, "encrypted envelope rejected")
     }
 
-    private fun enqueueTermination(requestedGeneration: Long, socket: WebSocket) {
+    private fun enqueueTermination(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        credentialSource: CredentialCandidateSource = CredentialCandidateSource.CURRENT,
+        receivedSno1: Boolean = true,
+    ) {
         executor.execute {
             if (generation.get() != requestedGeneration ||
                 terminalGeneration == requestedGeneration
@@ -281,6 +355,9 @@ class AndroidTransportCoordinator(context: Context) {
                 return@execute
             }
             terminalGeneration = requestedGeneration
+            if (!receivedSno1) {
+                preferCurrentFallback = credentialSource == CredentialCandidateSource.PENDING
+            }
             cancelResultDrain()
             if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
