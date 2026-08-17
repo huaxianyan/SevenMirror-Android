@@ -45,6 +45,8 @@ The server repository is the canonical protocol source. This repository vendors 
 
 ## Security status
 
+Debug builds may trust a CA explicitly installed by the device user so physical-device non-loopback HTTPS/WSS can be validated against a private development PKI. This exception is expressed through Android Network Security Configuration `debug-overrides`; non-debuggable release builds do not trust user-added CAs and continue to require a system-trusted server certificate. Cleartext remains denied outside the existing explicit loopback domains.
+
 The listener maintains notification/action capabilities only in process memory. The authenticated transport now serializes inbound envelopes through active-route checks, immutable approved-peer pins, Auth HPKE, replay/operation ledgers, execute-once, pre-execution result reservation, and bounded encrypted result draining. Any inbound rejection enters `SECURITY_ERROR`. There is still no production approved-peer provisioning, so an unapproved sender cannot reach HPKE, replay, or action execution; registration and transport remain synthetic-only. Socket failures use jittered exponential retry from 1 to 60 seconds; duplicate terminal callbacks are collapsed per connection generation, successful `SNO1` resets the sequence, and Android network availability triggers an immediate fresh attempt. Persistent credential/identity failures remain `SECURITY_ERROR` and are not retried as network failures. Real notification content must not be transmitted until approval, revocation/rotation, offline convergence, and security-review gates pass. Cleartext transport is denied globally except explicit loopback development origins.
 
 ## License
