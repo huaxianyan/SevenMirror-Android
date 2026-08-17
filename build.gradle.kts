@@ -45,6 +45,10 @@ tasks.register("verifyVendoredProtocol") {
         )
         verify("protocol/device-auth-frame-v1.md", "protocol/DEVICE_AUTH_SPEC_SHA256")
         verify(
+            "protocol/transport-heartbeat-v1.md",
+            "protocol/TRANSPORT_HEARTBEAT_SPEC_SHA256",
+        )
+        verify(
             "protocol/test-vectors/device-auth-frame-v1.json",
             "protocol/DEVICE_AUTH_VECTOR_SHA256",
         )
