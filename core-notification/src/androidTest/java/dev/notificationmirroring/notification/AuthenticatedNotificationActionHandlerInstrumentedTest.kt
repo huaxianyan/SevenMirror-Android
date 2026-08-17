@@ -13,6 +13,7 @@ import android.service.notification.StatusBarNotification
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.ByteString
+import dev.notificationmirroring.crypto.ActionResultAckRejectedException
 import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
@@ -121,7 +122,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
 
             val durableResult = outbox.due(now).single().resultPayload
             val exactAckFrame = ackFrame(
-                14,
+                15,
                 ByteArray(16) { 0xb2.toByte() },
                 sha256(durableResult),
                 now,
@@ -139,6 +140,27 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             // Pin rejection occurs before HPKE/replay acceptance, so explicit reapproval permits
             // this same envelope exactly once without having deleted its bound result.
             trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
+            val wrongDigest = assertThrows(ActionResultAckRejectedException::class.java) {
+                dispatcher.receiveAnyOnce(
+                    ackFrame(
+                        14,
+                        ByteArray(16) { 0xb2.toByte() },
+                        ByteArray(32) { 7 },
+                        now,
+                        workspace,
+                        recipientDevice,
+                        sender,
+                        recipient,
+                    ),
+                    now,
+                )
+            }
+            assertEquals(
+                ActionResultAckRejectedException.Code.RESULT_DIGEST_MISMATCH,
+                wrongDigest.code,
+            )
+            assertEquals(1, outbox.snapshot(now).completedResults)
+
             val ackReceipt = dispatcher.receiveAnyOnce(exactAckFrame, now)
             assertTrue(ackReceipt is AuthenticatedInboundReceipt.ResultAck)
             assertEquals(0, outbox.snapshot(now).completedResults)
