@@ -24,8 +24,8 @@ class AuthenticatedActionResultAckReceiverInstrumentedTest {
     fun exactAckDeletesResultAndDuplicateRemainsIdempotentAcrossRecreation() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val name = "result-ack-${System.nanoTime()}"
-        val replay = AndroidReplayLedger(context, name)
-        val operations = AndroidOperationLedger(context, name)
+        var replay = AndroidReplayLedger(context, name)
+        var operations = AndroidOperationLedger(context, name)
         var outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val chrome = AuthenticatedHpke.generateKeyPair()
@@ -53,6 +53,14 @@ class AuthenticatedActionResultAckReceiverInstrumentedTest {
                 AndroidActionResultOutbox.EnqueueResult.ENQUEUED,
                 outbox.enqueue(chromeDevice, chromeKeyId, resultPayload, now),
             )
+
+            // Simulate Android process death after result persistence but before ACK receipt.
+            replay.close()
+            operations.close()
+            outbox.close()
+            replay = AndroidReplayLedger(context, name)
+            operations = AndroidOperationLedger(context, name)
+            outbox = AndroidActionResultOutbox(context, name)
 
             assertEquals(
                 AndroidActionResultOutbox.AcknowledgeResult.ACKNOWLEDGED,

@@ -120,19 +120,26 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             assertEquals(1, ActionSideEffectReceiver.count.get())
 
             val durableResult = outbox.due(now).single().resultPayload
-            val ackReceipt = dispatcher.receiveAnyOnce(
-                ackFrame(
-                    14,
-                    ByteArray(16) { 0xb2.toByte() },
-                    sha256(durableResult),
-                    now,
-                    workspace,
-                    recipientDevice,
-                    sender,
-                    recipient,
-                ),
+            val exactAckFrame = ackFrame(
+                14,
+                ByteArray(16) { 0xb2.toByte() },
+                sha256(durableResult),
                 now,
+                workspace,
+                recipientDevice,
+                sender,
+                recipient,
             )
+            trustedPeers.remove(workspace, ByteArray(16) { 2 })
+            assertThrows(ActionSenderNotApprovedException::class.java) {
+                dispatcher.receiveAnyOnce(exactAckFrame, now)
+            }
+            assertEquals(1, outbox.snapshot(now).completedResults)
+
+            // Pin rejection occurs before HPKE/replay acceptance, so explicit reapproval permits
+            // this same envelope exactly once without having deleted its bound result.
+            trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
+            val ackReceipt = dispatcher.receiveAnyOnce(exactAckFrame, now)
             assertTrue(ackReceipt is AuthenticatedInboundReceipt.ResultAck)
             assertEquals(0, outbox.snapshot(now).completedResults)
 
