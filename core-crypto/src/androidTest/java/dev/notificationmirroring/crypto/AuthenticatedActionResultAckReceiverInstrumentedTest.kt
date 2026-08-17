@@ -75,6 +75,7 @@ class AuthenticatedActionResultAckReceiverInstrumentedTest {
                 ),
             )
             assertEquals(0, outbox.snapshot(now).reservations)
+            assertEquals(1, outbox.snapshot(now).acknowledgedResults)
             outbox.close()
             outbox = AndroidActionResultOutbox(context, name)
 
@@ -91,6 +92,7 @@ class AuthenticatedActionResultAckReceiverInstrumentedTest {
                 ),
             )
             assertEquals(0, outbox.snapshot(now + 1).reservations)
+            assertEquals(1, outbox.snapshot(now + 1).acknowledgedResults)
         } finally {
             replay.clear()
             operations.clear()

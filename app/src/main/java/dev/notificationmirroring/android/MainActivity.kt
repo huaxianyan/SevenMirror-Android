@@ -175,6 +175,7 @@ private fun NotificationCapabilityScreen(
                         "Result outbox: reservations=${snapshot.reservations}, " +
                             "completed=${snapshot.completedResults}, due=${snapshot.dueResults}, " +
                             "dormant=${snapshot.dormantResults}, " +
+                            "acknowledged=${snapshot.acknowledgedResults}, " +
                             "accepted sends=${snapshot.acceptedSendAttempts}",
                     )
                 },

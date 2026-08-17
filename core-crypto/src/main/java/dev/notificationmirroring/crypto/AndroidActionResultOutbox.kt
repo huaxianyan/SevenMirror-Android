@@ -24,6 +24,7 @@ class AndroidActionResultOutbox(
         val completedResults: Int,
         val dueResults: Int,
         val dormantResults: Int,
+        val acknowledgedResults: Int,
         val acceptedSendAttempts: Int,
     )
 
@@ -260,7 +261,8 @@ class AndroidActionResultOutbox(
                     "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL THEN 1 ELSE 0 END), " +
                     "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL AND $NEXT_ATTEMPT_AT <= ? THEN 1 ELSE 0 END), " +
                     "SUM(CASE WHEN $RESULT_PAYLOAD IS NOT NULL AND $NEXT_ATTEMPT_AT >= $EXPIRES_AT THEN 1 ELSE 0 END), " +
-                    "COALESCE(SUM($ATTEMPT_COUNT), 0) FROM $OUTBOX_TABLE",
+                    "COALESCE(SUM($ATTEMPT_COUNT), 0), " +
+                    "(SELECT COUNT(*) FROM $ACK_TABLE) FROM $OUTBOX_TABLE",
                 arrayOf(nowUnixMs.toString()),
             ).use { cursor ->
                 check(cursor.moveToFirst()) { "Unable to read action result outbox snapshot" }
@@ -270,6 +272,7 @@ class AndroidActionResultOutbox(
                     dueResults = cursor.getInt(2),
                     dormantResults = cursor.getInt(3),
                     acceptedSendAttempts = cursor.getInt(4),
+                    acknowledgedResults = cursor.getInt(5),
                 )
             }
             database.setTransactionSuccessful()
