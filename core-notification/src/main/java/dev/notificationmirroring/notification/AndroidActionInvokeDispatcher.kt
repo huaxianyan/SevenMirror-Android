@@ -137,6 +137,11 @@ class AndroidActionInvokeDispatcher(
         if (!condition) throw EnvelopeRejectedException(code)
     }
 
+    @Synchronized
+    fun clearIdentity() {
+        recipientIdentity.privateKey.fill(0)
+    }
+
     private fun sha256(value: ByteArray): ByteArray =
         MessageDigest.getInstance("SHA-256").digest(value)
 }

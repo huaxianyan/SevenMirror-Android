@@ -12,9 +12,14 @@ import dev.notificationmirroring.crypto.AndroidLocalIdentityTransitionStore
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
+import dev.notificationmirroring.crypto.IdentityTransitionAckOutboxDrainer
+import dev.notificationmirroring.crypto.IdentityTransitionCommitOutboxDrainer
+import dev.notificationmirroring.crypto.IdentityTransitionDispatcher
+import dev.notificationmirroring.crypto.IdentityTransitionDispatchResult
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
 import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
+import dev.notificationmirroring.storage.IdentityPromotionResult
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
@@ -78,6 +83,7 @@ class AndroidTransportCoordinator(context: Context) {
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
     private var resultDrainFuture: ScheduledFuture<*>? = null
+    private var identityTransitionDrainFuture: ScheduledFuture<*>? = null
     private var terminalGeneration = Long.MIN_VALUE
     private var preferCurrentFallback = false
 
@@ -210,38 +216,71 @@ class AndroidTransportCoordinator(context: Context) {
         val credential = candidate.credential
         val credentialSource = candidate.source
         try {
-            val identity = checkNotNull(identityStore.loadExisting()) {
+            val identityRotation = identityStore.loadRotation()
+            val identity = identityRotation?.current ?: checkNotNull(identityStore.loadExisting()) {
                 "Transport credential exists without its bound E2EE identity"
             }
-            val (dispatcher, resultDrainer) = try {
+            val handlers = try {
                 val keyId = MessageDigest.getInstance("SHA-256").digest(identity.publicKey)
                 check(constantTimeEquals(keyId, credential.identityKeyId)) {
                     "Transport credential E2EE identity binding does not match"
                 }
-                Pair(
-                    AndroidActionInvokeDispatcher(
-                        context = applicationContext,
+                val actionDispatcher = AndroidActionInvokeDispatcher(
+                    context = applicationContext,
+                    workspaceId = credential.workspaceId,
+                    recipientDeviceId = credential.deviceId,
+                    recipientIdentity = identity,
+                    trustedPeers = trustedPeerStore,
+                    replayLedger = replayLedger,
+                    operationLedger = operationLedger,
+                    resultOutbox = resultOutbox,
+                )
+                ConnectionHandlers(
+                    identityDispatcher = IdentityTransitionDispatcher(
                         workspaceId = credential.workspaceId,
                         recipientDeviceId = credential.deviceId,
-                        recipientIdentity = identity,
+                        currentIdentity = identity,
+                        pendingIdentity = identityRotation?.pending,
                         trustedPeers = trustedPeerStore,
+                        localTransitions = localIdentityTransitionStore,
                         replayLedger = replayLedger,
-                        operationLedger = operationLedger,
-                        resultOutbox = resultOutbox,
-                    ),
-                    ActionResultOutboxDrainer(
+                    ) { frame, nowUnixMs ->
+                        actionDispatcher.receiveAnyOnce(frame, nowUnixMs)
+                    },
+                    resultDrainer = ActionResultOutboxDrainer(
                         workspaceId = credential.workspaceId,
                         senderDeviceId = credential.deviceId,
                         senderIdentity = identity,
                         trustedPeers = trustedPeerStore,
                         outbox = resultOutbox,
                     ),
+                    identityAckDrainer = IdentityTransitionAckOutboxDrainer(
+                        workspaceId = credential.workspaceId,
+                        senderDeviceId = credential.deviceId,
+                        senderIdentity = identity,
+                        transportIdentityKeyId = credential.identityKeyId,
+                        trustedPeers = trustedPeerStore,
+                    ),
+                    identityCommitDrainer = IdentityTransitionCommitOutboxDrainer(
+                        workspaceId = credential.workspaceId,
+                        senderDeviceId = credential.deviceId,
+                        currentIdentity = identity,
+                        pendingIdentity = identityRotation?.pending,
+                        transportIdentityKeyId = credential.identityKeyId,
+                        localTransitions = localIdentityTransitionStore,
+                        trustedPeers = trustedPeerStore,
+                    ),
                 )
             } finally {
                 identity.publicKey.fill(0)
                 identity.privateKey.fill(0)
+                identityRotation?.pending?.publicKey?.fill(0)
+                identityRotation?.pending?.privateKey?.fill(0)
             }
-            if (generation.get() != requestedGeneration) return
+            if (generation.get() != requestedGeneration) {
+                handlers.clearIdentities()
+                return
+            }
             mutableState.value = AndroidTransportState.CONNECTING
             val receivedSno1 = AtomicBoolean(false)
             val socket = webSocketFactory.open(
@@ -262,10 +301,13 @@ class AndroidTransportCoordinator(context: Context) {
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
                                 cancelResultDrain()
-                                drainResults(requestedGeneration, webSocket, resultDrainer)
+                                cancelIdentityTransitionDrain()
+                                drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
+                                drainIdentityTransitions(requestedGeneration, webSocket, handlers)
                             } catch (_: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
+                                cancelIdentityTransitionDrain()
                                 if (this@AndroidTransportCoordinator.webSocket === webSocket) {
                                     this@AndroidTransportCoordinator.webSocket = null
                                 }
@@ -289,10 +331,38 @@ class AndroidTransportCoordinator(context: Context) {
                                 return@execute
                             }
                             try {
-                                dispatcher.receiveAnyOnce(frame, System.currentTimeMillis())
-                                // Execution returns only after the exact result is durable.
-                                cancelResultDrain()
-                                drainResults(requestedGeneration, webSocket, resultDrainer)
+                                when (handlers.identityDispatcher.receive(
+                                    frame,
+                                    System.currentTimeMillis(),
+                                )) {
+                                    IdentityTransitionDispatchResult.BUSINESS_FALLBACK -> {
+                                        // Execution returns only after the exact result is durable.
+                                        cancelResultDrain()
+                                        drainResults(
+                                            requestedGeneration,
+                                            webSocket,
+                                            handlers.resultDrainer,
+                                        )
+                                    }
+                                    IdentityTransitionDispatchResult.PEER_TRANSITION -> {
+                                        cancelIdentityTransitionDrain()
+                                        drainIdentityTransitions(requestedGeneration, webSocket, handlers)
+                                    }
+                                    IdentityTransitionDispatchResult.LOCAL_ACK -> {
+                                        val promotion = identityPromotionCoordinator.promoteReady()
+                                        if (promotion == IdentityPromotionResult.PROMOTED ||
+                                            promotion == IdentityPromotionResult.RECOVERED
+                                        ) {
+                                            handlers.clearIdentities()
+                                            webSocket.close(1000, "identity promotion completed")
+                                            connect()
+                                            return@execute
+                                        }
+                                        cancelIdentityTransitionDrain()
+                                        drainIdentityTransitions(requestedGeneration, webSocket, handlers)
+                                    }
+                                    IdentityTransitionDispatchResult.PEER_COMMIT -> Unit
+                                }
                             } catch (_: Throwable) {
                                 rejectInbound(requestedGeneration, webSocket)
                             } finally {
@@ -307,6 +377,7 @@ class AndroidTransportCoordinator(context: Context) {
                             webSocket,
                             credentialSource,
                             receivedSno1.get(),
+                            handlers,
                         )
                     }
 
@@ -320,11 +391,13 @@ class AndroidTransportCoordinator(context: Context) {
                             webSocket,
                             credentialSource,
                             receivedSno1.get(),
+                            handlers,
                         )
                     }
                 },
             )
             if (generation.get() != requestedGeneration) {
+                handlers.clearIdentities()
                 socket.close(1000, "superseded connection")
                 return
             }
@@ -349,6 +422,7 @@ class AndroidTransportCoordinator(context: Context) {
         }
         terminalGeneration = requestedGeneration
         cancelResultDrain()
+        cancelIdentityTransitionDrain()
         if (webSocket === socket) webSocket = null
         mutableState.value = AndroidTransportState.SECURITY_ERROR
         socket.close(1008, "encrypted envelope rejected")
@@ -359,8 +433,10 @@ class AndroidTransportCoordinator(context: Context) {
         socket: WebSocket,
         credentialSource: CredentialCandidateSource = CredentialCandidateSource.CURRENT,
         receivedSno1: Boolean = true,
+        handlers: ConnectionHandlers? = null,
     ) {
         executor.execute {
+            handlers?.clearIdentities()
             if (generation.get() != requestedGeneration ||
                 terminalGeneration == requestedGeneration
             ) {
@@ -371,6 +447,7 @@ class AndroidTransportCoordinator(context: Context) {
                 preferCurrentFallback = credentialSource == CredentialCandidateSource.PENDING
             }
             cancelResultDrain()
+            cancelIdentityTransitionDrain()
             if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
@@ -409,6 +486,52 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
+    private fun drainIdentityTransitions(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        handlers: ConnectionHandlers,
+    ) {
+        if (generation.get() != requestedGeneration || webSocket !== socket) return
+        val nowUnixMs = System.currentTimeMillis()
+        val ackResult = try {
+            handlers.identityAckDrainer.drainDue(nowUnixMs) { frame ->
+                socket.send(ByteString.of(*frame))
+            }
+        } catch (_: Throwable) {
+            rejectInbound(requestedGeneration, socket)
+            return
+        }
+        val commitResult = try {
+            handlers.identityCommitDrainer.drainDue(nowUnixMs) { frame ->
+                socket.send(ByteString.of(*frame))
+            }
+        } catch (_: Throwable) {
+            rejectInbound(requestedGeneration, socket)
+            return
+        }
+        if (ackResult.attemptedEntries > ackResult.acceptedSends ||
+            commitResult.attemptedEntries > commitResult.acceptedSends
+        ) {
+            socket.cancel()
+            enqueueTermination(requestedGeneration, socket)
+            return
+        }
+        val nextWakeDelayMs = listOfNotNull(
+            ackResult.nextWakeDelayMs,
+            commitResult.nextWakeDelayMs,
+        ).minOrNull()
+        if (nextWakeDelayMs != null && identityTransitionDrainFuture == null) {
+            identityTransitionDrainFuture = executor.schedule(
+                {
+                    identityTransitionDrainFuture = null
+                    drainIdentityTransitions(requestedGeneration, socket, handlers)
+                },
+                nextWakeDelayMs,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
     private fun scheduleReconnect(requestedGeneration: Long) {
         if (generation.get() != requestedGeneration || reconnectFuture != null) return
         val delayMs = reconnectBackoff.nextDelayMs()
@@ -428,11 +551,31 @@ class AndroidTransportCoordinator(context: Context) {
         reconnectFuture?.cancel(false)
         reconnectFuture = null
         cancelResultDrain()
+        cancelIdentityTransitionDrain()
     }
 
     private fun cancelResultDrain() {
         resultDrainFuture?.cancel(false)
         resultDrainFuture = null
+    }
+
+    private fun cancelIdentityTransitionDrain() {
+        identityTransitionDrainFuture?.cancel(false)
+        identityTransitionDrainFuture = null
+    }
+
+    private data class ConnectionHandlers(
+        val identityDispatcher: IdentityTransitionDispatcher,
+        val resultDrainer: ActionResultOutboxDrainer,
+        val identityAckDrainer: IdentityTransitionAckOutboxDrainer,
+        val identityCommitDrainer: IdentityTransitionCommitOutboxDrainer,
+    ) {
+        fun clearIdentities() {
+            identityDispatcher.clear()
+            resultDrainer.clearIdentity()
+            identityAckDrainer.clearIdentity()
+            identityCommitDrainer.clearIdentities()
+        }
     }
 
     private fun stateAfterRegistrationFailure(): AndroidTransportState = try {

@@ -110,6 +110,12 @@ class IdentityTransitionCommitOutboxDrainer(
         return DrainResult(accepted, attempted, nextWakeDelayMs)
     }
 
+    @Synchronized
+    fun clearIdentities() {
+        currentIdentity.privateKey.fill(0)
+        pendingIdentity?.privateKey?.fill(0)
+    }
+
     private fun nextMessageId(): ByteArray = ByteArray(16).also { value ->
         do {
             random.nextBytes(value)

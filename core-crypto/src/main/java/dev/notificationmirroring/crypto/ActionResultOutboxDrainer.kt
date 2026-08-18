@@ -94,6 +94,11 @@ class ActionResultOutboxDrainer(
         )
     }
 
+    @Synchronized
+    fun clearIdentity() {
+        senderIdentity.privateKey.fill(0)
+    }
+
     private fun nextMessageId(): ByteArray = ByteArray(16).also { value ->
         do {
             random.nextBytes(value)
