@@ -162,6 +162,13 @@ class AndroidTrustedPeerStoreInstrumentedTest {
                 accepted.state.expiresAtUnixMs,
             )!!
             assertEquals(AndroidTrustedPeerStore.TransitionPhase.BLOCKED, blocked.phase)
+            assertEquals(
+                emptyList<AndroidTrustedPeerStore.PeerIdentityTransitionState>(),
+                store.dueIdentityTransitionAcks(
+                    workspaceId,
+                    accepted.state.expiresAtUnixMs,
+                ),
+            )
             assertArrayEquals(
                 previousPublicKey,
                 store.findApproved(workspaceId, deviceId, previousKeyId),

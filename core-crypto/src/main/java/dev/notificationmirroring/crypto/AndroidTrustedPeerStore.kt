@@ -32,6 +32,8 @@ class AndroidTrustedPeerStore(
         val ackSha256: ByteArray,
         val acceptedAtUnixMs: Long,
         val expiresAtUnixMs: Long,
+        val nextAckAttemptAtUnixMs: Long,
+        val ackAttemptCount: Int,
         val phase: TransitionPhase,
     )
 
@@ -153,6 +155,8 @@ class AndroidTrustedPeerStore(
             ackSha256 = sha256(canonicalAck),
             acceptedAtUnixMs = nowUnixMs,
             expiresAtUnixMs = Math.addExact(nowUnixMs, IDENTITY_TRANSITION_RETENTION_MS),
+            nextAckAttemptAtUnixMs = nowUnixMs,
+            ackAttemptCount = 0,
             phase = TransitionPhase.PENDING_COMMIT,
         )
         val database = helper.writableDatabase
@@ -180,9 +184,18 @@ class AndroidTrustedPeerStore(
                 check(sameAcceptedTransition(existing, proposed)) {
                     "A different identity successor is already pending for this peer"
                 }
+                val reactivated = if (
+                    existing.ackAttemptCount != 0 || existing.nextAckAttemptAtUnixMs > nowUnixMs
+                ) {
+                    existing.copy(nextAckAttemptAtUnixMs = nowUnixMs, ackAttemptCount = 0).also {
+                        updateAckSchedule(database, it)
+                    }
+                } else {
+                    existing
+                }
                 AcceptedPeerIdentityTransition(
                     TransitionResult.ALREADY_ACCEPTED,
-                    existing.copyState(),
+                    reactivated.copyState(),
                 )
             }
             database.setTransactionSuccessful()
@@ -215,6 +228,129 @@ class AndroidTrustedPeerStore(
             }
             database.setTransactionSuccessful()
             state?.copyState()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun dueIdentityTransitionAcks(
+        workspaceId: ByteArray,
+        nowUnixMs: Long,
+        limit: Int = 16,
+    ): List<PeerIdentityTransitionState> {
+        validateIdentifier(workspaceId, "workspaceId")
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        require(limit in 1..128) { "limit must be 1..128" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            blockExpiredTransitions(database, nowUnixMs)
+            val values = database.query(
+                TRANSITION_TABLE,
+                TRANSITION_COLUMNS,
+                "$WORKSPACE_ID = ? AND $PHASE = ? AND $NEXT_ACK_ATTEMPT_AT <= ?",
+                arrayOf(
+                    workspaceId.toHex(),
+                    TransitionPhase.PENDING_COMMIT.name,
+                    nowUnixMs.toString(),
+                ),
+                null,
+                null,
+                "$NEXT_ACK_ATTEMPT_AT ASC, $DEVICE_ID ASC",
+                limit.toString(),
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        val state = transitionFromCursor(cursor)
+                        validateTransitionState(state)
+                        validateTransitionCryptography(state)
+                        add(state.copyState())
+                    }
+                }
+            }
+            database.setTransactionSuccessful()
+            values
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun recordIdentityTransitionAckSendAttempt(
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+        transitionId: ByteArray,
+        ackSha256: ByteArray,
+        nextAttemptAtUnixMs: Long,
+        maximumAttempts: Int = 5,
+    ) {
+        validateIdentifier(workspaceId, "workspaceId")
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateIdentifier(transitionId, "transitionId")
+        validateKeyId(ackSha256)
+        require(nextAttemptAtUnixMs >= 0) { "nextAttemptAtUnixMs must be non-negative" }
+        require(maximumAttempts > 0) { "maximumAttempts must be positive" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        try {
+            val state = findTransition(database, workspaceId, peerDeviceId)
+            if (state != null) {
+                validateTransitionState(state)
+                check(
+                    MessageDigest.isEqual(state.transitionId, transitionId) &&
+                        MessageDigest.isEqual(state.ackSha256, ackSha256),
+                ) { "Identity transition ACK attempt binding changed" }
+                if (state.phase == TransitionPhase.PENDING_COMMIT) {
+                    val attemptCount = state.ackAttemptCount + 1
+                    updateAckSchedule(
+                        database,
+                        state.copy(
+                            nextAckAttemptAtUnixMs = if (attemptCount >= maximumAttempts) {
+                                state.expiresAtUnixMs
+                            } else {
+                                minOf(nextAttemptAtUnixMs, state.expiresAtUnixMs)
+                            },
+                            ackAttemptCount = attemptCount,
+                        ),
+                    )
+                }
+            }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun allocateIdentityTransitionSequence(recipientKeyId: ByteArray): Long {
+        validateKeyId(recipientKeyId)
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val key = recipientKeyId.toHex()
+            val current = database.query(
+                TRANSITION_SEQUENCE_TABLE,
+                arrayOf(NEXT_SEQUENCE),
+                "$NEW_KEY_ID = ?",
+                arrayOf(key),
+                null,
+                null,
+                null,
+                "1",
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 1L }
+            check(current in 1 until Long.MAX_VALUE) { "Identity transition sequence exhausted" }
+            database.insertWithOnConflict(
+                TRANSITION_SEQUENCE_TABLE,
+                null,
+                ContentValues(2).apply {
+                    put(NEW_KEY_ID, key)
+                    put(NEXT_SEQUENCE, current + 1)
+                },
+                SQLiteDatabase.CONFLICT_REPLACE,
+            ).also { check(it != -1L) { "Unable to persist identity transition sequence" } }
+            database.setTransactionSuccessful()
+            current
         } finally {
             database.endTransaction()
         }
@@ -278,19 +414,7 @@ class AndroidTrustedPeerStore(
         peerDeviceId: ByteArray,
     ): PeerIdentityTransitionState? = database.query(
         TRANSITION_TABLE,
-        arrayOf(
-            TRANSITION_ID,
-            PREVIOUS_KEY_ID,
-            NEW_KEY_ID,
-            NEW_PUBLIC_KEY,
-            CANONICAL_TRANSITION,
-            TRANSITION_SHA256,
-            CANONICAL_ACK,
-            ACK_SHA256,
-            ACCEPTED_AT,
-            EXPIRES_AT,
-            PHASE,
-        ),
+        TRANSITION_COLUMNS,
         "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
         arrayOf(workspaceId.toHex(), peerDeviceId.toHex()),
         null,
@@ -298,26 +422,31 @@ class AndroidTrustedPeerStore(
         null,
         "1",
     ).use { cursor ->
-        if (!cursor.moveToFirst()) null else PeerIdentityTransitionState(
-            workspaceId = workspaceId.copyOf(),
-            peerDeviceId = peerDeviceId.copyOf(),
-            transitionId = cursor.getBlob(0).copyOf(),
-            previousKeyId = cursor.getBlob(1).copyOf(),
-            newKeyId = cursor.getBlob(2).copyOf(),
-            newPublicKey = cursor.getBlob(3).copyOf(),
-            canonicalTransition = cursor.getBlob(4).copyOf(),
-            transitionSha256 = cursor.getBlob(5).copyOf(),
-            canonicalAck = cursor.getBlob(6).copyOf(),
-            ackSha256 = cursor.getBlob(7).copyOf(),
-            acceptedAtUnixMs = cursor.getLong(8),
-            expiresAtUnixMs = cursor.getLong(9),
+        if (!cursor.moveToFirst()) null else transitionFromCursor(cursor)
+    }
+
+    private fun transitionFromCursor(cursor: android.database.Cursor): PeerIdentityTransitionState =
+        PeerIdentityTransitionState(
+            workspaceId = cursor.getString(0).hexToBytes(),
+            peerDeviceId = cursor.getString(1).hexToBytes(),
+            transitionId = cursor.getBlob(2).copyOf(),
+            previousKeyId = cursor.getBlob(3).copyOf(),
+            newKeyId = cursor.getBlob(4).copyOf(),
+            newPublicKey = cursor.getBlob(5).copyOf(),
+            canonicalTransition = cursor.getBlob(6).copyOf(),
+            transitionSha256 = cursor.getBlob(7).copyOf(),
+            canonicalAck = cursor.getBlob(8).copyOf(),
+            ackSha256 = cursor.getBlob(9).copyOf(),
+            acceptedAtUnixMs = cursor.getLong(10),
+            expiresAtUnixMs = cursor.getLong(11),
+            nextAckAttemptAtUnixMs = cursor.getLong(12),
+            ackAttemptCount = cursor.getInt(13),
             phase = try {
-                TransitionPhase.valueOf(cursor.getString(10))
+                TransitionPhase.valueOf(cursor.getString(14))
             } catch (error: IllegalArgumentException) {
                 throw IllegalStateException("Stored identity transition phase is invalid", error)
             },
         )
-    }
 
     private fun insertTransition(
         database: SQLiteDatabase,
@@ -326,7 +455,7 @@ class AndroidTrustedPeerStore(
         database.insertOrThrow(
             TRANSITION_TABLE,
             null,
-            ContentValues(13).apply {
+            ContentValues(15).apply {
                 put(WORKSPACE_ID, state.workspaceId.toHex())
                 put(DEVICE_ID, state.peerDeviceId.toHex())
                 put(TRANSITION_ID, state.transitionId.copyOf())
@@ -339,8 +468,36 @@ class AndroidTrustedPeerStore(
                 put(ACK_SHA256, state.ackSha256.copyOf())
                 put(ACCEPTED_AT, state.acceptedAtUnixMs)
                 put(EXPIRES_AT, state.expiresAtUnixMs)
+                put(NEXT_ACK_ATTEMPT_AT, state.nextAckAttemptAtUnixMs)
+                put(ACK_ATTEMPT_COUNT, state.ackAttemptCount)
                 put(PHASE, state.phase.name)
             },
+        )
+    }
+
+    private fun updateAckSchedule(
+        database: SQLiteDatabase,
+        state: PeerIdentityTransitionState,
+    ) {
+        check(
+            database.update(
+                TRANSITION_TABLE,
+                ContentValues(2).apply {
+                    put(NEXT_ACK_ATTEMPT_AT, state.nextAckAttemptAtUnixMs)
+                    put(ACK_ATTEMPT_COUNT, state.ackAttemptCount)
+                },
+                "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+                arrayOf(state.workspaceId.toHex(), state.peerDeviceId.toHex()),
+            ) == 1,
+        ) { "Identity transition disappeared before ACK schedule update" }
+    }
+
+    private fun blockExpiredTransitions(database: SQLiteDatabase, nowUnixMs: Long) {
+        database.update(
+            TRANSITION_TABLE,
+            ContentValues(1).apply { put(PHASE, TransitionPhase.BLOCKED.name) },
+            "$PHASE = ? AND $EXPIRES_AT <= ?",
+            arrayOf(TransitionPhase.PENDING_COMMIT.name, nowUnixMs.toString()),
         )
     }
 
@@ -370,6 +527,12 @@ class AndroidTrustedPeerStore(
         validateKeyId(state.ackSha256)
         AuthenticatedHpke.requireValidPublicKey(state.newPublicKey)
         check(state.acceptedAtUnixMs >= 0) { "Stored identity transition acceptance is invalid" }
+        check(state.nextAckAttemptAtUnixMs >= 0) {
+            "Stored identity transition ACK attempt time is invalid"
+        }
+        check(state.ackAttemptCount >= 0) {
+            "Stored identity transition ACK attempt count is invalid"
+        }
         check(
             state.expiresAtUnixMs == Math.addExact(
                 state.acceptedAtUnixMs,
@@ -456,17 +619,33 @@ class AndroidTrustedPeerStore(
                     "PRIMARY KEY ($WORKSPACE_ID, $DEVICE_ID))",
             )
             createTransitionTable(database)
+            createTransitionSequenceTable(database)
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            if (oldVersion == 1 && newVersion == 2) {
-                createTransitionTable(database)
-                return
+            var version = oldVersion
+            if (version == 1) {
+                createTransitionTableV2(database)
+                version = 2
             }
-            throw IllegalStateException("Trusted peer migration missing: $oldVersion -> $newVersion")
+            if (version == 2) {
+                database.execSQL("ALTER TABLE $TRANSITION_TABLE ADD COLUMN $NEXT_ACK_ATTEMPT_AT INTEGER")
+                database.execSQL(
+                    "ALTER TABLE $TRANSITION_TABLE ADD COLUMN $ACK_ATTEMPT_COUNT INTEGER NOT NULL DEFAULT 0",
+                )
+                database.execSQL(
+                    "UPDATE $TRANSITION_TABLE SET $NEXT_ACK_ATTEMPT_AT = $ACCEPTED_AT " +
+                        "WHERE $NEXT_ACK_ATTEMPT_AT IS NULL",
+                )
+                createTransitionSequenceTable(database)
+                version = 3
+            }
+            if (version != newVersion) {
+                throw IllegalStateException("Trusted peer migration missing: $oldVersion -> $newVersion")
+            }
         }
 
-        private fun createTransitionTable(database: SQLiteDatabase) {
+        private fun createTransitionTableV2(database: SQLiteDatabase) {
             database.execSQL(
                 "CREATE TABLE $TRANSITION_TABLE (" +
                     "$WORKSPACE_ID TEXT NOT NULL, " +
@@ -485,14 +664,45 @@ class AndroidTrustedPeerStore(
                     "PRIMARY KEY ($WORKSPACE_ID, $DEVICE_ID))",
             )
         }
+
+        private fun createTransitionSequenceTable(database: SQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE $TRANSITION_SEQUENCE_TABLE (" +
+                    "$NEW_KEY_ID TEXT PRIMARY KEY, " +
+                    "$NEXT_SEQUENCE INTEGER NOT NULL)",
+            )
+        }
+
+        private fun createTransitionTable(database: SQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE $TRANSITION_TABLE (" +
+                    "$WORKSPACE_ID TEXT NOT NULL, " +
+                    "$DEVICE_ID TEXT NOT NULL, " +
+                    "$TRANSITION_ID BLOB NOT NULL, " +
+                    "$PREVIOUS_KEY_ID BLOB NOT NULL, " +
+                    "$NEW_KEY_ID BLOB NOT NULL, " +
+                    "$NEW_PUBLIC_KEY BLOB NOT NULL, " +
+                    "$CANONICAL_TRANSITION BLOB NOT NULL, " +
+                    "$TRANSITION_SHA256 BLOB NOT NULL, " +
+                    "$CANONICAL_ACK BLOB NOT NULL, " +
+                    "$ACK_SHA256 BLOB NOT NULL, " +
+                    "$ACCEPTED_AT INTEGER NOT NULL, " +
+                    "$EXPIRES_AT INTEGER NOT NULL, " +
+                    "$NEXT_ACK_ATTEMPT_AT INTEGER NOT NULL, " +
+                    "$ACK_ATTEMPT_COUNT INTEGER NOT NULL, " +
+                    "$PHASE TEXT NOT NULL, " +
+                    "PRIMARY KEY ($WORKSPACE_ID, $DEVICE_ID))",
+            )
+        }
     }
 
     private companion object {
-        const val DATABASE_VERSION = 2
+        const val DATABASE_VERSION = 3
         const val IDENTIFIER_BYTES = 16
         const val KEY_ID_BYTES = 32
         const val TABLE = "approved_peer"
         const val TRANSITION_TABLE = "peer_identity_transition"
+        const val TRANSITION_SEQUENCE_TABLE = "identity_transition_sequence"
         const val WORKSPACE_ID = "workspace_id"
         const val DEVICE_ID = "device_id"
         const val KEY_ID = "key_id"
@@ -507,11 +717,38 @@ class AndroidTrustedPeerStore(
         const val ACK_SHA256 = "ack_sha256"
         const val ACCEPTED_AT = "accepted_at_unix_ms"
         const val EXPIRES_AT = "expires_at_unix_ms"
+        const val NEXT_ACK_ATTEMPT_AT = "next_ack_attempt_at_unix_ms"
+        const val ACK_ATTEMPT_COUNT = "ack_attempt_count"
         const val PHASE = "phase"
+        const val NEXT_SEQUENCE = "next_sequence"
         const val IDENTITY_TRANSITION_RETENTION_MS = 7L * 24 * 60 * 60 * 1_000
+        val TRANSITION_COLUMNS = arrayOf(
+            WORKSPACE_ID,
+            DEVICE_ID,
+            TRANSITION_ID,
+            PREVIOUS_KEY_ID,
+            NEW_KEY_ID,
+            NEW_PUBLIC_KEY,
+            CANONICAL_TRANSITION,
+            TRANSITION_SHA256,
+            CANONICAL_ACK,
+            ACK_SHA256,
+            ACCEPTED_AT,
+            EXPIRES_AT,
+            NEXT_ACK_ATTEMPT_AT,
+            ACK_ATTEMPT_COUNT,
+            PHASE,
+        )
 
         fun sha256(value: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(value)
 
         fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+        fun String.hexToBytes(): ByteArray {
+            check(length % 2 == 0) { "Stored hex value has invalid length" }
+            return ByteArray(length / 2) { index ->
+                substring(index * 2, index * 2 + 2).toInt(16).toByte()
+            }
+        }
     }
 }
