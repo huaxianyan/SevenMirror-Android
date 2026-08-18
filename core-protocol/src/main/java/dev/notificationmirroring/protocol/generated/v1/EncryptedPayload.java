@@ -26,6 +26,9 @@ public  final class EncryptedPayload extends
     ACTION_INVOKE(10),
     ACTION_RESULT(11),
     ACTION_RESULT_ACK(12),
+    IDENTITY_KEY_TRANSITION(13),
+    IDENTITY_KEY_TRANSITION_ACK(14),
+    IDENTITY_KEY_TRANSITION_COMMIT(15),
     BODY_NOT_SET(0);
     private final int value;
     private BodyCase(int value) {
@@ -44,6 +47,9 @@ public  final class EncryptedPayload extends
         case 10: return ACTION_INVOKE;
         case 11: return ACTION_RESULT;
         case 12: return ACTION_RESULT_ACK;
+        case 13: return IDENTITY_KEY_TRANSITION;
+        case 14: return IDENTITY_KEY_TRANSITION_ACK;
+        case 15: return IDENTITY_KEY_TRANSITION_COMMIT;
         case 0: return BODY_NOT_SET;
         default: return null;
       }
@@ -242,6 +248,162 @@ public  final class EncryptedPayload extends
    */
   private void clearActionResultAck() {
     if (bodyCase_ == 12) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int IDENTITY_KEY_TRANSITION_FIELD_NUMBER = 13;
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   */
+  @java.lang.Override
+  public boolean hasIdentityKeyTransition() {
+    return bodyCase_ == 13;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition getIdentityKeyTransition() {
+    if (bodyCase_ == 13) {
+       return (dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setIdentityKeyTransition(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 13;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeIdentityKeyTransition(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 13 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.newBuilder((dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 13;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   */
+  private void clearIdentityKeyTransition() {
+    if (bodyCase_ == 13) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int IDENTITY_KEY_TRANSITION_ACK_FIELD_NUMBER = 14;
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   */
+  @java.lang.Override
+  public boolean hasIdentityKeyTransitionAck() {
+    return bodyCase_ == 14;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck getIdentityKeyTransitionAck() {
+    if (bodyCase_ == 14) {
+       return (dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setIdentityKeyTransitionAck(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 14;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeIdentityKeyTransitionAck(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 14 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.newBuilder((dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 14;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   */
+  private void clearIdentityKeyTransitionAck() {
+    if (bodyCase_ == 14) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int IDENTITY_KEY_TRANSITION_COMMIT_FIELD_NUMBER = 15;
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   */
+  @java.lang.Override
+  public boolean hasIdentityKeyTransitionCommit() {
+    return bodyCase_ == 15;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit getIdentityKeyTransitionCommit() {
+    if (bodyCase_ == 15) {
+       return (dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setIdentityKeyTransitionCommit(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 15;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeIdentityKeyTransitionCommit(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 15 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.newBuilder((dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 15;
+  }
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   */
+  private void clearIdentityKeyTransitionCommit() {
+    if (bodyCase_ == 15) {
       bodyCase_ = 0;
       body_ = null;
     }
@@ -533,6 +695,150 @@ public  final class EncryptedPayload extends
       return this;
     }
 
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    @java.lang.Override
+    public boolean hasIdentityKeyTransition() {
+      return instance.hasIdentityKeyTransition();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition getIdentityKeyTransition() {
+      return instance.getIdentityKeyTransition();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    public Builder setIdentityKeyTransition(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition value) {
+      copyOnWrite();
+      instance.setIdentityKeyTransition(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    public Builder setIdentityKeyTransition(
+        dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.Builder builderForValue) {
+      copyOnWrite();
+      instance.setIdentityKeyTransition(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    public Builder mergeIdentityKeyTransition(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition value) {
+      copyOnWrite();
+      instance.mergeIdentityKeyTransition(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+     */
+    public Builder clearIdentityKeyTransition() {
+      copyOnWrite();
+      instance.clearIdentityKeyTransition();
+      return this;
+    }
+
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    @java.lang.Override
+    public boolean hasIdentityKeyTransitionAck() {
+      return instance.hasIdentityKeyTransitionAck();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck getIdentityKeyTransitionAck() {
+      return instance.getIdentityKeyTransitionAck();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    public Builder setIdentityKeyTransitionAck(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck value) {
+      copyOnWrite();
+      instance.setIdentityKeyTransitionAck(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    public Builder setIdentityKeyTransitionAck(
+        dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.Builder builderForValue) {
+      copyOnWrite();
+      instance.setIdentityKeyTransitionAck(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    public Builder mergeIdentityKeyTransitionAck(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck value) {
+      copyOnWrite();
+      instance.mergeIdentityKeyTransitionAck(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+     */
+    public Builder clearIdentityKeyTransitionAck() {
+      copyOnWrite();
+      instance.clearIdentityKeyTransitionAck();
+      return this;
+    }
+
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    @java.lang.Override
+    public boolean hasIdentityKeyTransitionCommit() {
+      return instance.hasIdentityKeyTransitionCommit();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit getIdentityKeyTransitionCommit() {
+      return instance.getIdentityKeyTransitionCommit();
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    public Builder setIdentityKeyTransitionCommit(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit value) {
+      copyOnWrite();
+      instance.setIdentityKeyTransitionCommit(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    public Builder setIdentityKeyTransitionCommit(
+        dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.Builder builderForValue) {
+      copyOnWrite();
+      instance.setIdentityKeyTransitionCommit(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    public Builder mergeIdentityKeyTransitionCommit(dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit value) {
+      copyOnWrite();
+      instance.mergeIdentityKeyTransitionCommit(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+     */
+    public Builder clearIdentityKeyTransitionCommit() {
+      copyOnWrite();
+      instance.clearIdentityKeyTransitionCommit();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.EncryptedPayload)
   }
   @java.lang.Override
@@ -555,10 +861,13 @@ public  final class EncryptedPayload extends
             dev.notificationmirroring.protocol.generated.v1.ActionInvoke.class,
             dev.notificationmirroring.protocol.generated.v1.ActionResult.class,
             dev.notificationmirroring.protocol.generated.v1.ActionResultAck.class,
+            dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.class,
+            dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.class,
+            dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.class,
           };
           java.lang.String info =
-              "\u0000\u0004\u0001\u0000\u0001\f\u0004\u0000\u0000\u0000\u0001\u000b\n<\u0000\u000b" +
-              "<\u0000\f<\u0000";
+              "\u0000\u0007\u0001\u0000\u0001\u000f\u0007\u0000\u0000\u0000\u0001\u000b\n<\u0000" +
+              "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

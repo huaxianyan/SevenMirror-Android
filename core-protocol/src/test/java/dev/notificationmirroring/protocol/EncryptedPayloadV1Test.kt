@@ -6,6 +6,9 @@ import dev.notificationmirroring.protocol.generated.v1.ActionResult
 import dev.notificationmirroring.protocol.generated.v1.ActionResultAck
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -13,6 +16,7 @@ import org.junit.Test
 
 class EncryptedPayloadV1Test {
     private val vector = Vector.load()
+    private val identityVector = IdentityVector.load()
 
     @Test
     fun matchesCanonicalCrossPlatformVector() {
@@ -75,6 +79,87 @@ class EncryptedPayloadV1Test {
     }
 
     @Test
+    fun matchesCanonicalIdentityKeyTransitionVector() {
+        val transition = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+            .setIdentityKeyTransition(
+                IdentityKeyTransition.newBuilder()
+                    .setTransitionId(ByteString.copyFrom(identityVector.transitionId))
+                    .setPreviousKeyId(ByteString.copyFrom(identityVector.previousKeyId))
+                    .setNewPublicKey(ByteString.copyFrom(identityVector.newPublicKey))
+                    .setNewKeyId(ByteString.copyFrom(identityVector.newKeyId)),
+            )
+            .build()
+        assertArrayEquals(identityVector.transitionEncoded, EncryptedPayloadCodecV1.encode(transition))
+        EncryptedPayloadCodecV1.decode(identityVector.transitionEncoded)
+
+        val ack = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+            .setIdentityKeyTransitionAck(
+                IdentityKeyTransitionAck.newBuilder()
+                    .setTransitionId(ByteString.copyFrom(identityVector.transitionId))
+                    .setPreviousKeyId(ByteString.copyFrom(identityVector.previousKeyId))
+                    .setNewKeyId(ByteString.copyFrom(identityVector.newKeyId))
+                    .setTransitionSha256(ByteString.copyFrom(identityVector.transitionSha256)),
+            )
+            .build()
+        assertArrayEquals(identityVector.ackEncoded, EncryptedPayloadCodecV1.encode(ack))
+
+        val commit = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+            .setIdentityKeyTransitionCommit(
+                IdentityKeyTransitionCommit.newBuilder()
+                    .setTransitionId(ByteString.copyFrom(identityVector.transitionId))
+                    .setPreviousKeyId(ByteString.copyFrom(identityVector.previousKeyId))
+                    .setNewKeyId(ByteString.copyFrom(identityVector.newKeyId))
+                    .setTransitionSha256(ByteString.copyFrom(identityVector.transitionSha256))
+                    .setAckSha256(ByteString.copyFrom(identityVector.ackSha256)),
+            )
+            .build()
+        assertArrayEquals(identityVector.commitEncoded, EncryptedPayloadCodecV1.encode(commit))
+    }
+
+    @Test
+    fun rejectsInvalidIdentityTransitionAndSchemaMismatch() {
+        val valid = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+            .setIdentityKeyTransition(
+                IdentityKeyTransition.newBuilder()
+                    .setTransitionId(ByteString.copyFrom(identityVector.transitionId))
+                    .setPreviousKeyId(ByteString.copyFrom(identityVector.previousKeyId))
+                    .setNewPublicKey(ByteString.copyFrom(identityVector.newPublicKey))
+                    .setNewKeyId(ByteString.copyFrom(identityVector.newKeyId)),
+            )
+            .build()
+        listOf(
+            valid.toBuilder().setSchemaVersion(1).build(),
+            valid.toBuilder().setIdentityKeyTransition(
+                valid.identityKeyTransition.toBuilder().setTransitionId(ByteString.copyFrom(ByteArray(16))),
+            ).build(),
+            valid.toBuilder().setIdentityKeyTransition(
+                valid.identityKeyTransition.toBuilder().setNewKeyId(valid.identityKeyTransition.previousKeyId),
+            ).build(),
+            valid.toBuilder().setIdentityKeyTransition(
+                valid.identityKeyTransition.toBuilder().setNewPublicKey(
+                    ByteString.copyFrom(identityVector.newPublicKey.copyOf().also { it[0] = 5 }),
+                ),
+            ).build(),
+            valid.toBuilder().setIdentityKeyTransition(
+                valid.identityKeyTransition.toBuilder().setNewKeyId(
+                    ByteString.copyFrom(identityVector.newKeyId.copyOf().also { it[0] = (it[0].toInt() xor 0xff).toByte() }),
+                ),
+            ).build(),
+        ).forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) {
+                EncryptedPayloadCodecV1.encode(invalid)
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.encode(validPayload().toBuilder().setSchemaVersion(2).build())
+        }
+    }
+
+    @Test
     fun rejectsDuplicateUnknownAndInvalidSemanticFields() {
         val valid = vector.encoded
         listOf(
@@ -105,6 +190,35 @@ class EncryptedPayloadV1Test {
                 .setReplyText("acknowledged"),
         )
         .build()
+
+    private class IdentityVector(private val json: String) {
+        val transitionId: ByteArray get() = hex("transitionIdHex")
+        val previousKeyId: ByteArray get() = hex("previousKeyIdHex")
+        val newPublicKey: ByteArray get() = hex("newPublicKeyHex")
+        val newKeyId: ByteArray get() = hex("newKeyIdHex")
+        val transitionEncoded: ByteArray get() = hex("transitionEncodedHex")
+        val transitionSha256: ByteArray get() = hex("transitionSha256Hex")
+        val ackEncoded: ByteArray get() = hex("ackEncodedHex")
+        val ackSha256: ByteArray get() = hex("ackSha256Hex")
+        val commitEncoded: ByteArray get() = hex("commitEncodedHex")
+
+        private fun hex(name: String): ByteArray {
+            val value = Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")
+                .find(json)?.groupValues?.get(1)
+                ?: error("Missing $name")
+            return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+        }
+
+        companion object {
+            fun load(): IdentityVector {
+                val stream = requireNotNull(
+                    EncryptedPayloadV1Test::class.java.classLoader
+                        ?.getResourceAsStream("e2ee-identity-key-transition-v1.json"),
+                )
+                return IdentityVector(stream.bufferedReader().use { it.readText() })
+            }
+        }
+    }
 
     private class Vector(private val json: String) {
         val encoded: ByteArray get() = hex("encodedHex")

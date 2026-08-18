@@ -48,5 +48,38 @@ public interface EncryptedPayloadOrBuilder extends
    */
   dev.notificationmirroring.protocol.generated.v1.ActionResultAck getActionResultAck();
 
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   * @return Whether the identityKeyTransition field is set.
+   */
+  boolean hasIdentityKeyTransition();
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransition identity_key_transition = 13 [json_name = "identityKeyTransition"];</code>
+   * @return The identityKeyTransition.
+   */
+  dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition getIdentityKeyTransition();
+
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   * @return Whether the identityKeyTransitionAck field is set.
+   */
+  boolean hasIdentityKeyTransitionAck();
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionAck identity_key_transition_ack = 14 [json_name = "identityKeyTransitionAck"];</code>
+   * @return The identityKeyTransitionAck.
+   */
+  dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck getIdentityKeyTransitionAck();
+
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   * @return Whether the identityKeyTransitionCommit field is set.
+   */
+  boolean hasIdentityKeyTransitionCommit();
+  /**
+   * <code>.notification.mirroring.v1.IdentityKeyTransitionCommit identity_key_transition_commit = 15 [json_name = "identityKeyTransitionCommit"];</code>
+   * @return The identityKeyTransitionCommit.
+   */
+  dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit getIdentityKeyTransitionCommit();
+
   public dev.notificationmirroring.protocol.generated.v1.EncryptedPayload.BodyCase getBodyCase();
 }

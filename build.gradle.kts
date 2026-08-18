@@ -53,6 +53,14 @@ tasks.register("verifyVendoredProtocol") {
             "protocol/TRANSPORT_CREDENTIAL_ROTATION_SPEC_SHA256",
         )
         verify(
+            "protocol/e2ee-identity-key-transition-v1.md",
+            "protocol/E2EE_IDENTITY_TRANSITION_SPEC_SHA256",
+        )
+        verify(
+            "protocol/test-vectors/e2ee-identity-key-transition-v1.json",
+            "protocol/E2EE_IDENTITY_TRANSITION_VECTOR_SHA256",
+        )
+        verify(
             "protocol/test-vectors/device-auth-frame-v1.json",
             "protocol/DEVICE_AUTH_VECTOR_SHA256",
         )

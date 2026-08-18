@@ -6,15 +6,22 @@ import dev.notificationmirroring.protocol.generated.v1.ActionResult
 import dev.notificationmirroring.protocol.generated.v1.ActionResultAck
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import java.math.BigInteger
+import java.security.MessageDigest
 
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 1
+    const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_REPLY_TEXT_BYTES = 4_000
     const val MAX_RESULT_DETAIL_BYTES = 256
     const val IDENTIFIER_SIZE = 16
     const val SHA256_SIZE = 32
+    const val P256_PUBLIC_KEY_SIZE = 65
     const val MAX_NOTIFICATION_REVISION = Long.MAX_VALUE
 
     fun encode(payload: EncryptedPayload): ByteArray {
@@ -40,13 +47,31 @@ object EncryptedPayloadCodecV1 {
     }
 
     fun validate(payload: EncryptedPayload) {
-        require(payload.schemaVersion == SCHEMA_VERSION) {
-            "Unsupported encrypted payload schema version"
-        }
         when (payload.bodyCase) {
-            EncryptedPayload.BodyCase.ACTION_INVOKE -> validateAction(payload.actionInvoke)
-            EncryptedPayload.BodyCase.ACTION_RESULT -> validateResult(payload.actionResult)
-            EncryptedPayload.BodyCase.ACTION_RESULT_ACK -> validateResultAck(payload.actionResultAck)
+            EncryptedPayload.BodyCase.ACTION_INVOKE -> {
+                requireSchema(payload, SCHEMA_VERSION)
+                validateAction(payload.actionInvoke)
+            }
+            EncryptedPayload.BodyCase.ACTION_RESULT -> {
+                requireSchema(payload, SCHEMA_VERSION)
+                validateResult(payload.actionResult)
+            }
+            EncryptedPayload.BodyCase.ACTION_RESULT_ACK -> {
+                requireSchema(payload, SCHEMA_VERSION)
+                validateResultAck(payload.actionResultAck)
+            }
+            EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION -> {
+                requireSchema(payload, IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+                validateIdentityKeyTransition(payload.identityKeyTransition)
+            }
+            EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_ACK -> {
+                requireSchema(payload, IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+                validateIdentityKeyTransitionAck(payload.identityKeyTransitionAck)
+            }
+            EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_COMMIT -> {
+                requireSchema(payload, IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+                validateIdentityKeyTransitionCommit(payload.identityKeyTransitionCommit)
+            }
             else -> throw IllegalArgumentException(
                 "Exactly one supported encrypted payload body is required",
             )
@@ -94,7 +119,80 @@ object EncryptedPayloadCodecV1 {
         }
     }
 
-    // protobuf-javalite intentionally hides unknown fields. Scan the small v1
+    private fun requireSchema(payload: EncryptedPayload, expected: Int) {
+        require(payload.schemaVersion == expected) {
+            "Encrypted payload schema version does not match body"
+        }
+    }
+
+    private fun validateIdentityKeyTransition(transition: IdentityKeyTransition) {
+        validateTransitionBinding(
+            transition.transitionId.toByteArray(),
+            transition.previousKeyId.toByteArray(),
+            transition.newKeyId.toByteArray(),
+        )
+        val publicKey = transition.newPublicKey.toByteArray()
+        validateP256PublicKey(publicKey)
+        require(
+            MessageDigest.getInstance("SHA-256").digest(publicKey)
+                .contentEquals(transition.newKeyId.toByteArray()),
+        ) { "New identity key id must equal SHA-256 of public key" }
+    }
+
+    private fun validateIdentityKeyTransitionAck(ack: IdentityKeyTransitionAck) {
+        validateTransitionBinding(
+            ack.transitionId.toByteArray(),
+            ack.previousKeyId.toByteArray(),
+            ack.newKeyId.toByteArray(),
+        )
+        validateNonZeroSha256(ack.transitionSha256.toByteArray(), "Transition SHA-256")
+    }
+
+    private fun validateIdentityKeyTransitionCommit(commit: IdentityKeyTransitionCommit) {
+        validateTransitionBinding(
+            commit.transitionId.toByteArray(),
+            commit.previousKeyId.toByteArray(),
+            commit.newKeyId.toByteArray(),
+        )
+        validateNonZeroSha256(commit.transitionSha256.toByteArray(), "Transition SHA-256")
+        validateNonZeroSha256(commit.ackSha256.toByteArray(), "Transition acknowledgement SHA-256")
+    }
+
+    private fun validateTransitionBinding(
+        transitionId: ByteArray,
+        previousKeyId: ByteArray,
+        newKeyId: ByteArray,
+    ) {
+        require(transitionId.size == IDENTIFIER_SIZE && transitionId.any { it.toInt() != 0 }) {
+            "Transition id must be a non-zero 16-byte value"
+        }
+        validateNonZeroSha256(previousKeyId, "Previous identity key id")
+        validateNonZeroSha256(newKeyId, "New identity key id")
+        require(!previousKeyId.contentEquals(newKeyId)) {
+            "New identity key must differ from previous key"
+        }
+    }
+
+    private fun validateNonZeroSha256(value: ByteArray, name: String) {
+        require(value.size == SHA256_SIZE && value.any { it.toInt() != 0 }) {
+            "$name must be a non-zero 32-byte value"
+        }
+    }
+
+    private fun validateP256PublicKey(value: ByteArray) {
+        require(value.size == P256_PUBLIC_KEY_SIZE && value[0] == 4.toByte()) {
+            "New identity public key must be an uncompressed P-256 point"
+        }
+        val x = BigInteger(1, value.copyOfRange(1, 33))
+        val y = BigInteger(1, value.copyOfRange(33, 65))
+        require(
+            x < P256_P && y < P256_P &&
+                y.modPow(TWO, P256_P) == x.modPow(THREE, P256_P)
+                .subtract(THREE.multiply(x)).add(P256_B).mod(P256_P),
+        ) { "New identity public key must be a valid P-256 point" }
+    }
+
+    // protobuf-javalite intentionally hides unknown fields. Scan the small v1/v2
     // wire schema first so unsupported and duplicate fields fail closed.
     private fun validateWireFields(encoded: ByteArray, message: WireMessage) {
         val input = CodedInputStream.newInstance(encoded)
@@ -107,6 +205,9 @@ object EncryptedPayloadCodecV1 {
                     82 -> { validateWireFields(input.readByteArray(), WireMessage.ACTION_INVOKE); 2 }
                     90 -> { validateWireFields(input.readByteArray(), WireMessage.ACTION_RESULT); 4 }
                     98 -> { validateWireFields(input.readByteArray(), WireMessage.ACTION_RESULT_ACK); 8 }
+                    106 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION); 16 }
+                    114 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION_ACK); 32 }
+                    122 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION_COMMIT); 64 }
                     else -> invalidWireField()
                 }
                 WireMessage.ACTION_INVOKE -> when (tag) {
@@ -128,6 +229,22 @@ object EncryptedPayloadCodecV1 {
                     18 -> { input.readByteArray(); 2 }
                     else -> invalidWireField()
                 }
+                WireMessage.IDENTITY_KEY_TRANSITION,
+                WireMessage.IDENTITY_KEY_TRANSITION_ACK -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    18 -> { input.readByteArray(); 2 }
+                    26 -> { input.readByteArray(); 4 }
+                    34 -> { input.readByteArray(); 8 }
+                    else -> invalidWireField()
+                }
+                WireMessage.IDENTITY_KEY_TRANSITION_COMMIT -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    18 -> { input.readByteArray(); 2 }
+                    26 -> { input.readByteArray(); 4 }
+                    34 -> { input.readByteArray(); 8 }
+                    42 -> { input.readByteArray(); 16 }
+                    else -> invalidWireField()
+                }
             }
             require(seen and bit == 0) { "Encrypted payload contains a duplicate field" }
             seen = seen or bit
@@ -137,5 +254,18 @@ object EncryptedPayloadCodecV1 {
     private fun invalidWireField(): Nothing =
         throw IllegalArgumentException("Encrypted payload contains an unknown field")
 
-    private enum class WireMessage { TOP_LEVEL, ACTION_INVOKE, ACTION_RESULT, ACTION_RESULT_ACK }
+    private enum class WireMessage {
+        TOP_LEVEL,
+        ACTION_INVOKE,
+        ACTION_RESULT,
+        ACTION_RESULT_ACK,
+        IDENTITY_KEY_TRANSITION,
+        IDENTITY_KEY_TRANSITION_ACK,
+        IDENTITY_KEY_TRANSITION_COMMIT,
+    }
+
+    private val TWO = BigInteger.valueOf(2)
+    private val THREE = BigInteger.valueOf(3)
+    private val P256_P = BigInteger("ffffffff00000001000000000000000000000000ffffffffffffffffffffffff", 16)
+    private val P256_B = BigInteger("5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b", 16)
 }
