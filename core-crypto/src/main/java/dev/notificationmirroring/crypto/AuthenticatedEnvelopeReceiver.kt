@@ -54,6 +54,11 @@ data class AcceptedPeerIdentityTransitionEnvelope(
     val accepted: AndroidTrustedPeerStore.AcceptedPeerIdentityTransition,
 )
 
+data class AcceptedLocalIdentityAckEnvelope(
+    val header: RoutingHeaderV1,
+    val accepted: AndroidLocalIdentityTransitionStore.AcceptedAck,
+)
+
 /**
  * Returns plaintext only after HPKE authentication and an atomic accepted
  * replay-ledger write, so callers cannot apply a side effect in the wrong order.
@@ -106,6 +111,53 @@ object AuthenticatedEnvelopeReceiver {
         )
         consumeReplay(opened.header, replayLedger, nowUnixMs)
         return AcceptedPeerIdentityTransitionEnvelope(opened.header, accepted)
+    }
+
+    /** Persists the exact ACK and derived commit before replay consumption. */
+    fun receivePendingIdentityAckOnce(
+        frameBytes: ByteArray,
+        context: EnvelopeRecipientContext,
+        localTransitions: AndroidLocalIdentityTransitionStore,
+        replayLedger: AndroidReplayLedger,
+        nowUnixMs: Long,
+    ): AcceptedLocalIdentityAckEnvelope {
+        val opened = authenticateAndOpen(frameBytes, context, nowUnixMs)
+        val binding = localTransitions.expectedAckBinding(
+            opened.header.senderDeviceId,
+            nowUnixMs,
+        ) ?: reject(EnvelopeRejectedException.Code.TRANSITION_BINDING_MISMATCH)
+        rejectUnless(
+            constantTimeEquals(binding.workspaceId, opened.header.workspaceId) &&
+                constantTimeEquals(binding.localDeviceId, opened.header.recipientDeviceId) &&
+                constantTimeEquals(binding.senderKeyId, opened.header.senderKeyId) &&
+                constantTimeEquals(binding.newKeyId, opened.header.recipientKeyId),
+            EnvelopeRejectedException.Code.TRANSITION_BINDING_MISMATCH,
+        )
+        val payload = try {
+            EncryptedPayloadCodecV1.decode(opened.plaintext)
+        } catch (_: Exception) {
+            reject(EnvelopeRejectedException.Code.PENDING_IDENTITY_PAYLOAD_MISMATCH)
+        }
+        rejectUnless(
+            payload.bodyCase == EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_ACK,
+            EnvelopeRejectedException.Code.PENDING_IDENTITY_PAYLOAD_MISMATCH,
+        )
+        val ack = payload.identityKeyTransitionAck
+        rejectUnless(
+            constantTimeEquals(ack.transitionId.toByteArray(), binding.transitionId) &&
+                constantTimeEquals(ack.previousKeyId.toByteArray(), binding.previousKeyId) &&
+                constantTimeEquals(ack.newKeyId.toByteArray(), binding.newKeyId) &&
+                constantTimeEquals(ack.transitionSha256.toByteArray(), binding.transitionSha256),
+            EnvelopeRejectedException.Code.TRANSITION_BINDING_MISMATCH,
+        )
+        val accepted = localTransitions.acceptAck(
+            opened.header.senderDeviceId,
+            opened.header.senderKeyId,
+            opened.plaintext,
+            nowUnixMs,
+        )
+        consumeReplay(opened.header, replayLedger, nowUnixMs)
+        return AcceptedLocalIdentityAckEnvelope(opened.header, accepted)
     }
 
     /**
