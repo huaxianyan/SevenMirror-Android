@@ -11,6 +11,7 @@ import dev.notificationmirroring.protocol.RoutingHeaderV1
 import dev.notificationmirroring.protocol.generated.v1.ActionResult
 import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import org.bouncycastle.crypto.InvalidCipherTextException
@@ -88,6 +89,115 @@ class AuthenticatedEnvelopeReceiverInstrumentedTest {
             assertEquals(EnvelopeRejectedException.Code.DUPLICATE, duplicate.code)
         } finally {
             ledger.clear()
+        }
+    }
+
+    @Test
+    fun identityTransitionPersistsAckIntentBeforeReplayConsumption() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val suffix = System.nanoTime().toString()
+        val trustedPeers = AndroidTrustedPeerStore(context, "transition-$suffix")
+        val fullLedger = AndroidReplayLedger(context, "transition-full-$suffix", maxEntries = 1)
+        val recoveredLedger = AndroidReplayLedger(context, "transition-recovered-$suffix")
+        val now = 1_800_000_000_000L
+        val workspaceId = ByteArray(16) { 1 }
+        val senderDeviceId = ByteArray(16) { 2 }
+        val recipientDeviceId = ByteArray(16) { 3 }
+        val sender = AuthenticatedHpke.generateKeyPair()
+        val recipient = AuthenticatedHpke.generateKeyPair()
+        val successor = AuthenticatedHpke.generateKeyPair()
+        val canonicalTransition = EncryptedPayloadCodecV1.encode(
+            EncryptedPayload.newBuilder()
+                .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+                .setIdentityKeyTransition(
+                    IdentityKeyTransition.newBuilder()
+                        .setTransitionId(ByteString.copyFrom(ByteArray(16) { 4 }))
+                        .setPreviousKeyId(ByteString.copyFrom(sha256(sender.publicKey)))
+                        .setNewPublicKey(ByteString.copyFrom(successor.publicKey))
+                        .setNewKeyId(ByteString.copyFrom(sha256(successor.publicKey))),
+                )
+                .build(),
+        )
+        val recipientContext = EnvelopeRecipientContext(
+            workspaceId,
+            recipientDeviceId,
+            recipient,
+            sender.publicKey,
+        )
+        fun frame(messageId: ByteArray): ByteArray {
+            val header = RoutingHeaderCodecV1.encode(
+                RoutingHeaderV1(
+                    workspaceId = workspaceId,
+                    senderDeviceId = senderDeviceId,
+                    recipientDeviceId = recipientDeviceId,
+                    senderKeyId = sha256(sender.publicKey),
+                    recipientKeyId = sha256(recipient.publicKey),
+                    messageId = messageId,
+                    sequence = messageId[0].toLong(),
+                    createdAtUnixMs = now,
+                    expiresAtUnixMs = now + 60_000,
+                ),
+            )
+            val encrypted = AuthenticatedHpke.seal(
+                recipient.publicKey,
+                sender,
+                canonicalTransition,
+                header,
+            )
+            return EncryptedEnvelopeCodecV1.encode(
+                EncryptedEnvelopePartsV1(
+                    header,
+                    encrypted.encapsulatedKey,
+                    encrypted.ciphertext,
+                ),
+            )
+        }
+        try {
+            trustedPeers.pinApproved(workspaceId, senderDeviceId, sender.publicKey)
+            assertEquals(
+                AndroidReplayLedger.Decision.ACCEPTED,
+                fullLedger.checkAndRecord(
+                    sha256(ByteArray(1) { 9 }),
+                    ByteArray(16) { 9 },
+                    now + 60_000,
+                    now,
+                ),
+            )
+            val replayFailure = assertThrows(EnvelopeRejectedException::class.java) {
+                AuthenticatedEnvelopeReceiver.receiveIdentityTransitionOnce(
+                    frame(ByteArray(16) { 6 }),
+                    recipientContext,
+                    trustedPeers,
+                    fullLedger,
+                    now,
+                )
+            }
+            assertEquals(
+                EnvelopeRejectedException.Code.REPLAY_CAPACITY_EXCEEDED,
+                replayFailure.code,
+            )
+            val durable = trustedPeers.loadIdentityTransition(
+                workspaceId,
+                senderDeviceId,
+                now + 1,
+            )!!
+            assertArrayEquals(canonicalTransition, durable.canonicalTransition)
+            val recovered = AuthenticatedEnvelopeReceiver.receiveIdentityTransitionOnce(
+                frame(ByteArray(16) { 7 }),
+                recipientContext,
+                trustedPeers,
+                recoveredLedger,
+                now + 1,
+            )
+            assertEquals(
+                AndroidTrustedPeerStore.TransitionResult.ALREADY_ACCEPTED,
+                recovered.accepted.result,
+            )
+            assertArrayEquals(durable.canonicalAck, recovered.accepted.state.canonicalAck)
+        } finally {
+            fullLedger.clear()
+            recoveredLedger.clear()
+            trustedPeers.clear()
         }
     }
 
