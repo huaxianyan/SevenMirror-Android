@@ -14,7 +14,7 @@ class AndroidLocalIdentityTransitionStore(
     context: Context,
     storeName: String = "default",
 ) : AutoCloseable {
-    enum class SessionPhase { AWAITING_ACKS, BLOCKED }
+    enum class SessionPhase { AWAITING_ACKS, PROMOTION_COMPLETED, BLOCKED }
     enum class PeerPhase { AWAITING_ACK, COMMIT_QUEUED }
     enum class AcceptResult { ACCEPTED, ALREADY_ACCEPTED }
 
@@ -260,7 +260,7 @@ class AndroidLocalIdentityTransitionStore(
             validateSession(session)
             val current = blockIfExpired(database, session, nowUnixMs)
             val values = if (
-                current.phase == SessionPhase.AWAITING_ACKS &&
+                current.phase != SessionPhase.BLOCKED &&
                 MessageDigest.isEqual(current.workspaceId, workspaceId)
             ) {
                 database.query(
@@ -322,7 +322,7 @@ class AndroidLocalIdentityTransitionStore(
                         MessageDigest.isEqual(peer.transitionId, transitionId) &&
                             optionalEquals(peer.ackSha256, ackSha256),
                     ) { "Identity transition commit attempt binding changed" }
-                    if (session.phase == SessionPhase.AWAITING_ACKS &&
+                    if (session.phase != SessionPhase.BLOCKED &&
                         peer.phase == PeerPhase.COMMIT_QUEUED
                     ) {
                         val attemptCount = peer.commitAttemptCount + 1
@@ -375,6 +375,69 @@ class AndroidLocalIdentityTransitionStore(
             ) != -1L) { "Unable to persist identity transition commit sequence" }
             database.setTransactionSuccessful()
             current
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun promotionReadiness(nowUnixMs: Long): Session? {
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database) ?: return null
+            validateSession(session)
+            val current = blockIfExpired(database, session, nowUnixMs)
+            val ready = if (current.phase == SessionPhase.AWAITING_ACKS) {
+                database.rawQuery(
+                    "SELECT COUNT(*), SUM(CASE WHEN $PHASE = ? THEN 1 ELSE 0 END) " +
+                        "FROM $PEER_TABLE WHERE $TRANSITION_ID = ?",
+                    arrayOf(PeerPhase.COMMIT_QUEUED.name, current.transitionId.toHex()),
+                ).use { cursor ->
+                    check(cursor.moveToFirst())
+                    val total = cursor.getLong(0)
+                    total > 0 && cursor.getLong(1) == total
+                }
+            } else {
+                false
+            }
+            database.setTransactionSuccessful()
+            if (ready) current.copyState() else null
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun markPromotionCompleted(
+        transitionId: ByteArray,
+        previousKeyId: ByteArray,
+        newKeyId: ByteArray,
+    ) {
+        validateIdentifier(transitionId, "transitionId")
+        validateDigest(previousKeyId, "previousKeyId")
+        validateDigest(newKeyId, "newKeyId")
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        try {
+            val session = findSession(database)
+            check(session != null &&
+                MessageDigest.isEqual(session.transitionId, transitionId) &&
+                MessageDigest.isEqual(session.previousKeyId, previousKeyId) &&
+                MessageDigest.isEqual(session.newKeyId, newKeyId) &&
+                session.phase != SessionPhase.BLOCKED) {
+                "Local identity promotion completion binding does not match"
+            }
+            if (session.phase != SessionPhase.PROMOTION_COMPLETED) {
+                check(database.update(
+                    SESSION_TABLE,
+                    ContentValues(1).apply { put(PHASE, SessionPhase.PROMOTION_COMPLETED.name) },
+                    "$ID = ?",
+                    arrayOf(SESSION_ID.toString()),
+                ) == 1) { "Local identity transition disappeared before promotion completion" }
+            }
+            database.setTransactionSuccessful()
         } finally {
             database.endTransaction()
         }

@@ -8,7 +8,7 @@ class IdentityTransitionCommitOutboxDrainer(
     workspaceId: ByteArray,
     senderDeviceId: ByteArray,
     currentIdentity: AuthenticatedHpke.KeyPair,
-    pendingIdentity: AuthenticatedHpke.KeyPair,
+    pendingIdentity: AuthenticatedHpke.KeyPair?,
     transportIdentityKeyId: ByteArray,
     private val localTransitions: AndroidLocalIdentityTransitionStore,
     private val trustedPeers: AndroidTrustedPeerStore,
@@ -23,9 +23,10 @@ class IdentityTransitionCommitOutboxDrainer(
     private val workspaceId = workspaceId.copyOf()
     private val senderDeviceId = senderDeviceId.copyOf()
     private val currentIdentity = currentIdentity.copyKeyPair()
-    private val pendingIdentity = pendingIdentity.copyKeyPair()
+    private val pendingIdentity = pendingIdentity?.copyKeyPair()
     private val currentKeyId = sha256(this.currentIdentity.publicKey)
-    private val pendingKeyId = sha256(this.pendingIdentity.publicKey)
+    private val senderIdentity = this.pendingIdentity ?: this.currentIdentity
+    private val senderKeyId = sha256(senderIdentity.publicKey)
 
     init {
         require(this.workspaceId.size == 16 && this.workspaceId.any { it.toInt() != 0 }) {
@@ -37,8 +38,10 @@ class IdentityTransitionCommitOutboxDrainer(
         require(MessageDigest.isEqual(currentKeyId, transportIdentityKeyId)) {
             "Transport credential E2EE identity binding does not match current identity"
         }
-        require(!MessageDigest.isEqual(currentKeyId, pendingKeyId)) {
-            "Pending E2EE identity must differ from current identity"
+        this.pendingIdentity?.let {
+            require(!MessageDigest.isEqual(currentKeyId, senderKeyId)) {
+                "Pending E2EE identity must differ from current identity"
+            }
         }
     }
 
@@ -53,8 +56,12 @@ class IdentityTransitionCommitOutboxDrainer(
             check(
                 MessageDigest.isEqual(session.workspaceId, workspaceId) &&
                     MessageDigest.isEqual(session.localDeviceId, senderDeviceId) &&
-                    MessageDigest.isEqual(session.previousKeyId, currentKeyId) &&
-                    MessageDigest.isEqual(session.newKeyId, pendingKeyId),
+                    if (pendingIdentity != null) {
+                        MessageDigest.isEqual(session.previousKeyId, currentKeyId) &&
+                            MessageDigest.isEqual(session.newKeyId, senderKeyId)
+                    } else {
+                        MessageDigest.isEqual(session.newKeyId, senderKeyId)
+                    },
             ) { "Local identity transition does not match current/pending identity slots" }
             val recipientPublicKey = trustedPeers.findApproved(
                 workspaceId,
@@ -67,7 +74,7 @@ class IdentityTransitionCommitOutboxDrainer(
                         workspaceId = workspaceId,
                         senderDeviceId = senderDeviceId,
                         recipientDeviceId = peer.deviceId,
-                        senderIdentity = pendingIdentity,
+                        senderIdentity = senderIdentity,
                         recipientPublicKey = recipientPublicKey,
                         messageId = nextMessageId(),
                         sequence = localTransitions.allocateCommitSequence(peer.keyId),

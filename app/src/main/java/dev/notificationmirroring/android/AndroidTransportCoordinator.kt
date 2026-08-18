@@ -8,10 +8,13 @@ import android.os.Looper
 import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidHpkeIdentityStore
 import dev.notificationmirroring.crypto.AndroidOperationLedger
+import dev.notificationmirroring.crypto.AndroidLocalIdentityTransitionStore
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
+import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
+import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
@@ -53,6 +56,13 @@ class AndroidTransportCoordinator(context: Context) {
     private val replayLedger = AndroidReplayLedger(applicationContext)
     private val operationLedger = AndroidOperationLedger(applicationContext)
     private val resultOutbox = AndroidActionResultOutbox(applicationContext)
+    private val localIdentityTransitionStore = AndroidLocalIdentityTransitionStore(applicationContext)
+    private val identityPromotionCoordinator = AndroidIdentityPromotionCoordinator(
+        identityStore,
+        credentialStore,
+        localIdentityTransitionStore,
+        AndroidIdentityPromotionJournal(applicationContext),
+    )
     private val httpClient = OkHttpClient()
     private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
     private val rotationClient = TransportCredentialRotationClient(httpClient, credentialStore)
@@ -185,6 +195,8 @@ class AndroidTransportCoordinator(context: Context) {
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
         val candidate = try {
+            // Replay any cross-store promotion before transport can observe partial state.
+            identityPromotionCoordinator.promoteReady()
             credentialStore.loadConnectionCandidate(preferCurrentFallback)
         } catch (_: Throwable) {
             mutableState.value = AndroidTransportState.SECURITY_ERROR

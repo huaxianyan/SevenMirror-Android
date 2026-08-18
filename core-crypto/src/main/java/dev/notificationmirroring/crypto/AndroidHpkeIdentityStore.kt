@@ -37,12 +37,19 @@ class AndroidHpkeIdentityStore(
     private val keyAlias = "syncnotifications.hpke.wrap.$safeName"
 
     @Synchronized
-    fun loadExisting(): AuthenticatedHpke.KeyPair? = loadState()?.current
+    fun loadExisting(): AuthenticatedHpke.KeyPair? {
+        val state = loadState() ?: return null
+        state.pending?.privateKey?.fill(0)
+        return state.current
+    }
 
     @Synchronized
     fun loadRotation(): StoredHpkeIdentityRotation? {
         val state = loadState() ?: return null
-        val pending = state.pending ?: return null
+        val pending = state.pending ?: run {
+            state.current.privateKey.fill(0)
+            return null
+        }
         return StoredHpkeIdentityRotation(state.current, pending)
     }
 
@@ -68,6 +75,52 @@ class AndroidHpkeIdentityStore(
                 .commit(),
         ) { "Failed to persist pending HPKE identity" }
         return StoredHpkeIdentityRotation(state.current, pending)
+    }
+
+    /** Idempotently promotes the exact pending identity after a durable external journal exists. */
+    @Synchronized
+    fun promotePending(
+        expectedCurrentKeyId: ByteArray,
+        expectedPendingKeyId: ByteArray,
+    ): AuthenticatedHpke.KeyPair {
+        validateKeyId(expectedCurrentKeyId, "expectedCurrentKeyId")
+        validateKeyId(expectedPendingKeyId, "expectedPendingKeyId")
+        check(!expectedCurrentKeyId.contentEquals(expectedPendingKeyId)) {
+            "Identity promotion keys must differ"
+        }
+        val state = checkNotNull(loadState()) { "HPKE identity is not configured" }
+        val currentKeyId = sha256(state.current.publicKey)
+        if (state.pending == null) {
+            check(currentKeyId.contentEquals(expectedPendingKeyId)) {
+                "HPKE identity has no exact pending key to promote"
+            }
+            return state.current
+        }
+        val pending = state.pending
+        try {
+            check(currentKeyId.contentEquals(expectedCurrentKeyId) &&
+                sha256(pending.publicKey).contentEquals(expectedPendingKeyId)) {
+                "HPKE identity promotion binding does not match"
+            }
+            val wrapped = wrap(pending.privateKey, currentAad(pending.publicKey))
+            check(
+                preferences.edit()
+                    .putString(KEY_PUBLIC, pending.publicKey.encodeBase64())
+                    .putString(KEY_PRIVATE_CIPHERTEXT, wrapped.ciphertext.encodeBase64())
+                    .putString(KEY_IV, wrapped.iv.encodeBase64())
+                    .remove(KEY_PENDING_PUBLIC)
+                    .remove(KEY_PENDING_PRIVATE_CIPHERTEXT)
+                    .remove(KEY_PENDING_IV)
+                    .commit(),
+            ) { "Failed to promote pending HPKE identity" }
+            return AuthenticatedHpke.KeyPair(
+                pending.publicKey.copyOf(),
+                pending.privateKey.copyOf(),
+            )
+        } finally {
+            state.current.privateKey.fill(0)
+            pending.privateKey.fill(0)
+        }
     }
 
     @Synchronized
@@ -201,6 +254,15 @@ class AndroidHpkeIdentityStore(
 
     private fun pendingAad(publicKey: ByteArray): ByteArray =
         PENDING_AAD_DOMAIN + publicKey
+
+    private fun validateKeyId(value: ByteArray, name: String) {
+        require(value.size == 32 && value.any { it.toInt() != 0 }) {
+            "$name must be a non-zero 32-byte value"
+        }
+    }
+
+    private fun sha256(value: ByteArray): ByteArray =
+        java.security.MessageDigest.getInstance("SHA-256").digest(value)
 
     private fun androidKeyStore(): KeyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply {
         load(null)

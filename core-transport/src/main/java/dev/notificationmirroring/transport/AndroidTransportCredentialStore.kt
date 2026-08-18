@@ -74,7 +74,10 @@ class AndroidTransportCredentialStore(
     @Synchronized
     override fun loadRotation(): StoredCredentialRotation? {
         val state = loadState() ?: return null
-        val pending = state.pendingAuthToken ?: return null
+        val pending = state.pendingAuthToken ?: run {
+            state.current.authToken.fill(0)
+            return null
+        }
         return StoredCredentialRotation(state.current, pending, checkNotNull(state.phase))
     }
 
@@ -222,6 +225,57 @@ class AndroidTransportCredentialStore(
                     .commit(),
             ) { "Failed to promote pending transport credential" }
             return state.current.copy(authToken = pending.copyOf())
+        } finally {
+            state.current.authToken.fill(0)
+            state.pendingAuthToken?.fill(0)
+        }
+    }
+
+    /** Idempotently rebinds identity metadata; requires no credential rotation in progress. */
+    @Synchronized
+    fun rebindIdentityKey(
+        expectedCurrentKeyId: ByteArray,
+        newIdentityKeyId: ByteArray,
+    ): StoredTransportCredential {
+        validateNonZero(expectedCurrentKeyId, 32, "expectedCurrentKeyId")
+        validateNonZero(newIdentityKeyId, 32, "newIdentityKeyId")
+        check(!constantTimeEquals(expectedCurrentKeyId, newIdentityKeyId)) {
+            "Transport identity rebind keys must differ"
+        }
+        val state = checkNotNull(loadState()) { "Transport credential is not configured" }
+        try {
+            if (constantTimeEquals(state.current.identityKeyId, newIdentityKeyId)) {
+                return state.current.copy(
+                    authToken = state.current.authToken.copyOf(),
+                    identityKeyId = state.current.identityKeyId.copyOf(),
+                )
+            }
+            check(state.pendingAuthToken == null && state.phase == null) {
+                "Transport credential rotation must finish before identity promotion"
+            }
+            check(constantTimeEquals(state.current.identityKeyId, expectedCurrentKeyId)) {
+                "Transport identity rebind binding does not match"
+            }
+            val wrapped = wrap(
+                state.current.authToken,
+                currentAad(
+                    state.current.serverOrigin,
+                    state.current.workspaceId,
+                    state.current.deviceId,
+                    newIdentityKeyId,
+                ),
+            )
+            check(
+                preferences.edit()
+                    .putString(KEY_IDENTITY_KEY_ID, newIdentityKeyId.encodeBase64())
+                    .putString(KEY_TOKEN_CIPHERTEXT, wrapped.ciphertext.encodeBase64())
+                    .putString(KEY_IV, wrapped.iv.encodeBase64())
+                    .commit(),
+            ) { "Failed to rebind transport identity metadata" }
+            return state.current.copy(
+                authToken = state.current.authToken.copyOf(),
+                identityKeyId = newIdentityKeyId.copyOf(),
+            )
         } finally {
             state.current.authToken.fill(0)
             state.pendingAuthToken?.fill(0)
