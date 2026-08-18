@@ -11,6 +11,7 @@ import dev.notificationmirroring.protocol.RoutingHeaderV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import java.security.MessageDigest
 import java.util.UUID
 import org.junit.Assert.assertArrayEquals
@@ -153,6 +154,172 @@ class AndroidLocalIdentityTransitionStoreInstrumentedTest {
     }
 
     @Test
+    fun commitDeliveryPromotesPeerBeforeReplayAndDuplicateUsesTombstone() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val fixture = fixture()
+        val local = AndroidLocalIdentityTransitionStore(context, "local-${UUID.randomUUID()}")
+        val receiverPeers = AndroidTrustedPeerStore(context, "receiver-${UUID.randomUUID()}")
+        val senderPeers = AndroidTrustedPeerStore(context, "sender-${UUID.randomUUID()}")
+        val fullLedger = AndroidReplayLedger(context, "commit-full-${UUID.randomUUID()}", maxEntries = 1)
+        val recoveredLedger = AndroidReplayLedger(context, "commit-recovered-${UUID.randomUUID()}")
+        try {
+            receiverPeers.pinApproved(
+                fixture.workspaceId,
+                fixture.localDeviceId,
+                fixture.current.publicKey,
+            )
+            val acceptedTransition = receiverPeers.acceptIdentityTransition(
+                fixture.workspaceId,
+                fixture.localDeviceId,
+                fixture.canonicalTransition,
+                fixture.now,
+            )
+            val wrongCommit = EncryptedPayloadCodecV1.encode(
+                EncryptedPayload.newBuilder()
+                    .setSchemaVersion(EncryptedPayloadCodecV1.IDENTITY_LIFECYCLE_SCHEMA_VERSION)
+                    .setIdentityKeyTransitionCommit(
+                        IdentityKeyTransitionCommit.newBuilder()
+                            .setTransitionId(ByteString.copyFrom(fixture.transitionId))
+                            .setPreviousKeyId(ByteString.copyFrom(fixture.previousKeyId))
+                            .setNewKeyId(ByteString.copyFrom(fixture.newKeyId))
+                            .setTransitionSha256(ByteString.copyFrom(fixture.transitionSha256))
+                            .setAckSha256(ByteString.copyFrom(ByteArray(32) { 9 })),
+                    )
+                    .build(),
+            )
+            assertThrows(IllegalStateException::class.java) {
+                receiverPeers.commitIdentityTransition(
+                    fixture.workspaceId,
+                    fixture.localDeviceId,
+                    fixture.newKeyId,
+                    wrongCommit,
+                    fixture.now + 1,
+                )
+            }
+            assertArrayEquals(
+                fixture.current.publicKey,
+                receiverPeers.findApproved(
+                    fixture.workspaceId,
+                    fixture.localDeviceId,
+                    fixture.previousKeyId,
+                ),
+            )
+
+            senderPeers.pinApproved(
+                fixture.workspaceId,
+                fixture.peerDeviceId,
+                fixture.peer.publicKey,
+            )
+            local.create(
+                fixture.workspaceId,
+                fixture.localDeviceId,
+                fixture.canonicalTransition,
+                listOf(AndroidLocalIdentityTransitionStore.PeerSnapshot(
+                    fixture.peerDeviceId,
+                    fixture.peerKeyId,
+                )),
+                fixture.now,
+            )
+            local.acceptAck(
+                fixture.peerDeviceId,
+                fixture.peerKeyId,
+                acceptedTransition.state.canonicalAck,
+                fixture.now + 1,
+            )
+            val frames = mutableListOf<ByteArray>()
+            val drainer = IdentityTransitionCommitOutboxDrainer(
+                workspaceId = fixture.workspaceId,
+                senderDeviceId = fixture.localDeviceId,
+                currentIdentity = fixture.current,
+                pendingIdentity = fixture.pending,
+                transportIdentityKeyId = fixture.previousKeyId,
+                localTransitions = local,
+                trustedPeers = senderPeers,
+                random = java.security.SecureRandom(byteArrayOf(1, 2, 3)),
+            )
+            assertEquals(0, drainer.drainDue(fixture.now + 2) { false }.acceptedSends)
+            assertEquals(
+                0,
+                local.loadPeer(fixture.peerDeviceId, fixture.now + 2)!!.commitAttemptCount,
+            )
+            assertEquals(1, drainer.drainDue(fixture.now + 2) {
+                frames += it.copyOf()
+                true
+            }.acceptedSends)
+            assertEquals(
+                AndroidReplayLedger.Decision.ACCEPTED,
+                fullLedger.checkAndRecord(
+                    sha256(byteArrayOf(8)),
+                    ByteArray(16) { 8 },
+                    fixture.now + 60_000,
+                    fixture.now,
+                ),
+            )
+            val replayFailure = assertThrows(EnvelopeRejectedException::class.java) {
+                AuthenticatedEnvelopeReceiver.receiveIdentityTransitionCommitOnce(
+                    frameBytes = frames.single(),
+                    workspaceId = fixture.workspaceId,
+                    recipientDeviceId = fixture.peerDeviceId,
+                    recipientIdentity = fixture.peer,
+                    trustedPeers = receiverPeers,
+                    replayLedger = fullLedger,
+                    nowUnixMs = fixture.now + 3,
+                )
+            }
+            assertEquals(
+                EnvelopeRejectedException.Code.REPLAY_CAPACITY_EXCEEDED,
+                replayFailure.code,
+            )
+            assertEquals(
+                null,
+                receiverPeers.findApproved(
+                    fixture.workspaceId,
+                    fixture.localDeviceId,
+                    fixture.previousKeyId,
+                ),
+            )
+            assertArrayEquals(
+                fixture.pending.publicKey,
+                receiverPeers.findApproved(
+                    fixture.workspaceId,
+                    fixture.localDeviceId,
+                    fixture.newKeyId,
+                ),
+            )
+
+            local.acceptAck(
+                fixture.peerDeviceId,
+                fixture.peerKeyId,
+                acceptedTransition.state.canonicalAck,
+                fixture.now + 4,
+            )
+            assertEquals(1, drainer.drainDue(fixture.now + 5) {
+                frames += it.copyOf()
+                true
+            }.acceptedSends)
+            val duplicate = AuthenticatedEnvelopeReceiver.receiveIdentityTransitionCommitOnce(
+                frameBytes = frames.last(),
+                workspaceId = fixture.workspaceId,
+                recipientDeviceId = fixture.peerDeviceId,
+                recipientIdentity = fixture.peer,
+                trustedPeers = receiverPeers,
+                replayLedger = recoveredLedger,
+                nowUnixMs = fixture.now + 6,
+            )
+            assertEquals(
+                AndroidTrustedPeerStore.CommitResult.ALREADY_COMMITTED,
+                duplicate.committed.result,
+            )
+        } finally {
+            fullLedger.clear()
+            recoveredLedger.clear()
+            senderPeers.clear()
+            receiverPeers.clear()
+            local.clear()
+        }
+    }
+
+    @Test
     fun expiryBlocksAckWithoutGeneratingCommit() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val fixture = fixture()
@@ -210,6 +377,7 @@ class AndroidLocalIdentityTransitionStoreInstrumentedTest {
             workspaceId = ByteArray(16) { 1 },
             localDeviceId = ByteArray(16) { 2 },
             peerDeviceId = ByteArray(16) { 3 },
+            current = current,
             peer = peer,
             peerKeyId = sha256(peer.publicKey),
             pending = pending,
@@ -285,6 +453,7 @@ class AndroidLocalIdentityTransitionStoreInstrumentedTest {
         val workspaceId: ByteArray,
         val localDeviceId: ByteArray,
         val peerDeviceId: ByteArray,
+        val current: AuthenticatedHpke.KeyPair,
         val peer: AuthenticatedHpke.KeyPair,
         val peerKeyId: ByteArray,
         val pending: AuthenticatedHpke.KeyPair,

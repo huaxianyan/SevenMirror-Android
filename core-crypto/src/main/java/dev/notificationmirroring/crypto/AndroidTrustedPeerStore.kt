@@ -8,6 +8,7 @@ import com.google.protobuf.ByteString
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
+import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import java.security.MessageDigest
 
 /** Immutable local E2EE pins; untrusted server directory entries must never call [pinApproved]. */
@@ -17,6 +18,7 @@ class AndroidTrustedPeerStore(
 ) : AutoCloseable {
     enum class PinResult { PINNED, ALREADY_PINNED }
     enum class TransitionResult { ACCEPTED, ALREADY_ACCEPTED }
+    enum class CommitResult { COMMITTED, ALREADY_COMMITTED }
     enum class TransitionPhase { PENDING_COMMIT, BLOCKED }
 
     data class PeerIdentityTransitionState(
@@ -40,6 +42,35 @@ class AndroidTrustedPeerStore(
     data class AcceptedPeerIdentityTransition(
         val result: TransitionResult,
         val state: PeerIdentityTransitionState,
+    )
+
+    data class IdentityCommitSenderBinding(
+        val senderPublicKey: ByteArray,
+        val transitionId: ByteArray,
+        val previousKeyId: ByteArray,
+        val newKeyId: ByteArray,
+        val transitionSha256: ByteArray,
+        val ackSha256: ByteArray,
+        val alreadyCommitted: Boolean,
+    )
+
+    data class CommittedPeerIdentityTransition(
+        val result: CommitResult,
+        val newKeyId: ByteArray,
+    )
+
+    private data class TransitionTombstone(
+        val workspaceId: ByteArray,
+        val peerDeviceId: ByteArray,
+        val transitionId: ByteArray,
+        val previousKeyId: ByteArray,
+        val newKeyId: ByteArray,
+        val transitionSha256: ByteArray,
+        val ackSha256: ByteArray,
+        val canonicalCommit: ByteArray,
+        val commitSha256: ByteArray,
+        val committedAtUnixMs: Long,
+        val expiresAtUnixMs: Long,
     )
 
     private val appContext = context.applicationContext
@@ -162,6 +193,14 @@ class AndroidTrustedPeerStore(
         val database = helper.writableDatabase
         database.beginTransaction()
         return try {
+            val committed = findTombstone(database, workspaceId, peerDeviceId)
+            if (committed != null) {
+                validateTombstone(committed)
+                check(nowUnixMs >= committed.expiresAtUnixMs) {
+                    "A committed identity transition tombstone is still active for this peer"
+                }
+                deleteTombstone(database, workspaceId, peerDeviceId)
+            }
             val approved = find(database, workspaceId, peerDeviceId)
                 ?: error("Identity transition sender is not an approved peer")
             check(
@@ -356,6 +395,185 @@ class AndroidTrustedPeerStore(
         }
     }
 
+    /** Resolves only a pending successor or exact committed successor for commit authentication. */
+    @Synchronized
+    fun resolveIdentityCommitSender(
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+        senderKeyId: ByteArray,
+        nowUnixMs: Long,
+    ): IdentityCommitSenderBinding? {
+        validateIdentifier(workspaceId, "workspaceId")
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateKeyId(senderKeyId)
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val approved = find(database, workspaceId, peerDeviceId)
+            var transition = findTransition(database, workspaceId, peerDeviceId)
+            var result: IdentityCommitSenderBinding? = null
+            if (transition != null) {
+                validateTransitionState(transition)
+                if (transition.phase == TransitionPhase.PENDING_COMMIT &&
+                    nowUnixMs >= transition.expiresAtUnixMs
+                ) {
+                    updateTransitionPhase(
+                        database,
+                        workspaceId,
+                        peerDeviceId,
+                        TransitionPhase.BLOCKED,
+                    )
+                    transition = transition.copy(phase = TransitionPhase.BLOCKED)
+                }
+                validateTransitionCryptography(transition)
+                if (transition.phase == TransitionPhase.PENDING_COMMIT &&
+                    approved != null &&
+                    MessageDigest.isEqual(approved.keyId, transition.previousKeyId) &&
+                    MessageDigest.isEqual(senderKeyId, transition.newKeyId)
+                ) {
+                    result = IdentityCommitSenderBinding(
+                        senderPublicKey = transition.newPublicKey.copyOf(),
+                        transitionId = transition.transitionId.copyOf(),
+                        previousKeyId = transition.previousKeyId.copyOf(),
+                        newKeyId = transition.newKeyId.copyOf(),
+                        transitionSha256 = transition.transitionSha256.copyOf(),
+                        ackSha256 = transition.ackSha256.copyOf(),
+                        alreadyCommitted = false,
+                    )
+                }
+            }
+            if (result == null) {
+                val tombstone = findTombstone(database, workspaceId, peerDeviceId)
+                if (tombstone != null) {
+                    validateTombstone(tombstone)
+                    if (nowUnixMs >= tombstone.expiresAtUnixMs) {
+                        deleteTombstone(database, workspaceId, peerDeviceId)
+                    } else if (approved != null &&
+                        MessageDigest.isEqual(approved.keyId, tombstone.newKeyId) &&
+                        MessageDigest.isEqual(senderKeyId, tombstone.newKeyId)
+                    ) {
+                        result = IdentityCommitSenderBinding(
+                            senderPublicKey = approved.publicKey.copyOf(),
+                            transitionId = tombstone.transitionId.copyOf(),
+                            previousKeyId = tombstone.previousKeyId.copyOf(),
+                            newKeyId = tombstone.newKeyId.copyOf(),
+                            transitionSha256 = tombstone.transitionSha256.copyOf(),
+                            ackSha256 = tombstone.ackSha256.copyOf(),
+                            alreadyCommitted = true,
+                        )
+                    }
+                }
+            }
+            database.setTransactionSuccessful()
+            result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    /** Atomically promotes the successor pin and retains an exact bounded duplicate record. */
+    @Synchronized
+    fun commitIdentityTransition(
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+        senderKeyId: ByteArray,
+        canonicalCommit: ByteArray,
+        nowUnixMs: Long,
+    ): CommittedPeerIdentityTransition {
+        validateIdentifier(workspaceId, "workspaceId")
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateKeyId(senderKeyId)
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val payload = EncryptedPayloadCodecV1.decode(canonicalCommit)
+        require(payload.bodyCase == EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_COMMIT) {
+            "Expected canonical identity key transition commit"
+        }
+        val commit = payload.identityKeyTransitionCommit
+        val commitSha256 = sha256(canonicalCommit)
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val approved = find(database, workspaceId, peerDeviceId)
+            val transition = findTransition(database, workspaceId, peerDeviceId)
+            val tombstone = findTombstone(database, workspaceId, peerDeviceId)
+            val result = if (transition != null) {
+                validateTransitionState(transition)
+                if (transition.phase == TransitionPhase.BLOCKED ||
+                    nowUnixMs >= transition.expiresAtUnixMs
+                ) {
+                    if (transition.phase != TransitionPhase.BLOCKED) {
+                        updateTransitionPhase(
+                            database,
+                            workspaceId,
+                            peerDeviceId,
+                            TransitionPhase.BLOCKED,
+                        )
+                    }
+                    database.setTransactionSuccessful()
+                    error("Identity transition is blocked after expiry")
+                }
+                check(
+                    approved != null &&
+                        MessageDigest.isEqual(approved.keyId, transition.previousKeyId) &&
+                        MessageDigest.isEqual(senderKeyId, transition.newKeyId) &&
+                        commitMatchesTransition(commit, transition),
+                ) { "Identity transition commit binding does not match" }
+                check(tombstone == null) { "Identity transition has conflicting committed state" }
+                val promoted = ContentValues(2).apply {
+                    put(KEY_ID, transition.newKeyId.copyOf())
+                    put(PUBLIC_KEY, transition.newPublicKey.copyOf())
+                }
+                check(database.update(
+                    TABLE,
+                    promoted,
+                    "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+                    arrayOf(workspaceId.toHex(), peerDeviceId.toHex()),
+                ) == 1) { "Approved peer disappeared before identity promotion" }
+                val committed = TransitionTombstone(
+                    workspaceId = workspaceId.copyOf(),
+                    peerDeviceId = peerDeviceId.copyOf(),
+                    transitionId = transition.transitionId.copyOf(),
+                    previousKeyId = transition.previousKeyId.copyOf(),
+                    newKeyId = transition.newKeyId.copyOf(),
+                    transitionSha256 = transition.transitionSha256.copyOf(),
+                    ackSha256 = transition.ackSha256.copyOf(),
+                    canonicalCommit = canonicalCommit.copyOf(),
+                    commitSha256 = commitSha256,
+                    committedAtUnixMs = nowUnixMs,
+                    expiresAtUnixMs = Math.addExact(nowUnixMs, IDENTITY_TRANSITION_RETENTION_MS),
+                )
+                insertTombstone(database, committed)
+                deleteTransition(database, workspaceId, peerDeviceId)
+                CommittedPeerIdentityTransition(
+                    CommitResult.COMMITTED,
+                    transition.newKeyId.copyOf(),
+                )
+            } else {
+                check(tombstone != null && approved != null) {
+                    "Identity transition commit has no durable successor state"
+                }
+                validateTombstone(tombstone)
+                check(
+                    nowUnixMs < tombstone.expiresAtUnixMs &&
+                        MessageDigest.isEqual(approved.keyId, tombstone.newKeyId) &&
+                        MessageDigest.isEqual(senderKeyId, tombstone.newKeyId) &&
+                        MessageDigest.isEqual(tombstone.canonicalCommit, canonicalCommit) &&
+                        MessageDigest.isEqual(tombstone.commitSha256, commitSha256) &&
+                        commitMatchesTombstone(commit, tombstone),
+                ) { "Identity transition duplicate commit binding does not match" }
+                CommittedPeerIdentityTransition(
+                    CommitResult.ALREADY_COMMITTED,
+                    tombstone.newKeyId.copyOf(),
+                )
+            }
+            database.setTransactionSuccessful()
+            result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
     fun remove(workspaceId: ByteArray, deviceId: ByteArray) {
         validateIdentifier(workspaceId, "workspaceId")
         validateIdentifier(deviceId, "deviceId")
@@ -363,6 +581,11 @@ class AndroidTrustedPeerStore(
         database.beginTransaction()
         try {
             val arguments = arrayOf(workspaceId.toHex(), deviceId.toHex())
+            database.delete(
+                TOMBSTONE_TABLE,
+                "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+                arguments,
+            )
             database.delete(
                 TRANSITION_TABLE,
                 "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
@@ -423,6 +646,79 @@ class AndroidTrustedPeerStore(
         "1",
     ).use { cursor ->
         if (!cursor.moveToFirst()) null else transitionFromCursor(cursor)
+    }
+
+    private fun findTombstone(
+        database: SQLiteDatabase,
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+    ): TransitionTombstone? = database.query(
+        TOMBSTONE_TABLE,
+        TOMBSTONE_COLUMNS,
+        "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+        arrayOf(workspaceId.toHex(), peerDeviceId.toHex()),
+        null,
+        null,
+        null,
+        "1",
+    ).use { cursor ->
+        if (!cursor.moveToFirst()) null else TransitionTombstone(
+            workspaceId = cursor.getString(0).hexToBytes(),
+            peerDeviceId = cursor.getString(1).hexToBytes(),
+            transitionId = cursor.getBlob(2).copyOf(),
+            previousKeyId = cursor.getBlob(3).copyOf(),
+            newKeyId = cursor.getBlob(4).copyOf(),
+            transitionSha256 = cursor.getBlob(5).copyOf(),
+            ackSha256 = cursor.getBlob(6).copyOf(),
+            canonicalCommit = cursor.getBlob(7).copyOf(),
+            commitSha256 = cursor.getBlob(8).copyOf(),
+            committedAtUnixMs = cursor.getLong(9),
+            expiresAtUnixMs = cursor.getLong(10),
+        )
+    }
+
+    private fun insertTombstone(database: SQLiteDatabase, value: TransitionTombstone) {
+        database.insertOrThrow(
+            TOMBSTONE_TABLE,
+            null,
+            ContentValues(11).apply {
+                put(WORKSPACE_ID, value.workspaceId.toHex())
+                put(DEVICE_ID, value.peerDeviceId.toHex())
+                put(TRANSITION_ID, value.transitionId)
+                put(PREVIOUS_KEY_ID, value.previousKeyId)
+                put(NEW_KEY_ID, value.newKeyId)
+                put(TRANSITION_SHA256, value.transitionSha256)
+                put(ACK_SHA256, value.ackSha256)
+                put(CANONICAL_COMMIT, value.canonicalCommit)
+                put(COMMIT_SHA256, value.commitSha256)
+                put(COMMITTED_AT, value.committedAtUnixMs)
+                put(EXPIRES_AT, value.expiresAtUnixMs)
+            },
+        )
+    }
+
+    private fun deleteTombstone(
+        database: SQLiteDatabase,
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+    ) {
+        database.delete(
+            TOMBSTONE_TABLE,
+            "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+            arrayOf(workspaceId.toHex(), peerDeviceId.toHex()),
+        )
+    }
+
+    private fun deleteTransition(
+        database: SQLiteDatabase,
+        workspaceId: ByteArray,
+        peerDeviceId: ByteArray,
+    ) {
+        check(database.delete(
+            TRANSITION_TABLE,
+            "$WORKSPACE_ID = ? AND $DEVICE_ID = ?",
+            arrayOf(workspaceId.toHex(), peerDeviceId.toHex()),
+        ) == 1) { "Identity transition disappeared before promotion" }
     }
 
     private fun transitionFromCursor(cursor: android.database.Cursor): PeerIdentityTransitionState =
@@ -568,6 +864,46 @@ class AndroidTrustedPeerStore(
         ) { "Stored identity transition acknowledgement binding is corrupt" }
     }
 
+    private fun validateTombstone(value: TransitionTombstone) {
+        validateIdentifier(value.workspaceId, "workspaceId")
+        validateIdentifier(value.peerDeviceId, "peerDeviceId")
+        validateIdentifier(value.transitionId, "transitionId")
+        validateKeyId(value.previousKeyId)
+        validateKeyId(value.newKeyId)
+        validateKeyId(value.transitionSha256)
+        validateKeyId(value.ackSha256)
+        validateKeyId(value.commitSha256)
+        check(value.committedAtUnixMs >= 0 &&
+            value.expiresAtUnixMs == Math.addExact(
+                value.committedAtUnixMs,
+                IDENTITY_TRANSITION_RETENTION_MS,
+            )) { "Stored identity transition tombstone expiry is invalid" }
+        val payload = EncryptedPayloadCodecV1.decode(value.canonicalCommit)
+        check(payload.bodyCase == EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_COMMIT &&
+            MessageDigest.isEqual(sha256(value.canonicalCommit), value.commitSha256) &&
+            commitMatchesTombstone(payload.identityKeyTransitionCommit, value)) {
+            "Stored identity transition tombstone binding is corrupt"
+        }
+    }
+
+    private fun commitMatchesTransition(
+        commit: IdentityKeyTransitionCommit,
+        transition: PeerIdentityTransitionState,
+    ): Boolean = MessageDigest.isEqual(commit.transitionId.toByteArray(), transition.transitionId) &&
+        MessageDigest.isEqual(commit.previousKeyId.toByteArray(), transition.previousKeyId) &&
+        MessageDigest.isEqual(commit.newKeyId.toByteArray(), transition.newKeyId) &&
+        MessageDigest.isEqual(commit.transitionSha256.toByteArray(), transition.transitionSha256) &&
+        MessageDigest.isEqual(commit.ackSha256.toByteArray(), transition.ackSha256)
+
+    private fun commitMatchesTombstone(
+        commit: IdentityKeyTransitionCommit,
+        tombstone: TransitionTombstone,
+    ): Boolean = MessageDigest.isEqual(commit.transitionId.toByteArray(), tombstone.transitionId) &&
+        MessageDigest.isEqual(commit.previousKeyId.toByteArray(), tombstone.previousKeyId) &&
+        MessageDigest.isEqual(commit.newKeyId.toByteArray(), tombstone.newKeyId) &&
+        MessageDigest.isEqual(commit.transitionSha256.toByteArray(), tombstone.transitionSha256) &&
+        MessageDigest.isEqual(commit.ackSha256.toByteArray(), tombstone.ackSha256)
+
     private fun sameAcceptedTransition(
         left: PeerIdentityTransitionState,
         right: PeerIdentityTransitionState,
@@ -620,6 +956,7 @@ class AndroidTrustedPeerStore(
             )
             createTransitionTable(database)
             createTransitionSequenceTable(database)
+            createTombstoneTable(database)
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -639,6 +976,10 @@ class AndroidTrustedPeerStore(
                 )
                 createTransitionSequenceTable(database)
                 version = 3
+            }
+            if (version == 3) {
+                createTombstoneTable(database)
+                version = 4
             }
             if (version != newVersion) {
                 throw IllegalStateException("Trusted peer migration missing: $oldVersion -> $newVersion")
@@ -673,6 +1014,19 @@ class AndroidTrustedPeerStore(
             )
         }
 
+        private fun createTombstoneTable(database: SQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE $TOMBSTONE_TABLE (" +
+                    "$WORKSPACE_ID TEXT NOT NULL, $DEVICE_ID TEXT NOT NULL, " +
+                    "$TRANSITION_ID BLOB NOT NULL, $PREVIOUS_KEY_ID BLOB NOT NULL, " +
+                    "$NEW_KEY_ID BLOB NOT NULL, $TRANSITION_SHA256 BLOB NOT NULL, " +
+                    "$ACK_SHA256 BLOB NOT NULL, $CANONICAL_COMMIT BLOB NOT NULL, " +
+                    "$COMMIT_SHA256 BLOB NOT NULL, $COMMITTED_AT INTEGER NOT NULL, " +
+                    "$EXPIRES_AT INTEGER NOT NULL, " +
+                    "PRIMARY KEY ($WORKSPACE_ID, $DEVICE_ID))",
+            )
+        }
+
         private fun createTransitionTable(database: SQLiteDatabase) {
             database.execSQL(
                 "CREATE TABLE $TRANSITION_TABLE (" +
@@ -697,12 +1051,13 @@ class AndroidTrustedPeerStore(
     }
 
     private companion object {
-        const val DATABASE_VERSION = 3
+        const val DATABASE_VERSION = 4
         const val IDENTIFIER_BYTES = 16
         const val KEY_ID_BYTES = 32
         const val TABLE = "approved_peer"
         const val TRANSITION_TABLE = "peer_identity_transition"
         const val TRANSITION_SEQUENCE_TABLE = "identity_transition_sequence"
+        const val TOMBSTONE_TABLE = "peer_identity_transition_tombstone"
         const val WORKSPACE_ID = "workspace_id"
         const val DEVICE_ID = "device_id"
         const val KEY_ID = "key_id"
@@ -721,7 +1076,23 @@ class AndroidTrustedPeerStore(
         const val ACK_ATTEMPT_COUNT = "ack_attempt_count"
         const val PHASE = "phase"
         const val NEXT_SEQUENCE = "next_sequence"
+        const val CANONICAL_COMMIT = "canonical_commit"
+        const val COMMIT_SHA256 = "commit_sha256"
+        const val COMMITTED_AT = "committed_at_unix_ms"
         const val IDENTITY_TRANSITION_RETENTION_MS = 7L * 24 * 60 * 60 * 1_000
+        val TOMBSTONE_COLUMNS = arrayOf(
+            WORKSPACE_ID,
+            DEVICE_ID,
+            TRANSITION_ID,
+            PREVIOUS_KEY_ID,
+            NEW_KEY_ID,
+            TRANSITION_SHA256,
+            ACK_SHA256,
+            CANONICAL_COMMIT,
+            COMMIT_SHA256,
+            COMMITTED_AT,
+            EXPIRES_AT,
+        )
         val TRANSITION_COLUMNS = arrayOf(
             WORKSPACE_ID,
             DEVICE_ID,

@@ -20,15 +20,34 @@ data class IdentityTransitionEnvelopeContext(
     val expiresAtUnixMs: Long,
 )
 
-/** Encrypts one exact durable transition ACK under a fresh envelope tuple. */
+/** Encrypts exact durable identity lifecycle payloads under fresh envelope tuples. */
 object IdentityTransitionEnvelopeSender {
     fun createAck(
         context: IdentityTransitionEnvelopeContext,
         canonicalAck: ByteArray,
+    ): ByteArray = create(
+        context,
+        canonicalAck,
+        EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_ACK,
+    )
+
+    fun createCommit(
+        context: IdentityTransitionEnvelopeContext,
+        canonicalCommit: ByteArray,
+    ): ByteArray = create(
+        context,
+        canonicalCommit,
+        EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_COMMIT,
+    )
+
+    private fun create(
+        context: IdentityTransitionEnvelopeContext,
+        canonicalPayload: ByteArray,
+        expectedBody: EncryptedPayload.BodyCase,
     ): ByteArray {
-        val payload = EncryptedPayloadCodecV1.decode(canonicalAck)
-        require(payload.bodyCase == EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_ACK) {
-            "Expected canonical identity key transition acknowledgement"
+        val payload = EncryptedPayloadCodecV1.decode(canonicalPayload)
+        require(payload.bodyCase == expectedBody) {
+            "Stored identity transition payload has wrong body"
         }
         val routingHeader = RoutingHeaderCodecV1.encode(
             RoutingHeaderV1(
@@ -46,7 +65,7 @@ object IdentityTransitionEnvelopeSender {
         val encrypted = AuthenticatedHpke.seal(
             recipientPublicKey = context.recipientPublicKey,
             sender = context.senderIdentity,
-            plaintext = canonicalAck,
+            plaintext = canonicalPayload,
             aad = routingHeader,
         )
         return EncryptedEnvelopeCodecV1.encode(

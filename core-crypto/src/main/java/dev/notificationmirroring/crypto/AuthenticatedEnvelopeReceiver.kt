@@ -59,6 +59,11 @@ data class AcceptedLocalIdentityAckEnvelope(
     val accepted: AndroidLocalIdentityTransitionStore.AcceptedAck,
 )
 
+data class AcceptedPeerIdentityCommitEnvelope(
+    val header: RoutingHeaderV1,
+    val committed: AndroidTrustedPeerStore.CommittedPeerIdentityTransition,
+)
+
 /**
  * Returns plaintext only after HPKE authentication and an atomic accepted
  * replay-ledger write, so callers cannot apply a side effect in the wrong order.
@@ -158,6 +163,70 @@ object AuthenticatedEnvelopeReceiver {
         )
         consumeReplay(opened.header, replayLedger, nowUnixMs)
         return AcceptedLocalIdentityAckEnvelope(opened.header, accepted)
+    }
+
+    /** Accepts a pending successor only for its exact commit and promotes before replay. */
+    fun receiveIdentityTransitionCommitOnce(
+        frameBytes: ByteArray,
+        workspaceId: ByteArray,
+        recipientDeviceId: ByteArray,
+        recipientIdentity: AuthenticatedHpke.KeyPair,
+        trustedPeers: AndroidTrustedPeerStore,
+        replayLedger: AndroidReplayLedger,
+        nowUnixMs: Long,
+    ): AcceptedPeerIdentityCommitEnvelope {
+        val envelope = EncryptedEnvelopeCodecV1.decode(frameBytes)
+        rejectUnless(
+            constantTimeEquals(envelope.routingHeader.workspaceId, workspaceId),
+            EnvelopeRejectedException.Code.WRONG_WORKSPACE,
+        )
+        rejectUnless(
+            constantTimeEquals(envelope.routingHeader.recipientDeviceId, recipientDeviceId),
+            EnvelopeRejectedException.Code.WRONG_RECIPIENT,
+        )
+        val binding = trustedPeers.resolveIdentityCommitSender(
+            envelope.routingHeader.workspaceId,
+            envelope.routingHeader.senderDeviceId,
+            envelope.routingHeader.senderKeyId,
+            nowUnixMs,
+        ) ?: reject(EnvelopeRejectedException.Code.WRONG_SENDER)
+        val opened = authenticateAndOpen(
+            frameBytes,
+            EnvelopeRecipientContext(
+                workspaceId = workspaceId,
+                recipientDeviceId = recipientDeviceId,
+                recipientIdentity = recipientIdentity,
+                pinnedSenderPublicKey = binding.senderPublicKey,
+            ),
+            nowUnixMs,
+        )
+        val payload = try {
+            EncryptedPayloadCodecV1.decode(opened.plaintext)
+        } catch (_: Exception) {
+            reject(EnvelopeRejectedException.Code.IDENTITY_TRANSITION_PAYLOAD_MISMATCH)
+        }
+        rejectUnless(
+            payload.bodyCase == EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION_COMMIT,
+            EnvelopeRejectedException.Code.IDENTITY_TRANSITION_PAYLOAD_MISMATCH,
+        )
+        val commit = payload.identityKeyTransitionCommit
+        rejectUnless(
+            constantTimeEquals(commit.transitionId.toByteArray(), binding.transitionId) &&
+                constantTimeEquals(commit.previousKeyId.toByteArray(), binding.previousKeyId) &&
+                constantTimeEquals(commit.newKeyId.toByteArray(), binding.newKeyId) &&
+                constantTimeEquals(commit.transitionSha256.toByteArray(), binding.transitionSha256) &&
+                constantTimeEquals(commit.ackSha256.toByteArray(), binding.ackSha256),
+            EnvelopeRejectedException.Code.TRANSITION_BINDING_MISMATCH,
+        )
+        val committed = trustedPeers.commitIdentityTransition(
+            opened.header.workspaceId,
+            opened.header.senderDeviceId,
+            opened.header.senderKeyId,
+            opened.plaintext,
+            nowUnixMs,
+        )
+        consumeReplay(opened.header, replayLedger, nowUnixMs)
+        return AcceptedPeerIdentityCommitEnvelope(opened.header, committed)
     }
 
     /**

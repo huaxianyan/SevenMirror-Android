@@ -41,6 +41,8 @@ class AndroidLocalIdentityTransitionStore(
         val canonicalAck: ByteArray?,
         val ackSha256: ByteArray?,
         val canonicalCommit: ByteArray?,
+        val nextCommitAttemptAtUnixMs: Long,
+        val commitAttemptCount: Int,
         val phase: PeerPhase,
     )
 
@@ -106,6 +108,8 @@ class AndroidLocalIdentityTransitionStore(
                 canonicalAck = null,
                 ackSha256 = null,
                 canonicalCommit = null,
+                nextCommitAttemptAtUnixMs = nowUnixMs,
+                commitAttemptCount = 0,
                 phase = PeerPhase.AWAITING_ACK,
             )
         }
@@ -215,12 +219,19 @@ class AndroidLocalIdentityTransitionStore(
                         optionalEquals(peer.ackSha256, ackSha256) &&
                         optionalEquals(peer.canonicalCommit, canonicalCommit),
                 ) { "Peer acknowledgement is already bound to different bytes" }
-                AcceptedAck(AcceptResult.ALREADY_ACCEPTED, peer.copyState())
+                val reactivated = peer.copy(
+                    nextCommitAttemptAtUnixMs = nowUnixMs,
+                    commitAttemptCount = 0,
+                )
+                updatePeer(database, reactivated)
+                AcceptedAck(AcceptResult.ALREADY_ACCEPTED, reactivated.copyState())
             } else {
                 val committed = peer.copy(
                     canonicalAck = canonicalAck.copyOf(),
                     ackSha256 = ackSha256,
                     canonicalCommit = canonicalCommit,
+                    nextCommitAttemptAtUnixMs = nowUnixMs,
+                    commitAttemptCount = 0,
                     phase = PeerPhase.COMMIT_QUEUED,
                 )
                 updatePeer(database, committed)
@@ -228,6 +239,142 @@ class AndroidLocalIdentityTransitionStore(
             }
             database.setTransactionSuccessful()
             result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun dueCommits(
+        workspaceId: ByteArray,
+        nowUnixMs: Long,
+        limit: Int = 16,
+    ): List<Pair<Session, PeerState>> {
+        validateIdentifier(workspaceId, "workspaceId")
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        require(limit in 1..128) { "limit must be 1..128" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database) ?: return emptyList()
+            validateSession(session)
+            val current = blockIfExpired(database, session, nowUnixMs)
+            val values = if (
+                current.phase == SessionPhase.AWAITING_ACKS &&
+                MessageDigest.isEqual(current.workspaceId, workspaceId)
+            ) {
+                database.query(
+                    PEER_TABLE,
+                    PEER_COLUMNS,
+                    "$TRANSITION_ID = ? AND $PHASE = ? AND $NEXT_COMMIT_ATTEMPT_AT <= ?",
+                    arrayOf(
+                        current.transitionId.toHex(),
+                        PeerPhase.COMMIT_QUEUED.name,
+                        nowUnixMs.toString(),
+                    ),
+                    null,
+                    null,
+                    "$NEXT_COMMIT_ATTEMPT_AT ASC, $PEER_DEVICE_ID ASC",
+                    limit.toString(),
+                ).use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) {
+                            val peer = peerFromCursor(cursor, current.transitionId)
+                            validatePeer(peer)
+                            validatePeerCryptography(current, peer)
+                            add(current.copyState() to peer.copyState())
+                        }
+                    }
+                }
+            } else {
+                emptyList()
+            }
+            database.setTransactionSuccessful()
+            values
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun recordCommitSendAttempt(
+        peerDeviceId: ByteArray,
+        transitionId: ByteArray,
+        ackSha256: ByteArray,
+        nextAttemptAtUnixMs: Long,
+        maximumAttempts: Int = 5,
+    ) {
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateIdentifier(transitionId, "transitionId")
+        validateDigest(ackSha256, "ackSha256")
+        require(nextAttemptAtUnixMs >= 0) { "nextAttemptAtUnixMs must be non-negative" }
+        require(maximumAttempts > 0) { "maximumAttempts must be positive" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        try {
+            val session = findSession(database)
+            if (session != null) {
+                validateSession(session)
+                val peer = findPeer(database, session.transitionId, peerDeviceId)
+                if (peer != null) {
+                    validatePeer(peer)
+                    check(
+                        MessageDigest.isEqual(peer.transitionId, transitionId) &&
+                            optionalEquals(peer.ackSha256, ackSha256),
+                    ) { "Identity transition commit attempt binding changed" }
+                    if (session.phase == SessionPhase.AWAITING_ACKS &&
+                        peer.phase == PeerPhase.COMMIT_QUEUED
+                    ) {
+                        val attemptCount = peer.commitAttemptCount + 1
+                        updatePeer(
+                            database,
+                            peer.copy(
+                                nextCommitAttemptAtUnixMs = if (attemptCount >= maximumAttempts) {
+                                    session.expiresAtUnixMs
+                                } else {
+                                    minOf(nextAttemptAtUnixMs, session.expiresAtUnixMs)
+                                },
+                                commitAttemptCount = attemptCount,
+                            ),
+                        )
+                    }
+                }
+            }
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun allocateCommitSequence(recipientKeyId: ByteArray): Long {
+        validateDigest(recipientKeyId, "recipientKeyId")
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val key = recipientKeyId.toHex()
+            val current = database.query(
+                SEQUENCE_TABLE,
+                arrayOf(NEXT_SEQUENCE),
+                "$PEER_KEY_ID = ?",
+                arrayOf(key),
+                null,
+                null,
+                null,
+                "1",
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else 1L }
+            check(current in 1 until Long.MAX_VALUE) { "Identity transition commit sequence exhausted" }
+            check(database.insertWithOnConflict(
+                SEQUENCE_TABLE,
+                null,
+                ContentValues(2).apply {
+                    put(PEER_KEY_ID, key)
+                    put(NEXT_SEQUENCE, current + 1)
+                },
+                SQLiteDatabase.CONFLICT_REPLACE,
+            ) != -1L) { "Unable to persist identity transition commit sequence" }
+            database.setTransactionSuccessful()
+            current
         } finally {
             database.endTransaction()
         }
@@ -303,10 +450,12 @@ class AndroidLocalIdentityTransitionStore(
         database.insertOrThrow(
             PEER_TABLE,
             null,
-            ContentValues(5).apply {
+            ContentValues(6).apply {
                 put(TRANSITION_ID, value.transitionId.toHex())
                 put(PEER_DEVICE_ID, value.deviceId.toHex())
                 put(PEER_KEY_ID, value.keyId)
+                put(NEXT_COMMIT_ATTEMPT_AT, value.nextCommitAttemptAtUnixMs)
+                put(COMMIT_ATTEMPT_COUNT, value.commitAttemptCount)
                 put(PHASE, value.phase.name)
             },
         )
@@ -316,10 +465,12 @@ class AndroidLocalIdentityTransitionStore(
         check(
             database.update(
                 PEER_TABLE,
-                ContentValues(4).apply {
+                ContentValues(6).apply {
                     put(CANONICAL_ACK, value.canonicalAck)
                     put(ACK_SHA256, value.ackSha256)
                     put(CANONICAL_COMMIT, value.canonicalCommit)
+                    put(NEXT_COMMIT_ATTEMPT_AT, value.nextCommitAttemptAtUnixMs)
+                    put(COMMIT_ATTEMPT_COUNT, value.commitAttemptCount)
                     put(PHASE, value.phase.name)
                 },
                 "$TRANSITION_ID = ? AND $PEER_DEVICE_ID = ?",
@@ -371,7 +522,7 @@ class AndroidLocalIdentityTransitionStore(
         deviceId: ByteArray,
     ): PeerState? = database.query(
         PEER_TABLE,
-        arrayOf(PEER_KEY_ID, CANONICAL_ACK, ACK_SHA256, CANONICAL_COMMIT, PHASE),
+        PEER_COLUMNS,
         "$TRANSITION_ID = ? AND $PEER_DEVICE_ID = ?",
         arrayOf(transitionId.toHex(), deviceId.toHex()),
         null,
@@ -379,16 +530,21 @@ class AndroidLocalIdentityTransitionStore(
         null,
         "1",
     ).use { cursor ->
-        if (!cursor.moveToFirst()) null else PeerState(
-            transitionId = transitionId.copyOf(),
-            deviceId = deviceId.copyOf(),
-            keyId = cursor.getBlob(0).copyOf(),
-            canonicalAck = if (cursor.isNull(1)) null else cursor.getBlob(1).copyOf(),
-            ackSha256 = if (cursor.isNull(2)) null else cursor.getBlob(2).copyOf(),
-            canonicalCommit = if (cursor.isNull(3)) null else cursor.getBlob(3).copyOf(),
-            phase = enumValue(cursor.getString(4), "peer phase"),
-        )
+        if (!cursor.moveToFirst()) null else peerFromCursor(cursor, transitionId)
     }
+
+    private fun peerFromCursor(cursor: android.database.Cursor, transitionId: ByteArray): PeerState =
+        PeerState(
+            transitionId = transitionId.copyOf(),
+            deviceId = cursor.getString(0).hexToBytes(),
+            keyId = cursor.getBlob(1).copyOf(),
+            canonicalAck = if (cursor.isNull(2)) null else cursor.getBlob(2).copyOf(),
+            ackSha256 = if (cursor.isNull(3)) null else cursor.getBlob(3).copyOf(),
+            canonicalCommit = if (cursor.isNull(4)) null else cursor.getBlob(4).copyOf(),
+            nextCommitAttemptAtUnixMs = cursor.getLong(5),
+            commitAttemptCount = cursor.getInt(6),
+            phase = enumValue(cursor.getString(7), "peer phase"),
+        )
 
     private fun validateSession(value: Session) {
         validateIdentifier(value.workspaceId, "workspaceId")
@@ -429,6 +585,12 @@ class AndroidLocalIdentityTransitionStore(
         validateIdentifier(value.transitionId, "transitionId")
         validateIdentifier(value.deviceId, "peerDeviceId")
         validateDigest(value.keyId, "peerKeyId")
+        check(value.nextCommitAttemptAtUnixMs >= 0) {
+            "Stored local identity transition commit attempt time is invalid"
+        }
+        check(value.commitAttemptCount >= 0) {
+            "Stored local identity transition commit attempt count is invalid"
+        }
         val complete = value.canonicalAck != null && value.ackSha256 != null && value.canonicalCommit != null
         check((value.canonicalAck == null) == (value.ackSha256 == null) &&
             (value.canonicalAck == null) == (value.canonicalCommit == null)) {
@@ -509,7 +671,7 @@ class AndroidLocalIdentityTransitionStore(
     }
 
     private class DatabaseHelper(context: Context, name: String) :
-        SQLiteOpenHelper(context, name, null, 1) {
+        SQLiteOpenHelper(context, name, null, DATABASE_VERSION) {
         override fun onCreate(database: SQLiteDatabase) {
             database.execSQL(
                 "CREATE TABLE $SESSION_TABLE (" +
@@ -524,21 +686,49 @@ class AndroidLocalIdentityTransitionStore(
                 "CREATE TABLE $PEER_TABLE (" +
                     "$TRANSITION_ID TEXT NOT NULL, $PEER_DEVICE_ID TEXT NOT NULL, " +
                     "$PEER_KEY_ID BLOB NOT NULL, $CANONICAL_ACK BLOB, $ACK_SHA256 BLOB, " +
-                    "$CANONICAL_COMMIT BLOB, $PHASE TEXT NOT NULL, " +
+                    "$CANONICAL_COMMIT BLOB, $NEXT_COMMIT_ATTEMPT_AT INTEGER NOT NULL, " +
+                    "$COMMIT_ATTEMPT_COUNT INTEGER NOT NULL, $PHASE TEXT NOT NULL, " +
                     "PRIMARY KEY ($TRANSITION_ID, $PEER_DEVICE_ID))",
             )
+            createSequenceTable(database)
         }
 
         override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-            throw IllegalStateException("Local identity transition migration missing: $oldVersion -> $newVersion")
+            var version = oldVersion
+            if (version == 1) {
+                database.execSQL(
+                    "ALTER TABLE $PEER_TABLE ADD COLUMN $NEXT_COMMIT_ATTEMPT_AT " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                database.execSQL(
+                    "ALTER TABLE $PEER_TABLE ADD COLUMN $COMMIT_ATTEMPT_COUNT " +
+                        "INTEGER NOT NULL DEFAULT 0",
+                )
+                createSequenceTable(database)
+                version = 2
+            }
+            if (version != newVersion) {
+                throw IllegalStateException(
+                    "Local identity transition migration missing: $oldVersion -> $newVersion",
+                )
+            }
+        }
+
+        private fun createSequenceTable(database: SQLiteDatabase) {
+            database.execSQL(
+                "CREATE TABLE $SEQUENCE_TABLE (" +
+                    "$PEER_KEY_ID TEXT PRIMARY KEY, $NEXT_SEQUENCE INTEGER NOT NULL)",
+            )
         }
     }
 
     private companion object {
+        const val DATABASE_VERSION = 2
         const val RETENTION_MS = 7L * 24 * 60 * 60 * 1_000
         const val SESSION_ID = 1
         const val SESSION_TABLE = "local_transition_session"
         const val PEER_TABLE = "local_transition_peer"
+        const val SEQUENCE_TABLE = "local_transition_sequence"
         const val ID = "id"
         const val WORKSPACE_ID = "workspace_id"
         const val LOCAL_DEVICE_ID = "local_device_id"
@@ -556,5 +746,18 @@ class AndroidLocalIdentityTransitionStore(
         const val CANONICAL_ACK = "canonical_ack"
         const val ACK_SHA256 = "ack_sha256"
         const val CANONICAL_COMMIT = "canonical_commit"
+        const val NEXT_COMMIT_ATTEMPT_AT = "next_commit_attempt_at_unix_ms"
+        const val COMMIT_ATTEMPT_COUNT = "commit_attempt_count"
+        const val NEXT_SEQUENCE = "next_sequence"
+        val PEER_COLUMNS = arrayOf(
+            PEER_DEVICE_ID,
+            PEER_KEY_ID,
+            CANONICAL_ACK,
+            ACK_SHA256,
+            CANONICAL_COMMIT,
+            NEXT_COMMIT_ATTEMPT_AT,
+            COMMIT_ATTEMPT_COUNT,
+            PHASE,
+        )
     }
 }
