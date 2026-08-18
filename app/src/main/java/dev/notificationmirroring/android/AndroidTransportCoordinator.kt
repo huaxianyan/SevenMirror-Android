@@ -15,11 +15,14 @@ import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionAckOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionCommitOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionDispatcher
+import dev.notificationmirroring.crypto.IdentityTransitionOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionDispatchResult
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
 import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
+import dev.notificationmirroring.storage.AndroidIdentityTransitionInitiator
 import dev.notificationmirroring.storage.IdentityPromotionResult
+import dev.notificationmirroring.storage.IdentityTransitionPreconditionException
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
@@ -62,6 +65,12 @@ class AndroidTransportCoordinator(context: Context) {
     private val operationLedger = AndroidOperationLedger(applicationContext)
     private val resultOutbox = AndroidActionResultOutbox(applicationContext)
     private val localIdentityTransitionStore = AndroidLocalIdentityTransitionStore(applicationContext)
+    private val identityTransitionInitiator = AndroidIdentityTransitionInitiator(
+        credentialStore,
+        identityStore,
+        trustedPeerStore,
+        localIdentityTransitionStore,
+    )
     private val identityPromotionCoordinator = AndroidIdentityPromotionCoordinator(
         identityStore,
         credentialStore,
@@ -110,6 +119,33 @@ class AndroidTransportCoordinator(context: Context) {
             cancelReconnect()
             reconnectBackoff.reset()
             connectInternal(requestedGeneration)
+        }
+    }
+
+    fun startIdentityTransition(completed: (Boolean, String?) -> Unit) {
+        executor.execute {
+            var error: String? = null
+            try {
+                identityTransitionInitiator.prepare()
+                val requestedGeneration = generation.incrementAndGet()
+                cancelReconnect()
+                reconnectBackoff.reset()
+                webSocket?.close(1000, "reconnect with pending E2EE identity")
+                webSocket = null
+                connectInternal(requestedGeneration)
+            } catch (failure: Throwable) {
+                error = failure.message ?: "Identity transition failed closed"
+                if (failure !is IdentityTransitionPreconditionException) {
+                    generation.incrementAndGet()
+                    cancelReconnect()
+                    cancelResultDrain()
+                    cancelIdentityTransitionDrain()
+                    webSocket?.close(1008, "identity transition preparation failed")
+                    webSocket = null
+                    mutableState.value = AndroidTransportState.SECURITY_ERROR
+                }
+            }
+            mainHandler.post { completed(error == null, error) }
         }
     }
 
@@ -254,6 +290,17 @@ class AndroidTransportCoordinator(context: Context) {
                         trustedPeers = trustedPeerStore,
                         outbox = resultOutbox,
                     ),
+                    identityTransitionDrainer = identityRotation?.let { rotation ->
+                        IdentityTransitionOutboxDrainer(
+                            workspaceId = credential.workspaceId,
+                            senderDeviceId = credential.deviceId,
+                            currentIdentity = identity,
+                            pendingIdentity = rotation.pending,
+                            transportIdentityKeyId = credential.identityKeyId,
+                            localTransitions = localIdentityTransitionStore,
+                            trustedPeers = trustedPeerStore,
+                        )
+                    },
                     identityAckDrainer = IdentityTransitionAckOutboxDrainer(
                         workspaceId = credential.workspaceId,
                         senderDeviceId = credential.deviceId,
@@ -493,6 +540,14 @@ class AndroidTransportCoordinator(context: Context) {
     ) {
         if (generation.get() != requestedGeneration || webSocket !== socket) return
         val nowUnixMs = System.currentTimeMillis()
+        val transitionResult = try {
+            handlers.identityTransitionDrainer?.drainDue(nowUnixMs) { frame ->
+                socket.send(ByteString.of(*frame))
+            }
+        } catch (_: Throwable) {
+            rejectInbound(requestedGeneration, socket)
+            return
+        }
         val ackResult = try {
             handlers.identityAckDrainer.drainDue(nowUnixMs) { frame ->
                 socket.send(ByteString.of(*frame))
@@ -509,7 +564,9 @@ class AndroidTransportCoordinator(context: Context) {
             rejectInbound(requestedGeneration, socket)
             return
         }
-        if (ackResult.attemptedEntries > ackResult.acceptedSends ||
+        if ((transitionResult?.attemptedEntries ?: 0) >
+            (transitionResult?.acceptedSends ?: 0) ||
+            ackResult.attemptedEntries > ackResult.acceptedSends ||
             commitResult.attemptedEntries > commitResult.acceptedSends
         ) {
             socket.cancel()
@@ -517,6 +574,7 @@ class AndroidTransportCoordinator(context: Context) {
             return
         }
         val nextWakeDelayMs = listOfNotNull(
+            transitionResult?.nextWakeDelayMs,
             ackResult.nextWakeDelayMs,
             commitResult.nextWakeDelayMs,
         ).minOrNull()
@@ -567,12 +625,14 @@ class AndroidTransportCoordinator(context: Context) {
     private data class ConnectionHandlers(
         val identityDispatcher: IdentityTransitionDispatcher,
         val resultDrainer: ActionResultOutboxDrainer,
+        val identityTransitionDrainer: IdentityTransitionOutboxDrainer?,
         val identityAckDrainer: IdentityTransitionAckOutboxDrainer,
         val identityCommitDrainer: IdentityTransitionCommitOutboxDrainer,
     ) {
         fun clearIdentities() {
             identityDispatcher.clear()
             resultDrainer.clearIdentity()
+            identityTransitionDrainer?.clearIdentity()
             identityAckDrainer.clearIdentity()
             identityCommitDrainer.clearIdentities()
         }

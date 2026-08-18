@@ -22,6 +22,15 @@ data class IdentityTransitionEnvelopeContext(
 
 /** Encrypts exact durable identity lifecycle payloads under fresh envelope tuples. */
 object IdentityTransitionEnvelopeSender {
+    fun createTransition(
+        context: IdentityTransitionEnvelopeContext,
+        canonicalTransition: ByteArray,
+    ): ByteArray = create(
+        context,
+        canonicalTransition,
+        EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION,
+    )
+
     fun createAck(
         context: IdentityTransitionEnvelopeContext,
         canonicalAck: ByteArray,

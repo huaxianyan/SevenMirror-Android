@@ -20,12 +20,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -102,6 +104,36 @@ private fun NotificationCapabilityScreen(
     var deviceName by remember { mutableStateOf("Android") }
     var rotationCode by remember { mutableStateOf("") }
     var registrationMessage by remember { mutableStateOf<String?>(null) }
+    var confirmIdentityTransition by remember { mutableStateOf(false) }
+
+    if (confirmIdentityTransition) {
+        AlertDialog(
+            onDismissRequest = { confirmIdentityTransition = false },
+            title = { Text("Rotate E2EE identity?") },
+            text = {
+                Text(
+                    "All approved peers must acknowledge this transition. After the first acknowledgement, " +
+                        "the old identity cannot be silently restored. Unreachable peers must be explicitly removed.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmIdentityTransition = false
+                    registrationMessage = "E2EE identity transition prepared; waiting for every approved peer"
+                    transportCoordinator.startIdentityTransition { succeeded, error ->
+                        registrationMessage = if (succeeded) {
+                            "E2EE identity transition started; exact durable messages will retry"
+                        } else {
+                            error ?: "E2EE identity transition failed closed"
+                        }
+                    }
+                }) { Text("Start transition") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmIdentityTransition = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -129,6 +161,7 @@ private fun NotificationCapabilityScreen(
                 onRotationCodeChanged = { rotationCode = it.take(32) },
                 message = registrationMessage,
                 onReconnect = transportCoordinator::connect,
+                onRotateIdentity = { confirmIdentityTransition = true },
                 onRotate = {
                     val oneTimeCode = rotationCode
                     rotationCode = ""
@@ -222,6 +255,7 @@ private fun TransportRegistrationCard(
     onRotationCodeChanged: (String) -> Unit,
     message: String?,
     onReconnect: () -> Unit,
+    onRotateIdentity: () -> Unit,
     onRotate: () -> Unit,
     onRegister: () -> Unit,
 ) {
@@ -286,6 +320,16 @@ private fun TransportRegistrationCard(
                     enabled = rotationCode.length == 32 && state != AndroidTransportState.ROTATING,
                 ) {
                     Text("Start recoverable credential rotation")
+                }
+                Text(
+                    "E2EE identity transition is separate from transport credentials and requires every approved peer.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(
+                    onClick = onRotateIdentity,
+                    enabled = state == AndroidTransportState.ONLINE,
+                ) {
+                    Text("Rotate E2EE identity")
                 }
             }
             if (state == AndroidTransportState.OFFLINE) {

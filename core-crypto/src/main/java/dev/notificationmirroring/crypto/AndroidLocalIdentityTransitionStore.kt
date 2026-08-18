@@ -130,6 +130,24 @@ class AndroidLocalIdentityTransitionStore(
     }
 
     @Synchronized
+    fun loadSession(nowUnixMs: Long): Session? {
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database)
+            val current = session?.let {
+                validateSession(it)
+                blockIfExpired(database, it, nowUnixMs)
+            }
+            database.setTransactionSuccessful()
+            current?.copyState()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
     fun expectedAckBinding(senderDeviceId: ByteArray, nowUnixMs: Long): AckBinding? {
         validateIdentifier(senderDeviceId, "senderDeviceId")
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
@@ -239,6 +257,101 @@ class AndroidLocalIdentityTransitionStore(
             }
             database.setTransactionSuccessful()
             result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun dueTransitions(
+        workspaceId: ByteArray,
+        nowUnixMs: Long,
+        limit: Int = 16,
+    ): List<Pair<Session, PeerState>> {
+        validateIdentifier(workspaceId, "workspaceId")
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        require(limit in 1..128) { "limit must be 1..128" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database) ?: return emptyList()
+            validateSession(session)
+            val current = blockIfExpired(database, session, nowUnixMs)
+            val values = if (
+                current.phase == SessionPhase.AWAITING_ACKS &&
+                MessageDigest.isEqual(current.workspaceId, workspaceId)
+            ) {
+                database.query(
+                    PEER_TABLE,
+                    PEER_COLUMNS,
+                    "$TRANSITION_ID = ? AND $PHASE = ? AND $NEXT_COMMIT_ATTEMPT_AT <= ?",
+                    arrayOf(
+                        current.transitionId.toHex(),
+                        PeerPhase.AWAITING_ACK.name,
+                        nowUnixMs.toString(),
+                    ),
+                    null,
+                    null,
+                    "$NEXT_COMMIT_ATTEMPT_AT ASC, $PEER_DEVICE_ID ASC",
+                    limit.toString(),
+                ).use { cursor ->
+                    buildList {
+                        while (cursor.moveToNext()) {
+                            val peer = peerFromCursor(cursor, current.transitionId)
+                            validatePeer(peer)
+                            add(current.copyState() to peer.copyState())
+                        }
+                    }
+                }
+            } else {
+                emptyList()
+            }
+            database.setTransactionSuccessful()
+            values
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun recordTransitionSendAttempt(
+        peerDeviceId: ByteArray,
+        transitionId: ByteArray,
+        transitionSha256: ByteArray,
+        nextAttemptAtUnixMs: Long,
+        maximumAttempts: Int = 5,
+    ) {
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateIdentifier(transitionId, "transitionId")
+        validateDigest(transitionSha256, "transitionSha256")
+        require(nextAttemptAtUnixMs >= 0) { "nextAttemptAtUnixMs must be non-negative" }
+        require(maximumAttempts > 0) { "maximumAttempts must be positive" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        try {
+            val session = findSession(database)
+            if (session != null) {
+                validateSession(session)
+                check(MessageDigest.isEqual(session.transitionId, transitionId) &&
+                    MessageDigest.isEqual(session.transitionSha256, transitionSha256)) {
+                    "Identity transition delivery attempt binding changed"
+                }
+                val peer = findPeer(database, session.transitionId, peerDeviceId)
+                if (peer != null && session.phase == SessionPhase.AWAITING_ACKS &&
+                    peer.phase == PeerPhase.AWAITING_ACK
+                ) {
+                    val attemptCount = Math.addExact(peer.commitAttemptCount, 1)
+                    updatePeer(database, peer.copy(
+                        commitAttemptCount = attemptCount,
+                        nextCommitAttemptAtUnixMs = if (attemptCount >= maximumAttempts) {
+                            session.expiresAtUnixMs
+                        } else {
+                            minOf(nextAttemptAtUnixMs, session.expiresAtUnixMs)
+                        },
+                    ))
+                }
+            }
+            database.setTransactionSuccessful()
         } finally {
             database.endTransaction()
         }

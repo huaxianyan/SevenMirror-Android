@@ -19,6 +19,7 @@ android {
 
 dependencies {
     implementation(project(":core-crypto"))
+    implementation(project(":core-protocol"))
     implementation(project(":core-transport"))
     androidTestImplementation(project(":core-protocol"))
     androidTestImplementation("androidx.test:runner:1.6.2")

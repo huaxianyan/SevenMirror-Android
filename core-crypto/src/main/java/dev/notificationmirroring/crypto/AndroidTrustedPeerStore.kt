@@ -39,6 +39,11 @@ class AndroidTrustedPeerStore(
         val phase: TransitionPhase,
     )
 
+    data class ApprovedPeer(
+        val deviceId: ByteArray,
+        val keyId: ByteArray,
+    )
+
     data class AcceptedPeerIdentityTransition(
         val result: TransitionResult,
         val state: PeerIdentityTransitionState,
@@ -138,6 +143,38 @@ class AndroidTrustedPeerStore(
         if (!MessageDigest.isEqual(record.keyId, keyId)) return null
         AuthenticatedHpke.requireValidPublicKey(record.publicKey)
         return record.publicKey.copyOf()
+    }
+
+    fun listApproved(workspaceId: ByteArray): List<ApprovedPeer> {
+        validateIdentifier(workspaceId, "workspaceId")
+        return helper.readableDatabase.query(
+            TABLE,
+            arrayOf(DEVICE_ID, KEY_ID, PUBLIC_KEY),
+            "$WORKSPACE_ID = ?",
+            arrayOf(workspaceId.toHex()),
+            null,
+            null,
+            "$DEVICE_ID ASC",
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    val deviceId = cursor.getString(0).hexToBytes()
+                    val keyId = cursor.getBlob(1).copyOf()
+                    val publicKey = cursor.getBlob(2).copyOf()
+                    try {
+                        validateIdentifier(deviceId, "deviceId")
+                        validateKeyId(keyId)
+                        AuthenticatedHpke.requireValidPublicKey(publicKey)
+                        check(MessageDigest.isEqual(keyId, sha256(publicKey))) {
+                            "Approved peer record key binding is corrupt"
+                        }
+                        add(ApprovedPeer(deviceId, keyId))
+                    } finally {
+                        publicKey.fill(0)
+                    }
+                }
+            }
+        }
     }
 
     /** Atomically binds one exact successor and its deterministic ACK intent to the active pin. */
