@@ -29,6 +29,8 @@ public  final class EncryptedPayload extends
     IDENTITY_KEY_TRANSITION(13),
     IDENTITY_KEY_TRANSITION_ACK(14),
     IDENTITY_KEY_TRANSITION_COMMIT(15),
+    NOTIFICATION_UPSERT(16),
+    NOTIFICATION_REMOVED(17),
     BODY_NOT_SET(0);
     private final int value;
     private BodyCase(int value) {
@@ -50,6 +52,8 @@ public  final class EncryptedPayload extends
         case 13: return IDENTITY_KEY_TRANSITION;
         case 14: return IDENTITY_KEY_TRANSITION_ACK;
         case 15: return IDENTITY_KEY_TRANSITION_COMMIT;
+        case 16: return NOTIFICATION_UPSERT;
+        case 17: return NOTIFICATION_REMOVED;
         case 0: return BODY_NOT_SET;
         default: return null;
       }
@@ -404,6 +408,110 @@ public  final class EncryptedPayload extends
    */
   private void clearIdentityKeyTransitionCommit() {
     if (bodyCase_ == 15) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int NOTIFICATION_UPSERT_FIELD_NUMBER = 16;
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   */
+  @java.lang.Override
+  public boolean hasNotificationUpsert() {
+    return bodyCase_ == 16;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationUpsert getNotificationUpsert() {
+    if (bodyCase_ == 16) {
+       return (dev.notificationmirroring.protocol.generated.v1.NotificationUpsert) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setNotificationUpsert(dev.notificationmirroring.protocol.generated.v1.NotificationUpsert value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 16;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeNotificationUpsert(dev.notificationmirroring.protocol.generated.v1.NotificationUpsert value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 16 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.newBuilder((dev.notificationmirroring.protocol.generated.v1.NotificationUpsert) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 16;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   */
+  private void clearNotificationUpsert() {
+    if (bodyCase_ == 16) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int NOTIFICATION_REMOVED_FIELD_NUMBER = 17;
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   */
+  @java.lang.Override
+  public boolean hasNotificationRemoved() {
+    return bodyCase_ == 17;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationRemoved getNotificationRemoved() {
+    if (bodyCase_ == 17) {
+       return (dev.notificationmirroring.protocol.generated.v1.NotificationRemoved) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setNotificationRemoved(dev.notificationmirroring.protocol.generated.v1.NotificationRemoved value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 17;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeNotificationRemoved(dev.notificationmirroring.protocol.generated.v1.NotificationRemoved value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 17 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.newBuilder((dev.notificationmirroring.protocol.generated.v1.NotificationRemoved) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 17;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   */
+  private void clearNotificationRemoved() {
+    if (bodyCase_ == 17) {
       bodyCase_ = 0;
       body_ = null;
     }
@@ -839,6 +947,102 @@ public  final class EncryptedPayload extends
       return this;
     }
 
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    @java.lang.Override
+    public boolean hasNotificationUpsert() {
+      return instance.hasNotificationUpsert();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationUpsert getNotificationUpsert() {
+      return instance.getNotificationUpsert();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    public Builder setNotificationUpsert(dev.notificationmirroring.protocol.generated.v1.NotificationUpsert value) {
+      copyOnWrite();
+      instance.setNotificationUpsert(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    public Builder setNotificationUpsert(
+        dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNotificationUpsert(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    public Builder mergeNotificationUpsert(dev.notificationmirroring.protocol.generated.v1.NotificationUpsert value) {
+      copyOnWrite();
+      instance.mergeNotificationUpsert(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+     */
+    public Builder clearNotificationUpsert() {
+      copyOnWrite();
+      instance.clearNotificationUpsert();
+      return this;
+    }
+
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    @java.lang.Override
+    public boolean hasNotificationRemoved() {
+      return instance.hasNotificationRemoved();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationRemoved getNotificationRemoved() {
+      return instance.getNotificationRemoved();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    public Builder setNotificationRemoved(dev.notificationmirroring.protocol.generated.v1.NotificationRemoved value) {
+      copyOnWrite();
+      instance.setNotificationRemoved(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    public Builder setNotificationRemoved(
+        dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNotificationRemoved(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    public Builder mergeNotificationRemoved(dev.notificationmirroring.protocol.generated.v1.NotificationRemoved value) {
+      copyOnWrite();
+      instance.mergeNotificationRemoved(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+     */
+    public Builder clearNotificationRemoved() {
+      copyOnWrite();
+      instance.clearNotificationRemoved();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.EncryptedPayload)
   }
   @java.lang.Override
@@ -864,10 +1068,12 @@ public  final class EncryptedPayload extends
             dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition.class,
             dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck.class,
             dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit.class,
+            dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.class,
+            dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.class,
           };
           java.lang.String info =
-              "\u0000\u0007\u0001\u0000\u0001\u000f\u0007\u0000\u0000\u0000\u0001\u000b\n<\u0000" +
-              "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000";
+              "\u0000\t\u0001\u0000\u0001\u0011\t\u0000\u0000\u0000\u0001\u000b\n<\u0000\u000b<" +
+              "\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

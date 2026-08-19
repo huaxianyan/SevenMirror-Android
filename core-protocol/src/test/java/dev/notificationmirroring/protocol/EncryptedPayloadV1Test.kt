@@ -9,6 +9,8 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
+import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
@@ -75,6 +77,71 @@ class EncryptedPayloadV1Test {
                     )
                     .build(),
             )
+        }
+    }
+
+    @Test
+    fun matchesCanonicalNotificationVectors() {
+        val upsert = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationUpsert(
+                NotificationUpsert.newBuilder()
+                    .setNotificationId(vector.notificationPayloadId)
+                    .setNotificationRevision(vector.notificationUpsertRevision)
+                    .setTitle(vector.notificationTitle)
+                    .setBody(vector.notificationBody),
+            )
+            .build()
+        assertArrayEquals(vector.notificationUpsertEncoded, EncryptedPayloadCodecV1.encode(upsert))
+        assertEquals(
+            EncryptedPayload.BodyCase.NOTIFICATION_UPSERT,
+            EncryptedPayloadCodecV1.decode(vector.notificationUpsertEncoded).bodyCase,
+        )
+
+        val removed = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationRemoved(
+                NotificationRemoved.newBuilder()
+                    .setNotificationId(vector.notificationPayloadId)
+                    .setNotificationRevision(vector.notificationRemovedRevision),
+            )
+            .build()
+        assertArrayEquals(vector.notificationRemovedEncoded, EncryptedPayloadCodecV1.encode(removed))
+        assertEquals(
+            EncryptedPayload.BodyCase.NOTIFICATION_REMOVED,
+            EncryptedPayloadCodecV1.decode(vector.notificationRemovedEncoded).bodyCase,
+        )
+    }
+
+    @Test
+    fun rejectsInvalidNotificationFieldsAndSchema() {
+        val valid = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationUpsert(
+                NotificationUpsert.newBuilder()
+                    .setNotificationId(vector.notificationPayloadId)
+                    .setNotificationRevision(vector.notificationUpsertRevision)
+                    .setTitle(vector.notificationTitle),
+            )
+            .build()
+        listOf(
+            valid.toBuilder().setSchemaVersion(1).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().clearNotificationId(),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().setNotificationRevision(0),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().clearTitle(),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().setTitle(""),
+            ).build(),
+        ).forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) {
+                EncryptedPayloadCodecV1.encode(invalid)
+            }
         }
     }
 
@@ -225,6 +292,18 @@ class EncryptedPayloadV1Test {
         val actionResultEncoded: ByteArray get() = hex("actionResultEncodedHex")
         val actionResultSha256: ByteArray get() = hex("actionResultSha256Hex")
         val actionResultAckEncoded: ByteArray get() = hex("actionResultAckEncodedHex")
+        val notificationPayloadId: String get() = string("notificationPayloadId")
+        val notificationUpsertRevision: Long get() = string("notificationUpsertRevision").toLong()
+        val notificationRemovedRevision: Long get() = string("notificationRemovedRevision").toLong()
+        val notificationTitle: String get() = string("notificationTitle")
+        val notificationBody: String get() = string("notificationBody")
+        val notificationUpsertEncoded: ByteArray get() = hex("notificationUpsertEncodedHex")
+        val notificationRemovedEncoded: ByteArray get() = hex("notificationRemovedEncodedHex")
+
+        private fun string(name: String): String =
+            Regex("\\\"$name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+                .find(json)?.groupValues?.get(1)
+                ?: error("Missing $name")
 
         private fun hex(name: String): ByteArray {
             val value = Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")

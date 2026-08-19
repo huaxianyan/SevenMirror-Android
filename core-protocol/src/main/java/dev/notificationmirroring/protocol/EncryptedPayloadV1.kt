@@ -9,14 +9,19 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
+import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.math.BigInteger
 import java.security.MessageDigest
 
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 1
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
+    const val NOTIFICATION_SCHEMA_VERSION = 3
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
+    const val MAX_NOTIFICATION_TITLE_BYTES = 512
+    const val MAX_NOTIFICATION_BODY_BYTES = 4_000
     const val MAX_REPLY_TEXT_BYTES = 4_000
     const val MAX_RESULT_DETAIL_BYTES = 256
     const val IDENTIFIER_SIZE = 16
@@ -72,19 +77,52 @@ object EncryptedPayloadCodecV1 {
                 requireSchema(payload, IDENTITY_LIFECYCLE_SCHEMA_VERSION)
                 validateIdentityKeyTransitionCommit(payload.identityKeyTransitionCommit)
             }
+            EncryptedPayload.BodyCase.NOTIFICATION_UPSERT -> {
+                requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
+                validateNotificationUpsert(payload.notificationUpsert)
+            }
+            EncryptedPayload.BodyCase.NOTIFICATION_REMOVED -> {
+                requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
+                validateNotificationRemoved(payload.notificationRemoved)
+            }
             else -> throw IllegalArgumentException(
                 "Exactly one supported encrypted payload body is required",
             )
         }
     }
 
-    private fun validateAction(action: ActionInvoke) {
-        require(action.notificationId.isNotEmpty() && action.notificationId.toByteArray().size <= MAX_NOTIFICATION_ID_BYTES) {
+    private fun validateNotificationUpsert(notification: NotificationUpsert) {
+        validateNotificationBinding(notification.notificationId, notification.notificationRevision)
+        require(notification.hasTitle() || notification.hasBody()) {
+            "Notification upsert requires title or body"
+        }
+        if (notification.hasTitle()) {
+            validateText(notification.title, MAX_NOTIFICATION_TITLE_BYTES, "Notification title")
+        }
+        if (notification.hasBody()) {
+            validateText(notification.body, MAX_NOTIFICATION_BODY_BYTES, "Notification body")
+        }
+    }
+
+    private fun validateNotificationRemoved(notification: NotificationRemoved) {
+        validateNotificationBinding(notification.notificationId, notification.notificationRevision)
+    }
+
+    private fun validateNotificationBinding(notificationId: String, revision: Long) {
+        require(notificationId.isNotEmpty() && notificationId.toByteArray().size <= MAX_NOTIFICATION_ID_BYTES) {
             "Notification id is out of range"
         }
-        require(action.notificationRevision in 1..MAX_NOTIFICATION_REVISION) {
+        require(revision in 1..MAX_NOTIFICATION_REVISION) {
             "Notification revision is out of range"
         }
+    }
+
+    private fun validateText(value: String, maximumBytes: Int, name: String) {
+        require(value.toByteArray().size in 1..maximumBytes) { "$name is out of range" }
+    }
+
+    private fun validateAction(action: ActionInvoke) {
+        validateNotificationBinding(action.notificationId, action.notificationRevision)
         require(action.actionId.size() == IDENTIFIER_SIZE) { "Action id must be 16 bytes" }
         require(action.idempotencyKey.size() == IDENTIFIER_SIZE && action.idempotencyKey.any { it.toInt() != 0 }) {
             "Idempotency key must be a non-zero 16-byte value"
@@ -208,6 +246,8 @@ object EncryptedPayloadCodecV1 {
                     106 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION); 16 }
                     114 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION_ACK); 32 }
                     122 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION_COMMIT); 64 }
+                    130 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_UPSERT); 128 }
+                    138 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_REMOVED); 256 }
                     else -> invalidWireField()
                 }
                 WireMessage.ACTION_INVOKE -> when (tag) {
@@ -245,6 +285,18 @@ object EncryptedPayloadCodecV1 {
                     42 -> { input.readByteArray(); 16 }
                     else -> invalidWireField()
                 }
+                WireMessage.NOTIFICATION_UPSERT -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readUInt64(); 2 }
+                    26 -> { input.readByteArray(); 4 }
+                    34 -> { input.readByteArray(); 8 }
+                    else -> invalidWireField()
+                }
+                WireMessage.NOTIFICATION_REMOVED -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readUInt64(); 2 }
+                    else -> invalidWireField()
+                }
             }
             require(seen and bit == 0) { "Encrypted payload contains a duplicate field" }
             seen = seen or bit
@@ -262,6 +314,8 @@ object EncryptedPayloadCodecV1 {
         IDENTITY_KEY_TRANSITION,
         IDENTITY_KEY_TRANSITION_ACK,
         IDENTITY_KEY_TRANSITION_COMMIT,
+        NOTIFICATION_UPSERT,
+        NOTIFICATION_REMOVED,
     }
 
     private val TWO = BigInteger.valueOf(2)

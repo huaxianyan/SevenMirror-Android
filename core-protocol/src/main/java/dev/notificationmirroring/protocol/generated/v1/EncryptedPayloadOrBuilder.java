@@ -81,5 +81,27 @@ public interface EncryptedPayloadOrBuilder extends
    */
   dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit getIdentityKeyTransitionCommit();
 
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   * @return Whether the notificationUpsert field is set.
+   */
+  boolean hasNotificationUpsert();
+  /**
+   * <code>.notification.mirroring.v1.NotificationUpsert notification_upsert = 16 [json_name = "notificationUpsert"];</code>
+   * @return The notificationUpsert.
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationUpsert getNotificationUpsert();
+
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   * @return Whether the notificationRemoved field is set.
+   */
+  boolean hasNotificationRemoved();
+  /**
+   * <code>.notification.mirroring.v1.NotificationRemoved notification_removed = 17 [json_name = "notificationRemoved"];</code>
+   * @return The notificationRemoved.
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationRemoved getNotificationRemoved();
+
   public dev.notificationmirroring.protocol.generated.v1.EncryptedPayload.BodyCase getBodyCase();
 }
