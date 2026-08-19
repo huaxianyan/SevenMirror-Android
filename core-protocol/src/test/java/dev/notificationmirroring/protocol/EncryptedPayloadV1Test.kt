@@ -10,6 +10,8 @@ import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -111,6 +113,54 @@ class EncryptedPayloadV1Test {
             EncryptedPayload.BodyCase.NOTIFICATION_REMOVED,
             EncryptedPayloadCodecV1.decode(vector.notificationRemovedEncoded).bodyCase,
         )
+
+        val manifest = validSnapshotManifest()
+        assertArrayEquals(
+            vector.notificationSnapshotManifestEncoded,
+            EncryptedPayloadCodecV1.encode(manifest),
+        )
+        assertEquals(
+            EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_MANIFEST,
+            EncryptedPayloadCodecV1.decode(vector.notificationSnapshotManifestEncoded).bodyCase,
+        )
+    }
+
+    @Test
+    fun rejectsInvalidNotificationSnapshotManifest() {
+        val valid = validSnapshotManifest()
+        val manifest = valid.notificationSnapshotManifest
+        listOf(
+            valid.toBuilder().setSchemaVersion(1).build(),
+            valid.toBuilder().setNotificationSnapshotManifest(
+                manifest.toBuilder().setHighWaterRevision(6),
+            ).build(),
+            valid.toBuilder().setNotificationSnapshotManifest(
+                manifest.toBuilder().setActiveNotifications(
+                    1,
+                    manifest.getActiveNotifications(1).toBuilder()
+                        .setNotificationId("synthetic.notification/42"),
+                ),
+            ).build(),
+            valid.toBuilder().setNotificationSnapshotManifest(
+                manifest.toBuilder().setActiveNotifications(
+                    0,
+                    manifest.getActiveNotifications(0).toBuilder()
+                        .setNotificationId("synthetic.notification/zz"),
+                ),
+            ).build(),
+        ).forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) {
+                EncryptedPayloadCodecV1.encode(invalid)
+            }
+        }
+
+        val empty = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationSnapshotManifest(
+                NotificationSnapshotManifest.getDefaultInstance(),
+            )
+            .build()
+        EncryptedPayloadCodecV1.decode(EncryptedPayloadCodecV1.encode(empty))
     }
 
     @Test
@@ -246,6 +296,24 @@ class EncryptedPayloadV1Test {
         }
     }
 
+    private fun validSnapshotManifest(): EncryptedPayload = EncryptedPayload.newBuilder()
+        .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+        .setNotificationSnapshotManifest(
+            NotificationSnapshotManifest.newBuilder()
+                .setHighWaterRevision(vector.notificationSnapshotHighWaterRevision)
+                .addActiveNotifications(
+                    NotificationSnapshotEntry.newBuilder()
+                        .setNotificationId("synthetic.notification/42")
+                        .setNotificationRevision(7),
+                )
+                .addActiveNotifications(
+                    NotificationSnapshotEntry.newBuilder()
+                        .setNotificationId("synthetic.notification/99")
+                        .setNotificationRevision(9),
+                ),
+        )
+        .build()
+
     private fun validPayload(): EncryptedPayload = EncryptedPayload.newBuilder()
         .setSchemaVersion(1)
         .setActionInvoke(
@@ -299,6 +367,10 @@ class EncryptedPayloadV1Test {
         val notificationBody: String get() = string("notificationBody")
         val notificationUpsertEncoded: ByteArray get() = hex("notificationUpsertEncodedHex")
         val notificationRemovedEncoded: ByteArray get() = hex("notificationRemovedEncodedHex")
+        val notificationSnapshotHighWaterRevision: Long
+            get() = string("notificationSnapshotHighWaterRevision").toLong()
+        val notificationSnapshotManifestEncoded: ByteArray
+            get() = hex("notificationSnapshotManifestEncodedHex")
 
         private fun string(name: String): String =
             Regex("\\\"$name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")

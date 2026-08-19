@@ -10,6 +10,7 @@ import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -22,6 +23,7 @@ object EncryptedPayloadCodecV1 {
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_NOTIFICATION_TITLE_BYTES = 512
     const val MAX_NOTIFICATION_BODY_BYTES = 4_000
+    const val MAX_SNAPSHOT_ENTRIES = 200
     const val MAX_REPLY_TEXT_BYTES = 4_000
     const val MAX_RESULT_DETAIL_BYTES = 256
     const val IDENTIFIER_SIZE = 16
@@ -85,6 +87,10 @@ object EncryptedPayloadCodecV1 {
                 requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
                 validateNotificationRemoved(payload.notificationRemoved)
             }
+            EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_MANIFEST -> {
+                requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
+                validateNotificationSnapshotManifest(payload.notificationSnapshotManifest)
+            }
             else -> throw IllegalArgumentException(
                 "Exactly one supported encrypted payload body is required",
             )
@@ -106,6 +112,36 @@ object EncryptedPayloadCodecV1 {
 
     private fun validateNotificationRemoved(notification: NotificationRemoved) {
         validateNotificationBinding(notification.notificationId, notification.notificationRevision)
+    }
+
+    private fun validateNotificationSnapshotManifest(manifest: NotificationSnapshotManifest) {
+        require(manifest.highWaterRevision in 0..MAX_NOTIFICATION_REVISION) {
+            "Notification snapshot high-water revision is out of range"
+        }
+        require(manifest.activeNotificationsCount <= MAX_SNAPSHOT_ENTRIES) {
+            "Notification snapshot has too many active entries"
+        }
+        var previousIdBytes: ByteArray? = null
+        for (entry in manifest.activeNotificationsList) {
+            validateNotificationBinding(entry.notificationId, entry.notificationRevision)
+            require(entry.notificationRevision <= manifest.highWaterRevision) {
+                "Notification snapshot entry exceeds high-water revision"
+            }
+            val idBytes = entry.notificationId.toByteArray()
+            require(previousIdBytes == null || compareUnsigned(previousIdBytes, idBytes) < 0) {
+                "Notification snapshot entries are not unique and strictly sorted"
+            }
+            previousIdBytes = idBytes
+        }
+    }
+
+    private fun compareUnsigned(left: ByteArray, right: ByteArray): Int {
+        val commonLength = minOf(left.size, right.size)
+        for (index in 0 until commonLength) {
+            val difference = (left[index].toInt() and 0xff) - (right[index].toInt() and 0xff)
+            if (difference != 0) return difference
+        }
+        return left.size - right.size
     }
 
     private fun validateNotificationBinding(notificationId: String, revision: Long) {
@@ -248,6 +284,7 @@ object EncryptedPayloadCodecV1 {
                     122 -> { validateWireFields(input.readByteArray(), WireMessage.IDENTITY_KEY_TRANSITION_COMMIT); 64 }
                     130 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_UPSERT); 128 }
                     138 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_REMOVED); 256 }
+                    146 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_SNAPSHOT_MANIFEST); 512 }
                     else -> invalidWireField()
                 }
                 WireMessage.ACTION_INVOKE -> when (tag) {
@@ -292,9 +329,18 @@ object EncryptedPayloadCodecV1 {
                     34 -> { input.readByteArray(); 8 }
                     else -> invalidWireField()
                 }
-                WireMessage.NOTIFICATION_REMOVED -> when (tag) {
+                WireMessage.NOTIFICATION_REMOVED,
+                WireMessage.NOTIFICATION_SNAPSHOT_ENTRY -> when (tag) {
                     10 -> { input.readByteArray(); 1 }
                     16 -> { input.readUInt64(); 2 }
+                    else -> invalidWireField()
+                }
+                WireMessage.NOTIFICATION_SNAPSHOT_MANIFEST -> when (tag) {
+                    8 -> { input.readUInt64(); 1 }
+                    18 -> {
+                        validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_SNAPSHOT_ENTRY)
+                        0
+                    }
                     else -> invalidWireField()
                 }
             }
@@ -316,6 +362,8 @@ object EncryptedPayloadCodecV1 {
         IDENTITY_KEY_TRANSITION_COMMIT,
         NOTIFICATION_UPSERT,
         NOTIFICATION_REMOVED,
+        NOTIFICATION_SNAPSHOT_MANIFEST,
+        NOTIFICATION_SNAPSHOT_ENTRY,
     }
 
     private val TWO = BigInteger.valueOf(2)

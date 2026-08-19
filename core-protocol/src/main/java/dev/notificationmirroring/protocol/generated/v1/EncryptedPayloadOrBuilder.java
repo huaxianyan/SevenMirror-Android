@@ -103,5 +103,16 @@ public interface EncryptedPayloadOrBuilder extends
    */
   dev.notificationmirroring.protocol.generated.v1.NotificationRemoved getNotificationRemoved();
 
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotManifest notification_snapshot_manifest = 18 [json_name = "notificationSnapshotManifest"];</code>
+   * @return Whether the notificationSnapshotManifest field is set.
+   */
+  boolean hasNotificationSnapshotManifest();
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotManifest notification_snapshot_manifest = 18 [json_name = "notificationSnapshotManifest"];</code>
+   * @return The notificationSnapshotManifest.
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest getNotificationSnapshotManifest();
+
   public dev.notificationmirroring.protocol.generated.v1.EncryptedPayload.BodyCase getBodyCase();
 }
