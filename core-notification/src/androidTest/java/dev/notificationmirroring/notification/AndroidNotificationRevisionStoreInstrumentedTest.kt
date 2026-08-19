@@ -16,8 +16,10 @@ class AndroidNotificationRevisionStoreInstrumentedTest {
         val firstProcess = AndroidNotificationRevisionStore(context, name)
         try {
             assertEquals(1L, firstProcess.allocate())
+            assertEquals(1L, firstProcess.current())
             val recreatedProcess = AndroidNotificationRevisionStore(context, name)
             assertEquals(2L, recreatedProcess.allocate())
+            assertEquals(2L, recreatedProcess.current())
         } finally {
             firstProcess.clear()
         }

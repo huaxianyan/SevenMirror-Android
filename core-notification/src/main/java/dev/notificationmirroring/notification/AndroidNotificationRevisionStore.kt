@@ -29,6 +29,13 @@ internal class AndroidNotificationRevisionStore(
     }
 
     @Synchronized
+    fun current(): Long {
+        val current = preferences.getLong(CURRENT_REVISION, 0L)
+        check(current >= 0L) { "Stored notification revision is corrupt" }
+        return current
+    }
+
+    @Synchronized
     fun clear() {
         check(preferences.edit().clear().commit()) {
             "Unable to clear notification revision test state"

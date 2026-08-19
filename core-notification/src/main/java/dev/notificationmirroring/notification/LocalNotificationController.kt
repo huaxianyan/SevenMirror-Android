@@ -12,15 +12,21 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+data class ActiveNotificationSnapshot(
+    val highWaterRevision: Long,
+    val notifications: List<NotificationSnapshot>,
+)
+
+interface SyntheticNotificationMirrorSink {
+    fun onUpsert(snapshot: NotificationSnapshot)
+    fun onRemoved(notificationId: String, revision: Long)
+    fun onSnapshot(snapshot: ActiveNotificationSnapshot)
+}
+
 /**
  * Process-local notification-content and PendingIntent registry. Only the opaque global
  * notification revision high-water mark is persisted across process recreation.
  */
-interface SyntheticNotificationMirrorSink {
-    fun onUpsert(snapshot: NotificationSnapshot)
-    fun onRemoved(notificationId: String, revision: Long)
-}
-
 object LocalNotificationController {
     private data class RegisteredAction(
         val id: NotificationActionId,
@@ -40,6 +46,7 @@ object LocalNotificationController {
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
     @Volatile
     private var syntheticMirrorSink: SyntheticNotificationMirrorSink? = null
+    private var activeSetReady = false
 
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
 
@@ -72,6 +79,26 @@ object LocalNotificationController {
     }
 
     @Synchronized
+    fun onActiveSetReady(context: Context) {
+        // Reserve a fresh barrier even when the active set is empty, so a notification removed
+        // while the listener was disconnected can be closed below this snapshot high-water mark.
+        revisionStore(context).allocate()
+        activeSetReady = true
+        syntheticMirrorSink?.onSnapshot(requireNotNull(currentActiveSnapshot(context)))
+    }
+
+    @Synchronized
+    fun currentActiveSnapshot(context: Context): ActiveNotificationSnapshot? {
+        if (!activeSetReady) return null
+        return ActiveNotificationSnapshot(
+            highWaterRevision = revisionStore(context).current(),
+            notifications = mutableNotifications.value.filter { snapshot ->
+                registered[snapshot.key]?.mirrorEligible == true
+            },
+        )
+    }
+
+    @Synchronized
     fun onRemoved(context: Context, key: String) {
         val removed = registered.remove(key)
         mutableNotifications.value = mutableNotifications.value.filterNot { it.key == key }
@@ -82,6 +109,7 @@ object LocalNotificationController {
 
     @Synchronized
     fun clear() {
+        activeSetReady = false
         registered.clear()
         mutableNotifications.value = emptyList()
     }

@@ -3,6 +3,8 @@ package dev.notificationmirroring.crypto
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.security.SecureRandom
 
@@ -60,6 +62,30 @@ class NotificationEnvelopeSender(
         nowUnixMs,
     )
 
+    fun createSnapshotManifest(
+        highWaterRevision: Long,
+        activeNotifications: Map<String, Long>,
+        nowUnixMs: Long,
+    ): ByteArray? {
+        val orderedIds = canonicalNotificationIds(activeNotifications.keys)
+        val manifest = NotificationSnapshotManifest.newBuilder()
+            .setHighWaterRevision(highWaterRevision)
+        orderedIds.forEach { notificationId ->
+            manifest.addActiveNotifications(
+                NotificationSnapshotEntry.newBuilder()
+                    .setNotificationId(notificationId)
+                    .setNotificationRevision(requireNotNull(activeNotifications[notificationId])),
+            )
+        }
+        return create(
+            EncryptedPayload.newBuilder()
+                .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+                .setNotificationSnapshotManifest(manifest)
+                .build(),
+            nowUnixMs,
+        )
+    }
+
     fun clearIdentity() {
         senderIdentity.privateKey.fill(0)
     }
@@ -96,13 +122,27 @@ class NotificationEnvelopeSender(
         }
     }
 
+    companion object {
+        fun canonicalNotificationIds(notificationIds: Collection<String>): List<String> =
+            notificationIds.sortedWith { left, right ->
+                compareUnsigned(left.toByteArray(), right.toByteArray())
+            }
+
+        private fun compareUnsigned(left: ByteArray, right: ByteArray): Int {
+            val commonLength = minOf(left.size, right.size)
+            for (index in 0 until commonLength) {
+                val difference = (left[index].toInt() and 0xff) - (right[index].toInt() and 0xff)
+                if (difference != 0) return difference
+            }
+            return left.size - right.size
+        }
+
+        private const val ENVELOPE_TTL_MS = 5 * 60 * 1000L
+    }
+
     private fun nextMessageId(): ByteArray = ByteArray(16).also { value ->
         do {
             random.nextBytes(value)
         } while (value.all { it.toInt() == 0 })
-    }
-
-    private companion object {
-        const val ENVELOPE_TTL_MS = 5 * 60 * 1000L
     }
 }

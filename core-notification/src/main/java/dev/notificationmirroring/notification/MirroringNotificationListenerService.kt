@@ -15,6 +15,7 @@ class MirroringNotificationListenerService : NotificationListenerService() {
         activeNotifications.orEmpty().forEach {
             LocalNotificationController.onPosted(this, it, isSilent(it.key))
         }
+        LocalNotificationController.onActiveSetReady(this)
     }
 
     override fun onListenerDisconnected() {

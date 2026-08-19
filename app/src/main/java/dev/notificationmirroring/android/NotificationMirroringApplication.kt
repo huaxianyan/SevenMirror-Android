@@ -1,6 +1,7 @@
 package dev.notificationmirroring.android
 
 import android.app.Application
+import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.LocalNotificationController
 import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.notification.SyntheticNotificationMirrorSink
@@ -23,6 +24,10 @@ class NotificationMirroringApplication : Application() {
 
                 override fun onRemoved(notificationId: String, revision: Long) {
                     transportCoordinator.removeSyntheticNotification(notificationId, revision)
+                }
+
+                override fun onSnapshot(snapshot: ActiveNotificationSnapshot) {
+                    transportCoordinator.mirrorSyntheticSnapshot(snapshot)
                 }
             },
         )

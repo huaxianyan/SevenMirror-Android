@@ -19,7 +19,9 @@ import dev.notificationmirroring.crypto.IdentityTransitionDispatcher
 import dev.notificationmirroring.crypto.IdentityTransitionOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionDispatchResult
 import dev.notificationmirroring.crypto.NotificationEnvelopeSender
+import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
+import dev.notificationmirroring.notification.LocalNotificationController
 import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
 import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
@@ -147,6 +149,10 @@ class AndroidTransportCoordinator(context: Context) {
                 sender.createRemoved(notificationId, revision, nowUnixMs)
             }
         }
+    }
+
+    fun mirrorSyntheticSnapshot(snapshot: ActiveNotificationSnapshot) {
+        executor.execute { sendSyntheticSnapshot(snapshot) }
     }
 
     init {
@@ -430,6 +436,8 @@ class AndroidTransportCoordinator(context: Context) {
                                 cancelIdentityTransitionDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
                                 drainIdentityTransitions(requestedGeneration, webSocket, handlers)
+                                LocalNotificationController.currentActiveSnapshot(applicationContext)
+                                    ?.let(::sendSyntheticSnapshot)
                             } catch (_: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
@@ -543,6 +551,44 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun sendSyntheticNotification(
         createFrame: (NotificationEnvelopeSender, Long) -> ByteArray?,
+    ) = sendSyntheticNotifications { sender, nowUnixMs ->
+        createFrame(sender, nowUnixMs)?.let(::listOf)
+    }
+
+    private fun sendSyntheticSnapshot(snapshot: ActiveNotificationSnapshot) {
+        sendSyntheticNotifications { sender, nowUnixMs ->
+            val byId = snapshot.notifications.associateBy(NotificationSnapshot::key)
+            val frames = mutableListOf<ByteArray>()
+            for (id in NotificationEnvelopeSender.canonicalNotificationIds(byId.keys)) {
+                val notification = requireNotNull(byId[id])
+                val frame = sender.createUpsert(
+                    notificationId = notification.key,
+                    revision = notification.revision,
+                    title = notification.title,
+                    body = notification.expandedText ?: notification.text,
+                    nowUnixMs = nowUnixMs,
+                )
+                if (frame == null) {
+                    frames.forEach { it.fill(0) }
+                    return@sendSyntheticNotifications null
+                }
+                frames += frame
+            }
+            val manifest = sender.createSnapshotManifest(
+                snapshot.highWaterRevision,
+                snapshot.notifications.associate { it.key to it.revision },
+                nowUnixMs,
+            )
+            if (manifest == null) {
+                frames.forEach { it.fill(0) }
+                return@sendSyntheticNotifications null
+            }
+            frames + manifest
+        }
+    }
+
+    private fun sendSyntheticNotifications(
+        createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
     ) {
         if (mutableState.value != AndroidTransportState.ONLINE) return
         val socket = webSocket ?: return
@@ -572,15 +618,17 @@ class AndroidTransportCoordinator(context: Context) {
                 trustedPeers = trustedPeerStore,
                 allocateSequence = resultOutbox::allocateSequence,
             )
-            val frame = createFrame(sender, System.currentTimeMillis()) ?: return
-            val accepted = try {
-                socket.send(ByteString.of(*frame))
+            val frames = createFrames(sender, System.currentTimeMillis()) ?: return
+            try {
+                for (frame in frames) {
+                    if (!socket.send(ByteString.of(*frame))) {
+                        socket.cancel()
+                        enqueueTermination(generation.get(), socket)
+                        return
+                    }
+                }
             } finally {
-                frame.fill(0)
-            }
-            if (!accepted) {
-                socket.cancel()
-                enqueueTermination(generation.get(), socket)
+                frames.forEach { it.fill(0) }
             }
         } catch (_: Throwable) {
             rejectInbound(generation.get(), socket)
