@@ -53,7 +53,7 @@ class AndroidTrustPairingController(context: Context) {
             mutableState.value = AndroidTrustPairingState.NotConfigured
             return@execute
         }
-        mutableState.value = coordinator.resume(local)?.toState() ?: AndroidTrustPairingState.Idle
+        mutableState.value = coordinator.resume(local)?.toState() ?: idleOrApproved(local)
     }
 
     fun createOffer() = withLocal { local ->
@@ -111,10 +111,23 @@ class AndroidTrustPairingController(context: Context) {
 
     fun cancel() = execute {
         coordinator.cancel()
-        mutableState.value = if (loadLocalIdentity() == null) {
+        val local = loadLocalIdentity()
+        mutableState.value = if (local == null) {
             AndroidTrustPairingState.NotConfigured
         } else {
-            AndroidTrustPairingState.Idle
+            idleOrApproved(local)
+        }
+    }
+
+    private fun idleOrApproved(local: LocalTrustIdentity): AndroidTrustPairingState {
+        val approved = peers.listApproved(local.workspaceId)
+        return try {
+            if (approved.isEmpty()) AndroidTrustPairingState.Idle else AndroidTrustPairingState.Approved
+        } finally {
+            approved.forEach { peer ->
+                peer.deviceId.fill(0)
+                peer.keyId.fill(0)
+            }
         }
     }
 
