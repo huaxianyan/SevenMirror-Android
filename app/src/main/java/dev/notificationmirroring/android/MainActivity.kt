@@ -47,6 +47,8 @@ import dev.notificationmirroring.notification.ActionExecutionStatus
 import dev.notificationmirroring.notification.LocalNotificationController
 import dev.notificationmirroring.notification.NotificationActionDescriptor
 import dev.notificationmirroring.notification.NotificationSnapshot
+import java.text.DateFormat
+import java.util.Date
 
 class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(
@@ -110,31 +112,41 @@ private fun NotificationCapabilityScreen(
     var peerPendingRemoval by remember {
         mutableStateOf<AndroidIdentityTransitionPeerStatus?>(null)
     }
+    val transitionPeerRemoved = stringResource(R.string.transition_peer_removed)
+    val transitionPeerRemovalFailed = stringResource(R.string.transition_peer_removal_failed)
+    val identityTransitionPreparing = stringResource(R.string.identity_transition_preparing)
+    val identityTransitionStarted = stringResource(R.string.identity_transition_started)
+    val identityTransitionFailed = stringResource(R.string.identity_transition_failed)
+    val credentialRotationStarted = stringResource(R.string.credential_rotation_started)
+    val credentialRotationAccepted = stringResource(R.string.credential_rotation_accepted)
+    val credentialRotationUnconfirmed = stringResource(R.string.credential_rotation_unconfirmed)
+    val registrationStarted = stringResource(R.string.registration_started)
+    val registrationSucceeded = stringResource(R.string.registration_succeeded)
+    val registrationFailed = stringResource(R.string.registration_failed)
 
     peerPendingRemoval?.let { peer ->
         AlertDialog(
             onDismissRequest = { peerPendingRemoval = null },
-            title = { Text("Remove transition peer?") },
+            title = { Text(stringResource(R.string.remove_transition_peer_title)) },
             text = {
-                Text(
-                    "Remove peer ${peer.deviceRef} from local trust and the active transition? " +
-                        "The peer must complete a fresh safety-code approval to regain trust.",
-                )
+                Text(stringResource(R.string.remove_transition_peer_message, peer.deviceRef))
             },
             confirmButton = {
                 TextButton(onClick = {
                     peerPendingRemoval = null
-                    transportCoordinator.removeIdentityTransitionPeer(peer.deviceId) { succeeded, error ->
+                    transportCoordinator.removeIdentityTransitionPeer(peer.deviceId) { succeeded, _ ->
                         registrationMessage = if (succeeded) {
-                            "Peer explicitly removed; transition readiness was re-evaluated"
+                            transitionPeerRemoved
                         } else {
-                            error ?: "Transition peer removal failed closed"
+                            transitionPeerRemovalFailed
                         }
                     }
-                }) { Text("Remove peer") }
+                }) { Text(stringResource(R.string.remove_peer)) }
             },
             dismissButton = {
-                TextButton(onClick = { peerPendingRemoval = null }) { Text("Cancel") }
+                TextButton(onClick = { peerPendingRemoval = null }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }
@@ -142,28 +154,25 @@ private fun NotificationCapabilityScreen(
     if (confirmIdentityTransition) {
         AlertDialog(
             onDismissRequest = { confirmIdentityTransition = false },
-            title = { Text("Rotate E2EE identity?") },
-            text = {
-                Text(
-                    "All approved peers must acknowledge this transition. After the first acknowledgement, " +
-                        "the old identity cannot be silently restored. Unreachable peers must be explicitly removed.",
-                )
-            },
+            title = { Text(stringResource(R.string.rotate_identity_title)) },
+            text = { Text(stringResource(R.string.rotate_identity_message)) },
             confirmButton = {
                 TextButton(onClick = {
                     confirmIdentityTransition = false
-                    registrationMessage = "E2EE identity transition prepared; waiting for every approved peer"
-                    transportCoordinator.startIdentityTransition { succeeded, error ->
+                    registrationMessage = identityTransitionPreparing
+                    transportCoordinator.startIdentityTransition { succeeded, _ ->
                         registrationMessage = if (succeeded) {
-                            "E2EE identity transition started; exact durable messages will retry"
+                            identityTransitionStarted
                         } else {
-                            error ?: "E2EE identity transition failed closed"
+                            identityTransitionFailed
                         }
                     }
-                }) { Text("Start transition") }
+                }) { Text(stringResource(R.string.start_transition)) }
             },
             dismissButton = {
-                TextButton(onClick = { confirmIdentityTransition = false }) { Text("Cancel") }
+                TextButton(onClick = { confirmIdentityTransition = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
             },
         )
     }
@@ -199,19 +208,19 @@ private fun NotificationCapabilityScreen(
                 onRotate = {
                     val oneTimeCode = rotationCode
                     rotationCode = ""
-                    registrationMessage = "Credential rotation started; current remains until pending SNO1"
+                    registrationMessage = credentialRotationStarted
                     transportCoordinator.rotateCredential(oneTimeCode) { requestConfirmed ->
                         registrationMessage = if (requestConfirmed) {
-                            "Rotation request accepted; pending authentication must receive SNO1"
+                            credentialRotationAccepted
                         } else {
-                            "Rotation was not confirmed; durable attempted state, if created, will probe pending then current"
+                            credentialRotationUnconfirmed
                         }
                     }
                 },
                 onRegister = {
                     val oneTimeCode = pairingCode
                     pairingCode = ""
-                    registrationMessage = "Registration started"
+                    registrationMessage = registrationStarted
                     transportCoordinator.register(
                         serverOrigin = serverOrigin,
                         pairingCode = oneTimeCode,
@@ -219,9 +228,9 @@ private fun NotificationCapabilityScreen(
                     ) { succeeded ->
                         if (succeeded) trustPairingController.refresh()
                         registrationMessage = if (succeeded) {
-                            "Registered; waiting for authenticated connection"
+                            registrationSucceeded
                         } else {
-                            "Registration failed; verify server, code, and device name"
+                            registrationFailed
                         }
                     }
                 },
@@ -411,6 +420,22 @@ private fun transportStateLabel(state: AndroidTransportState): String = when (st
 }
 
 @Composable
+private fun transitionPhaseLabel(phase: String): String = when (phase) {
+    "AWAITING_ACKS" -> stringResource(R.string.transition_phase_awaiting_acks)
+    "RECOVERY_AUTHORIZED" -> stringResource(R.string.transition_phase_recovery_authorized)
+    "PROMOTION_COMPLETED" -> stringResource(R.string.transition_phase_promotion_completed)
+    "BLOCKED" -> stringResource(R.string.transition_phase_blocked)
+    else -> stringResource(R.string.transport_security_error)
+}
+
+@Composable
+private fun transitionPeerPhaseLabel(phase: String): String = when (phase) {
+    "AWAITING_ACK" -> stringResource(R.string.transition_peer_awaiting_ack)
+    "COMMIT_QUEUED" -> stringResource(R.string.transition_peer_commit_queued)
+    else -> stringResource(R.string.transport_security_error)
+}
+
+@Composable
 private fun IdentityTransitionStatusCard(
     status: AndroidIdentityTransitionStatus,
     onRefresh: () -> Unit,
@@ -421,28 +446,44 @@ private fun IdentityTransitionStatusCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("E2EE identity transition", style = MaterialTheme.typography.titleMedium)
-            Text("Phase: ${status.phase}", style = MaterialTheme.typography.bodySmall)
             Text(
-                "Original deadline (Unix ms): ${status.expiresAtUnixMs}",
+                stringResource(R.string.identity_transition_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                stringResource(R.string.transition_phase, transitionPhaseLabel(status.phase)),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(
+                    R.string.transition_deadline,
+                    DateFormat.getDateTimeInstance().format(Date(status.expiresAtUnixMs)),
+                ),
                 style = MaterialTheme.typography.bodySmall,
             )
             if (status.peers.isEmpty()) {
                 Text(
-                    "No snapshot peers remain. Automatic promotion is forbidden; use explicit lost-device recovery.",
+                    stringResource(R.string.transition_no_peers),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             status.peers.forEach { peer ->
                 Text(
-                    "Peer ${peer.deviceRef}, key ${peer.keyRef}: ${peer.phase}",
+                    stringResource(
+                        R.string.transition_peer_status,
+                        peer.deviceRef,
+                        peer.keyRef,
+                        transitionPeerPhaseLabel(peer.phase),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Button(onClick = { onRemovePeer(peer) }) {
-                    Text("Remove trust and exclude ${peer.deviceRef}")
+                    Text(stringResource(R.string.remove_transition_peer, peer.deviceRef))
                 }
             }
-            Button(onClick = onRefresh) { Text("Refresh transition status") }
+            Button(onClick = onRefresh) {
+                Text(stringResource(R.string.refresh_transition_status))
+            }
         }
     }
 }
@@ -459,6 +500,8 @@ private fun TrustPairingCard(
     val context = LocalContext.current
     var importedPayload by remember { mutableStateOf("") }
     var safetyConfirmed by remember(state) { mutableStateOf(false) }
+    val trustOfferClipboardLabel = stringResource(R.string.clipboard_trust_offer)
+    val trustApprovalClipboardLabel = stringResource(R.string.clipboard_trust_approval)
     fun copyPayload(label: String, value: String) {
         context.getSystemService(ClipboardManager::class.java)
             .setPrimaryClip(ClipData.newPlainText(label, value))
@@ -469,35 +512,45 @@ private fun TrustPairingCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Trusted E2EE device", style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.trusted_device_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
             Text(
                 when (state) {
                     is AndroidTrustPairingState.OfferCreated ->
-                        "Step 2 — Send this offer, then import the approval response"
+                        stringResource(R.string.pairing_step_approval)
                     is AndroidTrustPairingState.CompareSafetyCode ->
-                        "Step 3 — Compare the complete safety code and approve independently"
-                    else -> "Step 1 — Create or import an offer"
+                        stringResource(R.string.pairing_step_safety_code)
+                    else -> stringResource(R.string.pairing_step_offer)
                 },
                 style = MaterialTheme.typography.titleSmall,
             )
             Text(
-                "Synthetic testing only. The first payload is an offer; importing it creates a different approval response that must be sent back. Compare the complete safety code on both devices.",
+                stringResource(R.string.pairing_boundary),
                 style = MaterialTheme.typography.bodySmall,
             )
             when (state) {
-                AndroidTrustPairingState.Loading -> Text("Loading pairing state…")
-                AndroidTrustPairingState.NotConfigured -> Text("Register this Android device first.")
+                AndroidTrustPairingState.Loading -> Text(stringResource(R.string.pairing_loading))
+                AndroidTrustPairingState.NotConfigured -> {
+                    Text(stringResource(R.string.pairing_register_first))
+                }
                 AndroidTrustPairingState.Idle,
                 AndroidTrustPairingState.Approved,
                 is AndroidTrustPairingState.Error,
                 -> {
                     if (state == AndroidTrustPairingState.Approved) {
-                        Text("Peer approved locally. The other device must confirm independently.")
+                        Text(stringResource(R.string.pairing_peer_approved))
                     }
                     if (state is AndroidTrustPairingState.Error) {
-                        Text(state.message, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            stringResource(R.string.pairing_state_error),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
-                    Button(onClick = onCreateOffer) { Text("Create trust offer") }
+                    Button(onClick = onCreateOffer) {
+                        Text(stringResource(R.string.create_trust_offer))
+                    }
                     PairingPayloadImport(
                         value = importedPayload,
                         onValueChange = { importedPayload = it.take(512) },
@@ -509,8 +562,12 @@ private fun TrustPairingCard(
                     )
                     if (state is AndroidTrustPairingState.Error) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = onRefresh) { Text("Restore session") }
-                            Button(onClick = onCancel) { Text("Cancel session") }
+                            Button(onClick = onRefresh) {
+                                Text(stringResource(R.string.restore_session))
+                            }
+                            Button(onClick = onCancel) {
+                                Text(stringResource(R.string.cancel_session))
+                            }
                         }
                     }
                 }
@@ -519,11 +576,13 @@ private fun TrustPairingCard(
                         value = state.offerPayload,
                         onValueChange = {},
                         readOnly = true,
-                        label = { Text("Offer — send this once to the other device") },
+                        label = { Text(stringResource(R.string.offer_payload_label)) },
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Button(onClick = { copyPayload("Trust offer", state.offerPayload) }) {
-                        Text("Copy offer payload")
+                    Button(onClick = {
+                        copyPayload(trustOfferClipboardLabel, state.offerPayload)
+                    }) {
+                        Text(stringResource(R.string.copy_offer_payload))
                     }
                     PairingPayloadImport(
                         value = importedPayload,
@@ -534,7 +593,9 @@ private fun TrustPairingCard(
                             onImportPayload(payload)
                         },
                     )
-                    Button(onClick = onCancel) { Text("Cancel pairing") }
+                    Button(onClick = onCancel) {
+                        Text(stringResource(R.string.cancel_pairing))
+                    }
                 }
                 is AndroidTrustPairingState.CompareSafetyCode -> {
                     state.approvalPayload?.let { payload ->
@@ -542,29 +603,36 @@ private fun TrustPairingCard(
                             value = payload,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Approval response — send this back to the offer creator") },
+                            label = { Text(stringResource(R.string.approval_payload_label)) },
                             modifier = Modifier.fillMaxWidth(),
                         )
-                        Button(onClick = { copyPayload("Trust approval", payload) }) {
-                            Text("Copy approval payload")
+                        Button(onClick = {
+                            copyPayload(trustApprovalClipboardLabel, payload)
+                        }) {
+                            Text(stringResource(R.string.copy_approval_payload))
                         }
                     }
-                    Text("Safety code", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        stringResource(R.string.safety_code),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
                     Text(state.safetyCode, style = MaterialTheme.typography.headlineSmall)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
                             checked = safetyConfirmed,
                             onCheckedChange = { safetyConfirmed = it },
                         )
-                        Text("I compared the complete code on both devices and it matches")
+                        Text(stringResource(R.string.safety_code_confirmed))
                     }
                     Button(
                         enabled = safetyConfirmed,
                         onClick = { onConfirm(state.safetyCode) },
                     ) {
-                        Text("Approve this peer")
+                        Text(stringResource(R.string.approve_peer))
                     }
-                    Button(onClick = onCancel) { Text("Reject and cancel") }
+                    Button(onClick = onCancel) {
+                        Text(stringResource(R.string.reject_and_cancel))
+                    }
                 }
             }
         }
@@ -580,12 +648,12 @@ private fun PairingPayloadImport(
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
-        label = { Text("Payload received from the other device") },
-        placeholder = { Text("sntrust1:…") },
+        label = { Text(stringResource(R.string.received_pairing_payload)) },
+        placeholder = { Text(stringResource(R.string.pairing_payload_placeholder)) },
         modifier = Modifier.fillMaxWidth(),
     )
     Button(enabled = value.isNotBlank(), onClick = onImport) {
-        Text("Import received payload")
+        Text(stringResource(R.string.import_pairing_payload))
     }
 }
 
