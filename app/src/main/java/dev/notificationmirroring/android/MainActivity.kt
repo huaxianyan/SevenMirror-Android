@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -172,11 +173,11 @@ private fun NotificationCapabilityScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
-            Text("Notification Mirroring", style = MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
         }
         item {
             Text(
-                "Transport registration uses synthetic data only. Real notification sync remains disabled.",
+                stringResource(R.string.transport_boundary),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
@@ -248,16 +249,22 @@ private fun NotificationCapabilityScreen(
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onOpenNotificationAccess) {
-                    Text("Open notification access")
+                    Text(stringResource(R.string.open_notification_access))
                 }
                 Button(onClick = onPostDebugNotification) {
-                    Text("Post local action test notification")
+                    Text(stringResource(R.string.post_test_notification))
                 }
             }
         }
         item {
-            Text("Debug receiver: $debugActionResult", style = MaterialTheme.typography.bodySmall)
-            Text("Synthetic regular side-effect count: $regularActionCount", style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.debug_receiver, debugActionResult),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                stringResource(R.string.synthetic_side_effect_count, regularActionCount),
+                style = MaterialTheme.typography.bodySmall,
+            )
             Button(
                 onClick = {
                     val snapshot = transportCoordinator.syntheticResultOutboxSnapshot()
@@ -270,12 +277,12 @@ private fun NotificationCapabilityScreen(
                     )
                 },
             ) {
-                Text("Refresh synthetic outbox status")
+                Text(stringResource(R.string.refresh_outbox_status))
             }
         }
-        item { Text("Active notifications: ${notifications.size}") }
+        item { Text(stringResource(R.string.active_notifications, notifications.size)) }
         if (notifications.isEmpty()) {
-            item { Text("Grant access and generate a notification to test extraction and actions.") }
+            item { Text(stringResource(R.string.notification_test_empty)) }
         } else {
             items(notifications, key = { it.key }) { snapshot ->
                 NotificationCard(snapshot, trustPairingController)
@@ -307,21 +314,24 @@ private fun TransportRegistrationCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Private server", style = MaterialTheme.typography.titleMedium)
-            Text("Transport: ${state.name}", style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.private_server), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.transport_status, transportStateLabel(state)),
+                style = MaterialTheme.typography.bodySmall,
+            )
             if (state == AndroidTransportState.NOT_CONFIGURED) {
                 OutlinedTextField(
                     value = serverOrigin,
                     onValueChange = onServerOriginChanged,
-                    label = { Text("Server origin") },
-                    placeholder = { Text("https://notify.example") },
+                    label = { Text(stringResource(R.string.server_origin)) },
+                    placeholder = { Text(stringResource(R.string.server_origin_placeholder)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 OutlinedTextField(
                     value = pairingCode,
                     onValueChange = onPairingCodeChanged,
-                    label = { Text("One-time pairing code") },
+                    label = { Text(stringResource(R.string.one_time_pairing_code)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -330,7 +340,7 @@ private fun TransportRegistrationCard(
                 OutlinedTextField(
                     value = deviceName,
                     onValueChange = onDeviceNameChanged,
-                    label = { Text("Device name") },
+                    label = { Text(stringResource(R.string.device_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -339,20 +349,20 @@ private fun TransportRegistrationCard(
                     enabled = serverOrigin.isNotBlank() && pairingCode.length == 32 &&
                         deviceName.isNotBlank(),
                 ) {
-                    Text("Register this Android device")
+                    Text(stringResource(R.string.register_android_device))
                 }
             }
             if (state != AndroidTransportState.NOT_CONFIGURED &&
                 state != AndroidTransportState.REGISTERING
             ) {
                 Text(
-                    "Rotation keeps current until pending receives authenticated SNO1. Interrupted retries reuse exact pending.",
+                    stringResource(R.string.credential_rotation_boundary),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 OutlinedTextField(
                     value = rotationCode,
                     onValueChange = onRotationCodeChanged,
-                    label = { Text("One-time credential rotation code") },
+                    label = { Text(stringResource(R.string.one_time_rotation_code)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
@@ -362,31 +372,42 @@ private fun TransportRegistrationCard(
                     onClick = onRotate,
                     enabled = rotationCode.length == 32 && state != AndroidTransportState.ROTATING,
                 ) {
-                    Text("Start recoverable credential rotation")
+                    Text(stringResource(R.string.start_credential_rotation))
                 }
                 Text(
-                    "E2EE identity transition is separate from transport credentials and requires every approved peer.",
+                    stringResource(R.string.identity_transition_boundary),
                     style = MaterialTheme.typography.bodySmall,
                 )
                 Button(
                     onClick = onRotateIdentity,
                     enabled = state == AndroidTransportState.ONLINE && !identityTransitionActive,
                 ) {
-                    Text("Rotate E2EE identity")
+                    Text(stringResource(R.string.rotate_identity))
                 }
             }
             if (state == AndroidTransportState.OFFLINE) {
-                Button(onClick = onReconnect) { Text("Retry connection") }
+                Button(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
             }
             if (state == AndroidTransportState.SECURITY_ERROR) {
                 Text(
-                    "Stored identity or credential state failed security validation; no replacement was created.",
+                    stringResource(R.string.stored_state_security_error),
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
     }
+}
+
+@Composable
+private fun transportStateLabel(state: AndroidTransportState): String = when (state) {
+    AndroidTransportState.NOT_CONFIGURED -> stringResource(R.string.transport_not_configured)
+    AndroidTransportState.REGISTERING -> stringResource(R.string.transport_registering)
+    AndroidTransportState.ROTATING -> stringResource(R.string.transport_rotating)
+    AndroidTransportState.CONNECTING -> stringResource(R.string.transport_connecting)
+    AndroidTransportState.ONLINE -> stringResource(R.string.transport_online)
+    AndroidTransportState.OFFLINE -> stringResource(R.string.transport_offline)
+    AndroidTransportState.SECURITY_ERROR -> stringResource(R.string.transport_security_error)
 }
 
 @Composable

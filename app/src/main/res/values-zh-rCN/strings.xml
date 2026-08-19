@@ -1,0 +1,31 @@
+<resources>
+    <string name="app_name">通知镜像</string>
+    <string name="transport_boundary">目前只支持同步本应用创建的通知。其他应用的通知仍留在 Android 设备上。</string>
+    <string name="private_server">私有服务器</string>
+    <string name="transport_status">传输状态：%1$s</string>
+    <string name="transport_not_configured">尚未配置</string>
+    <string name="transport_registering">正在注册</string>
+    <string name="transport_rotating">正在轮换凭据</string>
+    <string name="transport_connecting">正在连接</string>
+    <string name="transport_online">在线</string>
+    <string name="transport_offline">离线</string>
+    <string name="transport_security_error">安全错误</string>
+    <string name="server_origin">服务器地址</string>
+    <string name="one_time_pairing_code">一次性配对码</string>
+    <string name="device_name">设备名称</string>
+    <string name="register_android_device">注册此 Android 设备</string>
+    <string name="credential_rotation_boundary">当前凭据会保持有效，直到待定凭据完成认证连接。中断后重试会复用同一待定凭据。</string>
+    <string name="one_time_rotation_code">一次性凭据轮换码</string>
+    <string name="start_credential_rotation">开始可恢复的凭据轮换</string>
+    <string name="identity_transition_boundary">E2EE 身份转换独立于传输凭据，并且需要所有已批准设备确认。</string>
+    <string name="rotate_identity">轮换 E2EE 身份</string>
+    <string name="retry_connection">重试连接</string>
+    <string name="stored_state_security_error">保存的身份或凭据未通过安全校验，未创建替代状态。</string>
+    <string name="open_notification_access">打开通知使用权</string>
+    <string name="post_test_notification">发布本地操作测试通知</string>
+    <string name="debug_receiver">调试接收器：%1$s</string>
+    <string name="synthetic_side_effect_count">合成普通操作副作用次数：%1$d</string>
+    <string name="refresh_outbox_status">刷新合成发件箱状态</string>
+    <string name="active_notifications">活动通知：%1$d</string>
+    <string name="notification_test_empty">请授予通知使用权并生成通知，以测试提取和操作功能。</string>
+</resources>

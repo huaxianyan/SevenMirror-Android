@@ -1,3 +1,32 @@
 <resources>
     <string name="app_name">Notification Mirroring</string>
+    <string name="transport_boundary">Transport registration currently supports notifications created by this app only. Notifications from other apps remain on Android.</string>
+    <string name="private_server">Private server</string>
+    <string name="transport_status">Transport: %1$s</string>
+    <string name="transport_not_configured">Not configured</string>
+    <string name="transport_registering">Registering</string>
+    <string name="transport_rotating">Rotating credential</string>
+    <string name="transport_connecting">Connecting</string>
+    <string name="transport_online">Online</string>
+    <string name="transport_offline">Offline</string>
+    <string name="transport_security_error">Security error</string>
+    <string name="server_origin">Server origin</string>
+    <string name="server_origin_placeholder" translatable="false">https://notify.example</string>
+    <string name="one_time_pairing_code">One-time pairing code</string>
+    <string name="device_name">Device name</string>
+    <string name="register_android_device">Register this Android device</string>
+    <string name="credential_rotation_boundary">The current credential remains active until the pending credential completes authenticated connection. An interrupted retry reuses the same pending credential.</string>
+    <string name="one_time_rotation_code">One-time credential rotation code</string>
+    <string name="start_credential_rotation">Start recoverable credential rotation</string>
+    <string name="identity_transition_boundary">E2EE identity transition is separate from transport credentials and requires every approved peer.</string>
+    <string name="rotate_identity">Rotate E2EE identity</string>
+    <string name="retry_connection">Retry connection</string>
+    <string name="stored_state_security_error">Stored identity or credential state failed security validation. No replacement was created.</string>
+    <string name="open_notification_access">Open notification access</string>
+    <string name="post_test_notification">Post local action test notification</string>
+    <string name="debug_receiver">Debug receiver: %1$s</string>
+    <string name="synthetic_side_effect_count">Synthetic regular side-effect count: %1$d</string>
+    <string name="refresh_outbox_status">Refresh synthetic outbox status</string>
+    <string name="active_notifications">Active notifications: %1$d</string>
+    <string name="notification_test_empty">Grant access and generate a notification to test extraction and actions.</string>
 </resources>
