@@ -14,7 +14,7 @@ class AndroidLocalIdentityTransitionStore(
     context: Context,
     storeName: String = "default",
 ) : AutoCloseable {
-    enum class SessionPhase { AWAITING_ACKS, PROMOTION_COMPLETED, BLOCKED }
+    enum class SessionPhase { AWAITING_ACKS, RECOVERY_AUTHORIZED, PROMOTION_COMPLETED, BLOCKED }
     enum class PeerPhase { AWAITING_ACK, COMMIT_QUEUED }
     enum class AcceptResult { ACCEPTED, ALREADY_ACCEPTED }
 
@@ -442,7 +442,12 @@ class AndroidLocalIdentityTransitionStore(
                         updatePeer(
                             database,
                             peer.copy(
-                                nextCommitAttemptAtUnixMs = if (attemptCount >= maximumAttempts) {
+                                nextCommitAttemptAtUnixMs = if (
+                                    session.phase == SessionPhase.RECOVERY_AUTHORIZED
+                                ) {
+                                    if (attemptCount >= maximumAttempts) Long.MAX_VALUE
+                                    else nextAttemptAtUnixMs
+                                } else if (attemptCount >= maximumAttempts) {
                                     session.expiresAtUnixMs
                                 } else {
                                     minOf(nextAttemptAtUnixMs, session.expiresAtUnixMs)
@@ -502,7 +507,10 @@ class AndroidLocalIdentityTransitionStore(
             val session = findSession(database) ?: return null
             validateSession(session)
             val current = blockIfExpired(database, session, nowUnixMs)
-            val ready = if (current.phase == SessionPhase.AWAITING_ACKS) {
+            val ready = if (
+                current.phase == SessionPhase.AWAITING_ACKS ||
+                current.phase == SessionPhase.RECOVERY_AUTHORIZED
+            ) {
                 database.rawQuery(
                     "SELECT COUNT(*), SUM(CASE WHEN $PHASE = ? THEN 1 ELSE 0 END) " +
                         "FROM $PEER_TABLE WHERE $TRANSITION_ID = ?",
@@ -572,6 +580,103 @@ class AndroidLocalIdentityTransitionStore(
             }
             database.setTransactionSuccessful()
             peer?.copyState()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun listPeers(nowUnixMs: Long): List<PeerState> {
+        require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database) ?: return emptyList()
+            val current = blockIfExpired(database, session, nowUnixMs)
+            val peers = database.query(
+                PEER_TABLE,
+                PEER_COLUMNS,
+                "$TRANSITION_ID = ?",
+                arrayOf(current.transitionId.toHex()),
+                null,
+                null,
+                "$PEER_DEVICE_ID ASC",
+            ).use { cursor ->
+                buildList {
+                    while (cursor.moveToNext()) {
+                        val peer = peerFromCursor(cursor, current.transitionId)
+                        validatePeer(peer)
+                        validatePeerCryptography(current, peer)
+                        add(peer.copyState())
+                    }
+                }
+            }
+            database.setTransactionSuccessful()
+            peers
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    fun removePeerFromSnapshot(
+        peerDeviceId: ByteArray,
+        peerKeyId: ByteArray,
+        transitionId: ByteArray,
+    ): Boolean {
+        validateIdentifier(peerDeviceId, "peerDeviceId")
+        validateDigest(peerKeyId, "peerKeyId")
+        validateIdentifier(transitionId, "transitionId")
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val session = findSession(database)
+            check(session != null && MessageDigest.isEqual(session.transitionId, transitionId)) {
+                "Identity transition peer removal binding does not match"
+            }
+            validateSession(session)
+            check(session.phase != SessionPhase.PROMOTION_COMPLETED) {
+                "Completed identity transition snapshot cannot be changed"
+            }
+            val peer = findPeer(database, transitionId, peerDeviceId)
+            val removed = if (peer == null) {
+                false
+            } else {
+                validatePeer(peer)
+                check(MessageDigest.isEqual(peer.keyId, peerKeyId)) {
+                    "Identity transition peer removal key binding does not match"
+                }
+                check(database.delete(
+                    PEER_TABLE,
+                    "$TRANSITION_ID = ? AND $PEER_DEVICE_ID = ?",
+                    arrayOf(transitionId.toHex(), peerDeviceId.toHex()),
+                ) == 1) { "Identity transition peer disappeared during removal" }
+                true
+            }
+            val peerCounts = database.rawQuery(
+                "SELECT COUNT(*), SUM(CASE WHEN $PHASE = ? THEN 1 ELSE 0 END) " +
+                    "FROM $PEER_TABLE WHERE $TRANSITION_ID = ?",
+                arrayOf(PeerPhase.COMMIT_QUEUED.name, transitionId.toHex()),
+            ).use { cursor ->
+                check(cursor.moveToFirst())
+                cursor.getLong(0) to cursor.getLong(1)
+            }
+            val nextPhase = when {
+                peerCounts.first == 0L -> SessionPhase.BLOCKED
+                session.phase == SessionPhase.BLOCKED &&
+                    peerCounts.second == peerCounts.first -> SessionPhase.RECOVERY_AUTHORIZED
+                else -> null
+            }
+            if (nextPhase != null && nextPhase != session.phase) {
+                check(database.update(
+                    SESSION_TABLE,
+                    ContentValues(1).apply { put(PHASE, nextPhase.name) },
+                    "$ID = ?",
+                    arrayOf(SESSION_ID.toString()),
+                ) == 1) { "Local identity transition disappeared during recovery authorization" }
+            }
+            database.setTransactionSuccessful()
+            removed
         } finally {
             database.endTransaction()
         }

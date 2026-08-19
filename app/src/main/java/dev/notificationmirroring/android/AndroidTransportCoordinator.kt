@@ -21,6 +21,7 @@ import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
 import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
 import dev.notificationmirroring.storage.AndroidIdentityTransitionInitiator
+import dev.notificationmirroring.storage.AndroidIdentityTransitionPeerRemovalCoordinator
 import dev.notificationmirroring.storage.IdentityPromotionResult
 import dev.notificationmirroring.storage.IdentityTransitionPreconditionException
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
@@ -44,6 +45,19 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+
+data class AndroidIdentityTransitionPeerStatus(
+    val deviceId: ByteArray,
+    val deviceRef: String,
+    val keyRef: String,
+    val phase: String,
+)
+
+data class AndroidIdentityTransitionStatus(
+    val phase: String,
+    val expiresAtUnixMs: Long,
+    val peers: List<AndroidIdentityTransitionPeerStatus>,
+)
 
 enum class AndroidTransportState {
     NOT_CONFIGURED,
@@ -71,6 +85,11 @@ class AndroidTransportCoordinator(context: Context) {
         trustedPeerStore,
         localIdentityTransitionStore,
     )
+    private val identityTransitionPeerRemoval = AndroidIdentityTransitionPeerRemovalCoordinator(
+        credentialStore,
+        trustedPeerStore,
+        localIdentityTransitionStore,
+    )
     private val identityPromotionCoordinator = AndroidIdentityPromotionCoordinator(
         identityStore,
         credentialStore,
@@ -88,6 +107,8 @@ class AndroidTransportCoordinator(context: Context) {
     private val generation = AtomicLong()
     private val reconnectBackoff = BoundedReconnectBackoff()
     private val mutableState = MutableStateFlow(AndroidTransportState.NOT_CONFIGURED)
+    private val mutableIdentityTransitionStatus =
+        MutableStateFlow<AndroidIdentityTransitionStatus?>(null)
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -97,11 +118,14 @@ class AndroidTransportCoordinator(context: Context) {
     private var preferCurrentFallback = false
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
+    val identityTransitionStatus: StateFlow<AndroidIdentityTransitionStatus?> =
+        mutableIdentityTransitionStatus.asStateFlow()
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
 
     init {
+        refreshIdentityTransitionStatus()
         applicationContext.getSystemService(ConnectivityManager::class.java)
             .registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
@@ -127,6 +151,7 @@ class AndroidTransportCoordinator(context: Context) {
             var error: String? = null
             try {
                 identityTransitionInitiator.prepare()
+                refreshIdentityTransitionStatusInternal()
                 val requestedGeneration = generation.incrementAndGet()
                 cancelReconnect()
                 reconnectBackoff.reset()
@@ -144,6 +169,35 @@ class AndroidTransportCoordinator(context: Context) {
                     webSocket = null
                     mutableState.value = AndroidTransportState.SECURITY_ERROR
                 }
+            }
+            mainHandler.post { completed(error == null, error) }
+        }
+    }
+
+    fun refreshIdentityTransitionStatus() {
+        executor.execute { refreshIdentityTransitionStatusInternal() }
+    }
+
+    fun removeIdentityTransitionPeer(
+        peerDeviceId: ByteArray,
+        completed: (Boolean, String?) -> Unit,
+    ) {
+        val requestedPeer = peerDeviceId.copyOf()
+        executor.execute {
+            var error: String? = null
+            try {
+                identityTransitionPeerRemoval.remove(requestedPeer)
+                val promotion = identityPromotionCoordinator.promoteReady()
+                refreshIdentityTransitionStatusInternal()
+                if (promotion == IdentityPromotionResult.PROMOTED ||
+                    promotion == IdentityPromotionResult.RECOVERED
+                ) {
+                    webSocket?.close(1000, "identity promotion completed after peer removal")
+                }
+            } catch (failure: Throwable) {
+                error = failure.message ?: "Identity transition peer removal failed closed"
+            } finally {
+                requestedPeer.fill(0)
             }
             mainHandler.post { completed(error == null, error) }
         }
@@ -392,11 +446,14 @@ class AndroidTransportCoordinator(context: Context) {
                                         )
                                     }
                                     IdentityTransitionDispatchResult.PEER_TRANSITION -> {
+                                        refreshIdentityTransitionStatusInternal()
                                         cancelIdentityTransitionDrain()
                                         drainIdentityTransitions(requestedGeneration, webSocket, handlers)
                                     }
                                     IdentityTransitionDispatchResult.LOCAL_ACK -> {
+                                        refreshIdentityTransitionStatusInternal()
                                         val promotion = identityPromotionCoordinator.promoteReady()
+                                        refreshIdentityTransitionStatusInternal()
                                         if (promotion == IdentityPromotionResult.PROMOTED ||
                                             promotion == IdentityPromotionResult.RECOVERED
                                         ) {
@@ -461,6 +518,27 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun enqueueInboundRejection(requestedGeneration: Long, socket: WebSocket) {
         executor.execute { rejectInbound(requestedGeneration, socket) }
+    }
+
+    private fun refreshIdentityTransitionStatusInternal() {
+        val nowUnixMs = System.currentTimeMillis()
+        val session = localIdentityTransitionStore.loadSession(nowUnixMs)
+        mutableIdentityTransitionStatus.value = if (session == null) {
+            null
+        } else {
+            AndroidIdentityTransitionStatus(
+                phase = session.phase.name,
+                expiresAtUnixMs = session.expiresAtUnixMs,
+                peers = localIdentityTransitionStore.listPeers(nowUnixMs).map { peer ->
+                    AndroidIdentityTransitionPeerStatus(
+                        deviceId = peer.deviceId.copyOf(),
+                        deviceRef = peer.deviceId.toLocalRef(),
+                        keyRef = peer.keyId.toLocalRef(),
+                        phase = peer.phase.name,
+                    )
+                },
+            )
+        }
     }
 
     private fun rejectInbound(requestedGeneration: Long, socket: WebSocket) {
@@ -648,6 +726,9 @@ class AndroidTransportCoordinator(context: Context) {
     } catch (_: Throwable) {
         AndroidTransportState.SECURITY_ERROR
     }
+
+    private fun ByteArray.toLocalRef(): String =
+        take(6).joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
     private fun constantTimeEquals(left: ByteArray, right: ByteArray): Boolean {
         if (left.size != right.size) return false

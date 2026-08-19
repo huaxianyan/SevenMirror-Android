@@ -98,6 +98,7 @@ private fun NotificationCapabilityScreen(
     val debugActionResult by DebugActionState.lastResult.collectAsState()
     val regularActionCount by DebugActionState.regularActionCount.collectAsState()
     val transportState by transportCoordinator.state.collectAsState()
+    val identityTransitionStatus by transportCoordinator.identityTransitionStatus.collectAsState()
     val pairingState by trustPairingController.state.collectAsState()
     var serverOrigin by remember { mutableStateOf("") }
     var pairingCode by remember { mutableStateOf("") }
@@ -105,6 +106,37 @@ private fun NotificationCapabilityScreen(
     var rotationCode by remember { mutableStateOf("") }
     var registrationMessage by remember { mutableStateOf<String?>(null) }
     var confirmIdentityTransition by remember { mutableStateOf(false) }
+    var peerPendingRemoval by remember {
+        mutableStateOf<AndroidIdentityTransitionPeerStatus?>(null)
+    }
+
+    peerPendingRemoval?.let { peer ->
+        AlertDialog(
+            onDismissRequest = { peerPendingRemoval = null },
+            title = { Text("Remove transition peer?") },
+            text = {
+                Text(
+                    "Remove peer ${peer.deviceRef} from local trust and the active transition? " +
+                        "The peer must complete a fresh safety-code approval to regain trust.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    peerPendingRemoval = null
+                    transportCoordinator.removeIdentityTransitionPeer(peer.deviceId) { succeeded, error ->
+                        registrationMessage = if (succeeded) {
+                            "Peer explicitly removed; transition readiness was re-evaluated"
+                        } else {
+                            error ?: "Transition peer removal failed closed"
+                        }
+                    }
+                }) { Text("Remove peer") }
+            },
+            dismissButton = {
+                TextButton(onClick = { peerPendingRemoval = null }) { Text("Cancel") }
+            },
+        )
+    }
 
     if (confirmIdentityTransition) {
         AlertDialog(
@@ -151,6 +183,7 @@ private fun NotificationCapabilityScreen(
         item {
             TransportRegistrationCard(
                 state = transportState,
+                identityTransitionActive = identityTransitionStatus != null,
                 serverOrigin = serverOrigin,
                 onServerOriginChanged = { serverOrigin = it },
                 pairingCode = pairingCode,
@@ -192,6 +225,15 @@ private fun NotificationCapabilityScreen(
                     }
                 },
             )
+        }
+        identityTransitionStatus?.let { transition ->
+            item {
+                IdentityTransitionStatusCard(
+                    status = transition,
+                    onRefresh = transportCoordinator::refreshIdentityTransitionStatus,
+                    onRemovePeer = { peerPendingRemoval = it },
+                )
+            }
         }
         item {
             TrustPairingCard(
@@ -245,6 +287,7 @@ private fun NotificationCapabilityScreen(
 @Composable
 private fun TransportRegistrationCard(
     state: AndroidTransportState,
+    identityTransitionActive: Boolean,
     serverOrigin: String,
     onServerOriginChanged: (String) -> Unit,
     pairingCode: String,
@@ -327,7 +370,7 @@ private fun TransportRegistrationCard(
                 )
                 Button(
                     onClick = onRotateIdentity,
-                    enabled = state == AndroidTransportState.ONLINE,
+                    enabled = state == AndroidTransportState.ONLINE && !identityTransitionActive,
                 ) {
                     Text("Rotate E2EE identity")
                 }
@@ -342,6 +385,43 @@ private fun TransportRegistrationCard(
                 )
             }
             message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+@Composable
+private fun IdentityTransitionStatusCard(
+    status: AndroidIdentityTransitionStatus,
+    onRefresh: () -> Unit,
+    onRemovePeer: (AndroidIdentityTransitionPeerStatus) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text("E2EE identity transition", style = MaterialTheme.typography.titleMedium)
+            Text("Phase: ${status.phase}", style = MaterialTheme.typography.bodySmall)
+            Text(
+                "Original deadline (Unix ms): ${status.expiresAtUnixMs}",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (status.peers.isEmpty()) {
+                Text(
+                    "No snapshot peers remain. Automatic promotion is forbidden; use explicit lost-device recovery.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            status.peers.forEach { peer ->
+                Text(
+                    "Peer ${peer.deviceRef}, key ${peer.keyRef}: ${peer.phase}",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(onClick = { onRemovePeer(peer) }) {
+                    Text("Remove trust and exclude ${peer.deviceRef}")
+                }
+            }
+            Button(onClick = onRefresh) { Text("Refresh transition status") }
         }
     }
 }

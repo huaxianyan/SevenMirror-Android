@@ -91,6 +91,79 @@ class AndroidLocalIdentityTransitionStoreInstrumentedTest {
     }
 
     @Test
+    fun explicitPeerExclusionAuthorizesExpiredRecoveryOnlyWhenRemainingPeersAcked() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val fixture = fixture()
+        val store = AndroidLocalIdentityTransitionStore(context, "local-${UUID.randomUUID()}")
+        val unavailableDeviceId = ByteArray(16) { 8 }
+        val unavailableKeyId = ByteArray(32) { 9 }
+        try {
+            val session = store.create(
+                fixture.workspaceId,
+                fixture.localDeviceId,
+                fixture.canonicalTransition,
+                listOf(
+                    AndroidLocalIdentityTransitionStore.PeerSnapshot(
+                        fixture.peerDeviceId,
+                        fixture.peerKeyId,
+                    ),
+                    AndroidLocalIdentityTransitionStore.PeerSnapshot(
+                        unavailableDeviceId,
+                        unavailableKeyId,
+                    ),
+                ),
+                fixture.now,
+            )
+            store.acceptAck(
+                fixture.peerDeviceId,
+                fixture.peerKeyId,
+                fixture.canonicalAck,
+                fixture.now + 1,
+            )
+            assertEquals(null, store.promotionReadiness(session.expiresAtUnixMs))
+            assertEquals(
+                AndroidLocalIdentityTransitionStore.SessionPhase.BLOCKED,
+                store.loadSession(session.expiresAtUnixMs)!!.phase,
+            )
+            assertEquals(true, store.removePeerFromSnapshot(
+                unavailableDeviceId,
+                unavailableKeyId,
+                fixture.transitionId,
+            ))
+            assertEquals(
+                AndroidLocalIdentityTransitionStore.SessionPhase.RECOVERY_AUTHORIZED,
+                store.loadSession(session.expiresAtUnixMs + 1)!!.phase,
+            )
+            assertArrayEquals(
+                fixture.transitionId,
+                store.promotionReadiness(session.expiresAtUnixMs + 1)!!.transitionId,
+            )
+            val acknowledged = store.loadPeer(
+                fixture.peerDeviceId,
+                session.expiresAtUnixMs + 1,
+            )!!
+            store.recordCommitSendAttempt(
+                fixture.peerDeviceId,
+                fixture.transitionId,
+                acknowledged.ackSha256!!,
+                session.expiresAtUnixMs + 5_000,
+            )
+            assertEquals(
+                session.expiresAtUnixMs + 5_000,
+                store.loadPeer(fixture.peerDeviceId, session.expiresAtUnixMs + 1)!!
+                    .nextCommitAttemptAtUnixMs,
+            )
+            assertEquals(false, store.removePeerFromSnapshot(
+                unavailableDeviceId,
+                unavailableKeyId,
+                fixture.transitionId,
+            ))
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
     fun persistsAckAndCommitBeforeReplayConsumption() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val fixture = fixture()
