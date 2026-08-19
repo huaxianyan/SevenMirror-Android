@@ -27,7 +27,7 @@ class MirroringNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        sbn?.key?.let(LocalNotificationController::onRemoved)
+        sbn?.key?.let { LocalNotificationController.onRemoved(this, it) }
     }
 
     private fun isSilent(notificationKey: String): Boolean {

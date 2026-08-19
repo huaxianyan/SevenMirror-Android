@@ -8,14 +8,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
 import java.security.SecureRandom
-import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Process-local registry used only by SPIKE-001. It never logs, persists, or
- * transmits notification content or PendingIntents.
+ * Process-local notification-content and PendingIntent registry. Only the opaque global
+ * notification revision high-water mark is persisted across process recreation.
  */
 interface SyntheticNotificationMirrorSink {
     fun onUpsert(snapshot: NotificationSnapshot)
@@ -34,8 +33,9 @@ object LocalNotificationController {
         val mirrorEligible: Boolean,
     )
 
-    private val nextRevision = AtomicLong(0)
     private val secureRandom = SecureRandom()
+    @Volatile
+    private var revisionStore: AndroidNotificationRevisionStore? = null
     private val registered = mutableMapOf<String, RegisteredNotification>()
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
     @Volatile
@@ -53,7 +53,7 @@ object LocalNotificationController {
         sbn: StatusBarNotification,
         isSilent: Boolean,
     ) {
-        val revision = nextRevision.incrementAndGet()
+        val revision = revisionStore(context).allocate()
         val actions = sbn.notification.actions.orEmpty().map { action ->
             RegisteredAction(randomActionId(), action)
         }
@@ -72,11 +72,11 @@ object LocalNotificationController {
     }
 
     @Synchronized
-    fun onRemoved(key: String) {
+    fun onRemoved(context: Context, key: String) {
         val removed = registered.remove(key)
         mutableNotifications.value = mutableNotifications.value.filterNot { it.key == key }
         if (removed?.mirrorEligible == true) {
-            syntheticMirrorSink?.onRemoved(key, nextRevision.incrementAndGet())
+            syntheticMirrorSink?.onRemoved(key, revisionStore(context).allocate())
         }
     }
 
@@ -140,6 +140,11 @@ object LocalNotificationController {
             )
         }
     }
+
+    private fun revisionStore(context: Context): AndroidNotificationRevisionStore =
+        revisionStore ?: synchronized(this) {
+            revisionStore ?: AndroidNotificationRevisionStore(context).also { revisionStore = it }
+        }
 
     private fun randomActionId(): NotificationActionId = ByteArray(16)
         .also(secureRandom::nextBytes)
