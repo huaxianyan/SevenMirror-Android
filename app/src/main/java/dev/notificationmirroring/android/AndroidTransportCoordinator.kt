@@ -12,12 +12,15 @@ import dev.notificationmirroring.crypto.AndroidLocalIdentityTransitionStore
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
+import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.IdentityTransitionAckOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionCommitOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionDispatcher
 import dev.notificationmirroring.crypto.IdentityTransitionOutboxDrainer
 import dev.notificationmirroring.crypto.IdentityTransitionDispatchResult
+import dev.notificationmirroring.crypto.NotificationEnvelopeSender
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
+import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.storage.AndroidIdentityPromotionCoordinator
 import dev.notificationmirroring.storage.AndroidIdentityPromotionJournal
 import dev.notificationmirroring.storage.AndroidIdentityTransitionInitiator
@@ -123,6 +126,28 @@ class AndroidTransportCoordinator(context: Context) {
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
+
+    fun mirrorSyntheticNotification(snapshot: NotificationSnapshot) {
+        executor.execute {
+            sendSyntheticNotification { sender, nowUnixMs ->
+                sender.createUpsert(
+                    notificationId = snapshot.key,
+                    revision = snapshot.revision,
+                    title = snapshot.title,
+                    body = snapshot.expandedText ?: snapshot.text,
+                    nowUnixMs = nowUnixMs,
+                )
+            }
+        }
+    }
+
+    fun removeSyntheticNotification(notificationId: String, revision: Long) {
+        executor.execute {
+            sendSyntheticNotification { sender, nowUnixMs ->
+                sender.createRemoved(notificationId, revision, nowUnixMs)
+            }
+        }
+    }
 
     init {
         refreshIdentityTransitionStatus()
@@ -512,6 +537,57 @@ class AndroidTransportCoordinator(context: Context) {
                 mutableState.value = AndroidTransportState.SECURITY_ERROR
             }
         } finally {
+            credential.authToken.fill(0)
+        }
+    }
+
+    private fun sendSyntheticNotification(
+        createFrame: (NotificationEnvelopeSender, Long) -> ByteArray?,
+    ) {
+        if (mutableState.value != AndroidTransportState.ONLINE) return
+        val socket = webSocket ?: return
+        var sender: NotificationEnvelopeSender? = null
+        var identity: AuthenticatedHpke.KeyPair? = null
+        val credential = try {
+            credentialStore.load()
+        } catch (_: Throwable) {
+            rejectInbound(generation.get(), socket)
+            return
+        } ?: return
+        try {
+            val loadedIdentity = checkNotNull(identityStore.loadExisting()) {
+                "Transport credential exists without its bound E2EE identity"
+            }
+            identity = loadedIdentity
+            check(
+                MessageDigest.isEqual(
+                    MessageDigest.getInstance("SHA-256").digest(loadedIdentity.publicKey),
+                    credential.identityKeyId,
+                ),
+            ) { "Transport credential E2EE identity binding does not match" }
+            sender = NotificationEnvelopeSender(
+                workspaceId = credential.workspaceId,
+                senderDeviceId = credential.deviceId,
+                senderIdentity = loadedIdentity,
+                trustedPeers = trustedPeerStore,
+                allocateSequence = resultOutbox::allocateSequence,
+            )
+            val frame = createFrame(sender, System.currentTimeMillis()) ?: return
+            val accepted = try {
+                socket.send(ByteString.of(*frame))
+            } finally {
+                frame.fill(0)
+            }
+            if (!accepted) {
+                socket.cancel()
+                enqueueTermination(generation.get(), socket)
+            }
+        } catch (_: Throwable) {
+            rejectInbound(generation.get(), socket)
+        } finally {
+            sender?.clearIdentity()
+            identity?.privateKey?.fill(0)
+            identity?.publicKey?.fill(0)
             credential.authToken.fill(0)
         }
     }

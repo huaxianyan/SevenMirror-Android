@@ -6,8 +6,8 @@ import android.service.notification.NotificationListenerService.Ranking
 import android.service.notification.StatusBarNotification
 
 /**
- * SPIKE-001 listener. Notification data remains process-local and is never
- * logged, persisted, or transmitted while mandatory E2EE is unavailable.
+ * Notification listener with an explicit app-package gate for the encrypted
+ * synthetic alpha slice. Third-party notification content remains local.
  */
 class MirroringNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {

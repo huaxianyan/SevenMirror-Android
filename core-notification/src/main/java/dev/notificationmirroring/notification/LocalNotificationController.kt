@@ -17,6 +17,11 @@ import kotlinx.coroutines.flow.asStateFlow
  * Process-local registry used only by SPIKE-001. It never logs, persists, or
  * transmits notification content or PendingIntents.
  */
+interface SyntheticNotificationMirrorSink {
+    fun onUpsert(snapshot: NotificationSnapshot)
+    fun onRemoved(notificationId: String, revision: Long)
+}
+
 object LocalNotificationController {
     private data class RegisteredAction(
         val id: NotificationActionId,
@@ -26,14 +31,21 @@ object LocalNotificationController {
     private data class RegisteredNotification(
         val revision: Long,
         val actions: List<RegisteredAction>,
+        val mirrorEligible: Boolean,
     )
 
     private val nextRevision = AtomicLong(0)
     private val secureRandom = SecureRandom()
     private val registered = mutableMapOf<String, RegisteredNotification>()
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
+    @Volatile
+    private var syntheticMirrorSink: SyntheticNotificationMirrorSink? = null
 
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
+
+    fun installSyntheticMirrorSink(sink: SyntheticNotificationMirrorSink) {
+        syntheticMirrorSink = sink
+    }
 
     @Synchronized
     fun onPosted(
@@ -52,15 +64,20 @@ object LocalNotificationController {
             isSilent,
             actions.map(RegisteredAction::id),
         )
-        registered[sbn.key] = RegisteredNotification(revision, actions)
+        val mirrorEligible = sbn.packageName == context.packageName
+        registered[sbn.key] = RegisteredNotification(revision, actions, mirrorEligible)
         mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
             .sortedByDescending(NotificationSnapshot::postedAtMillis)
+        if (mirrorEligible) syntheticMirrorSink?.onUpsert(snapshot)
     }
 
     @Synchronized
     fun onRemoved(key: String) {
-        registered.remove(key)
+        val removed = registered.remove(key)
         mutableNotifications.value = mutableNotifications.value.filterNot { it.key == key }
+        if (removed?.mirrorEligible == true) {
+            syntheticMirrorSink?.onRemoved(key, nextRevision.incrementAndGet())
+        }
     }
 
     @Synchronized
