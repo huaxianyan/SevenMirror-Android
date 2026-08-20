@@ -17,6 +17,8 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 
 object WorkspaceMembershipV1 {
+    enum class TransportDeviceType { ANDROID, CHROME }
+
     private const val VERSION = 1
     private const val ID_SIZE = 16
     private const val DIGEST_SIZE = 32
@@ -96,6 +98,33 @@ object WorkspaceMembershipV1 {
         return SignedWorkspaceRoster.parseFrom(encoded).also {
             validateSignedRoster(it, authorityPublicKey)
             require(it.toByteArray().contentEquals(encoded)) { "Roster is not canonically encoded" }
+        }
+    }
+
+    fun requireTransportCertificateBinding(
+        encoded: ByteArray,
+        authorityPublicKey: ByteArray,
+        workspaceId: ByteArray,
+        deviceId: ByteArray,
+        identityKeyId: ByteArray,
+        expectedDeviceType: TransportDeviceType,
+        nowUnixMs: Long,
+    ) {
+        require(nowUnixMs > 0) { "Current time is invalid" }
+        val certificate = decodeCertificate(encoded, authorityPublicKey).certificate
+        val expectedProtocolType = when (expectedDeviceType) {
+            TransportDeviceType.ANDROID -> DeviceType.DEVICE_TYPE_ANDROID
+            TransportDeviceType.CHROME -> DeviceType.DEVICE_TYPE_CHROME
+        }
+        require(
+            certificate.workspaceId.toByteArray().contentEquals(workspaceId) &&
+                certificate.deviceId.toByteArray().contentEquals(deviceId) &&
+                certificate.identityKeyId.toByteArray().contentEquals(identityKeyId) &&
+                certificate.deviceType == expectedProtocolType,
+        ) { "Device certificate is not bound to this transport identity" }
+        require(certificate.issuedAtUnixMs <= nowUnixMs) { "Device certificate is not yet valid" }
+        require(certificate.expiresAtUnixMs == 0L || certificate.expiresAtUnixMs > nowUnixMs) {
+            "Device certificate has expired"
         }
     }
 
