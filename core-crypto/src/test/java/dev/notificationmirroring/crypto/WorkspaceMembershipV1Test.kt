@@ -21,6 +21,7 @@ class WorkspaceMembershipV1Test {
         )
         assertArrayEquals(vector.challengeEncoded, challenge.toByteArray())
         val proof = WorkspaceMembershipV1.decodeProof(vector.proofEncoded)
+        assertArrayEquals(vector.proofEncoded, WorkspaceMembershipV1.createProof(vector.challengeEncoded))
         assertArrayEquals(vector.proofEncoded, proof.toByteArray())
         assertArrayEquals(challenge.challengeSecret.toByteArray(), proof.challengeSecret.toByteArray())
     }

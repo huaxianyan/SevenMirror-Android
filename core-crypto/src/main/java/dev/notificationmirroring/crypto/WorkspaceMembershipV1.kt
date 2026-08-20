@@ -1,5 +1,6 @@
 package dev.notificationmirroring.crypto
 
+import com.google.protobuf.ByteString
 import com.google.protobuf.CodedInputStream
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
@@ -26,6 +27,7 @@ object WorkspaceMembershipV1 {
     private const val MAX_REVOCATIONS = 4096
     private const val MAX_CHALLENGE_MS = 600_000L
     private const val HPKE_INFO_DOMAIN = "SyncNotifications-membership-possession-hpke-info-v1\u0000"
+    private const val CHALLENGE_DIGEST_DOMAIN = "SyncNotifications-membership-possession-challenge-digest-v1\u0000"
     private const val CERTIFICATE_ID_DOMAIN = "SyncNotifications-membership-device-certificate-id-v1\u0000"
     private const val CERTIFICATE_SIGNATURE_DOMAIN = "SyncNotifications-membership-device-certificate-signature-v1\u0000"
     private const val ROSTER_DIGEST_DOMAIN = "SyncNotifications-membership-workspace-roster-digest-v1\u0000"
@@ -52,6 +54,19 @@ object WorkspaceMembershipV1 {
         }
     }
 
+    fun createProof(canonicalChallenge: ByteArray): ByteArray {
+        val challenge = decodeChallenge(canonicalChallenge)
+        return PendingIdentityProof.newBuilder()
+            .setProtocolVersion(VERSION)
+            .setWorkspaceId(challenge.workspaceId)
+            .setDeviceId(challenge.deviceId)
+            .setIdentityKeyId(challenge.identityKeyId)
+            .setChallengeDigest(ByteString.copyFrom(domainHash(CHALLENGE_DIGEST_DOMAIN, canonicalChallenge)))
+            .setChallengeSecret(challenge.challengeSecret)
+            .build()
+            .toByteArray()
+    }
+
     fun decodeCertificate(encoded: ByteArray, authorityPublicKey: ByteArray): SignedDeviceCertificate {
         validateSize(encoded)
         validateWire(encoded, Wire.SIGNED_CERTIFICATE)
@@ -69,6 +84,24 @@ object WorkspaceMembershipV1 {
             require(it.toByteArray().contentEquals(encoded)) { "Roster is not canonically encoded" }
         }
     }
+
+    fun openChallengeCanonical(
+        recipientPublicKey: ByteArray,
+        recipientPrivateKey: ByteArray,
+        workspaceId: ByteArray,
+        deviceId: ByteArray,
+        identityKeyId: ByteArray,
+        encapsulatedKey: ByteArray,
+        ciphertext: ByteArray,
+    ): ByteArray = openChallenge(
+        recipientPublicKey,
+        recipientPrivateKey,
+        workspaceId,
+        deviceId,
+        identityKeyId,
+        encapsulatedKey,
+        ciphertext,
+    ).toByteArray()
 
     fun openChallenge(
         recipientPublicKey: ByteArray,

@@ -37,7 +37,7 @@ secret names, and recovery rules.
 - `core-protocol`: protocol models and generated code location
 - `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
 - `core-storage`: local persistence boundary
-- `core-transport`: strict code-gated registration, Keystore-wrapped current/pending transport credentials, recoverable rotation, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
+- `core-transport`: strict code-gated registration, provisional ADR-005 membership register/prove/state HTTP client, Keystore-wrapped current/pending transport credentials, recoverable rotation, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
 
 ## Protocol
 

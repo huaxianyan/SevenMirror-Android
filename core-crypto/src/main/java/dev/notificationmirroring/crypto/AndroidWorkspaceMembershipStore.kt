@@ -6,10 +6,16 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import java.security.MessageDigest
 
+interface WorkspaceMembershipTrustStore {
+    fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): AndroidWorkspaceMembershipStore.PinResult
+    fun reconcileApproved(workspaceId: ByteArray, deviceId: ByteArray, signedCertificate: ByteArray, signedRoster: ByteArray): AndroidWorkspaceMembershipStore.ReconcileResult
+    fun load(workspaceId: ByteArray, deviceId: ByteArray): AndroidWorkspaceMembershipStore.State?
+}
+
 class AndroidWorkspaceMembershipStore(
     context: Context,
     storeName: String = "default",
-) : AutoCloseable {
+) : WorkspaceMembershipTrustStore, AutoCloseable {
     enum class PinResult { PINNED, ALREADY_PINNED }
     enum class ReconcileResult { APPLIED, ALREADY_APPLIED }
 
@@ -30,7 +36,7 @@ class AndroidWorkspaceMembershipStore(
     private val helper = Helper(context.applicationContext, "syncnotifications-membership-$safeName.db")
 
     @Synchronized
-    fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): PinResult {
+    override fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): PinResult {
         requireId(workspaceId, "workspaceId")
         requireId(deviceId, "deviceId")
         require(authorityPublicKey.size == 32) { "Authority public key must be 32 bytes" }
@@ -61,7 +67,7 @@ class AndroidWorkspaceMembershipStore(
     }
 
     @Synchronized
-    fun reconcileApproved(
+    override fun reconcileApproved(
         workspaceId: ByteArray,
         deviceId: ByteArray,
         signedCertificate: ByteArray,
@@ -138,7 +144,7 @@ class AndroidWorkspaceMembershipStore(
         }
     }
 
-    fun load(workspaceId: ByteArray, deviceId: ByteArray): State? =
+    override fun load(workspaceId: ByteArray, deviceId: ByteArray): State? =
         read(helper.readableDatabase, workspaceId, deviceId)?.copyState()
 
     fun clear() {
