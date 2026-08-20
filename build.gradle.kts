@@ -25,6 +25,12 @@ tasks.register("verifyVendoredProtocol") {
 
         verify("protocol/vendor/notification/v1/envelope.proto", "protocol/SCHEMA_SHA256")
         verify("protocol/vendor/notification/v1/payload.proto", "protocol/PAYLOAD_SCHEMA_SHA256")
+        verify("protocol/vendor/membership/v1/membership.proto", "protocol/MEMBERSHIP_SCHEMA_SHA256")
+        verify("protocol/workspace-membership-v1.md", "protocol/MEMBERSHIP_SPEC_SHA256")
+        verify(
+            "protocol/test-vectors/workspace-membership-v1.json",
+            "protocol/MEMBERSHIP_VECTOR_SHA256",
+        )
         verify("protocol/encrypted-payload-v1.md", "protocol/PAYLOAD_SPEC_SHA256")
         verify(
             "protocol/test-vectors/encrypted-payload-v1.json",
