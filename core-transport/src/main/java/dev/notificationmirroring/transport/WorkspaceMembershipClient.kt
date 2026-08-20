@@ -52,6 +52,11 @@ class WorkspaceMembershipClient(
         .build()
 
     fun begin(request: AndroidMembershipRegistration): PendingAndroidMembership {
+        journal.load()?.let { existing ->
+            existing.pending.authToken.fill(0)
+            existing.canonicalProof?.fill(0)
+            error("A membership enrollment is already pending")
+        }
         val origin = AndroidTransportCredentialStore.normalizeServerOrigin(request.serverOrigin)
         require(request.pairingCode.matches(Regex("[A-Za-z0-9_-]{32}"))) {
             "pairingCode must be a 192-bit base64url value"

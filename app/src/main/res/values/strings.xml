@@ -45,7 +45,7 @@
     <string name="credential_rotation_accepted">Rotation request accepted. Waiting for the pending credential to authenticate.</string>
     <string name="credential_rotation_unconfirmed">Rotation was not confirmed. Saved pending state will be checked before returning to the current credential.</string>
     <string name="registration_started">Registration started.</string>
-    <string name="registration_succeeded">Registered. Waiting for the authenticated connection.</string>
+    <string name="registration_succeeded">Registration received. Ask your server administrator to approve this device.</string>
     <string name="registration_failed">Registration failed. Verify the server address, one-time code, and device name.</string>
     <string name="identity_transition_title">E2EE identity transition</string>
     <string name="transition_phase">Phase: %1$s</string>

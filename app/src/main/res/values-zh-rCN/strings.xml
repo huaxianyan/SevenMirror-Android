@@ -44,7 +44,7 @@
     <string name="credential_rotation_accepted">轮换请求已接受，正在等待待定凭据完成认证。</string>
     <string name="credential_rotation_unconfirmed">轮换尚未确认。系统会先检查已保存的待定状态，再返回当前凭据。</string>
     <string name="registration_started">已开始注册。</string>
-    <string name="registration_succeeded">注册成功，正在等待认证连接。</string>
+    <string name="registration_succeeded">注册申请已提交，请联系服务器管理员批准此设备。</string>
     <string name="registration_failed">注册失败。请检查服务器地址、一次性配对码和设备名称。</string>
     <string name="identity_transition_title">E2EE 身份转换</string>
     <string name="transition_phase">阶段：%1$s</string>

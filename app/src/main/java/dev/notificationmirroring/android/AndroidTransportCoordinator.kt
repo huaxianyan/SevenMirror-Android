@@ -30,13 +30,12 @@ import dev.notificationmirroring.storage.AndroidIdentityTransitionInitiator
 import dev.notificationmirroring.storage.AndroidIdentityTransitionPeerRemovalCoordinator
 import dev.notificationmirroring.storage.IdentityPromotionResult
 import dev.notificationmirroring.storage.IdentityTransitionPreconditionException
-import dev.notificationmirroring.transport.AndroidDeviceRegistration
+import dev.notificationmirroring.transport.AndroidMembershipRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AndroidPendingMembershipStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
 import dev.notificationmirroring.transport.BoundedReconnectBackoff
 import dev.notificationmirroring.transport.CredentialCandidateSource
-import dev.notificationmirroring.transport.DeviceRegistrationClient
 import dev.notificationmirroring.transport.MembershipTransportPromotionCoordinator
 import dev.notificationmirroring.transport.TransportCredentialRotationClient
 import dev.notificationmirroring.transport.WorkspaceMembershipClient
@@ -109,7 +108,6 @@ class AndroidTransportCoordinator(context: Context) {
         AndroidIdentityPromotionJournal(applicationContext),
     )
     private val httpClient = OkHttpClient()
-    private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
     private val rotationClient = TransportCredentialRotationClient(httpClient, credentialStore)
     private val membershipClient = WorkspaceMembershipClient(
         httpClient,
@@ -270,26 +268,29 @@ class AndroidTransportCoordinator(context: Context) {
                     "A transport credential already exists"
                 }
                 val identity = identityStore.loadOrCreate()
-                val identityKeyId = MessageDigest.getInstance("SHA-256").digest(identity.publicKey)
-                val credential = try {
-                    registrationClient.register(
-                        AndroidDeviceRegistration(
+                try {
+                    membershipClient.begin(
+                        AndroidMembershipRegistration(
                             serverOrigin = serverOrigin,
                             pairingCode = pairingCode,
                             deviceName = deviceName,
-                            e2eePublicKey = identity.publicKey,
-                            identityKeyId = identityKeyId,
+                            identity = identity,
                         ),
-                    )
+                    ).authToken.fill(0)
+                    success = true
                 } finally {
                     identity.publicKey.fill(0)
                     identity.privateKey.fill(0)
                 }
-                credential.authToken.fill(0)
-                success = true
                 connectInternal(requestedGeneration)
             } catch (_: Throwable) {
-                if (generation.get() == requestedGeneration) {
+                val recoverable = runCatching { pendingMembershipStore.load() }.getOrNull()
+                if (recoverable != null) {
+                    recoverable.pending.authToken.fill(0)
+                    recoverable.canonicalProof?.fill(0)
+                    success = true
+                    if (generation.get() == requestedGeneration) connectInternal(requestedGeneration)
+                } else if (generation.get() == requestedGeneration) {
                     mutableState.value = stateAfterRegistrationFailure()
                 }
             } finally {
