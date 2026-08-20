@@ -11,6 +11,7 @@ import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidLocalIdentityTransitionStore
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
+import dev.notificationmirroring.crypto.AndroidWorkspaceMembershipStore
 import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
 import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.IdentityTransitionAckOutboxDrainer
@@ -31,11 +32,15 @@ import dev.notificationmirroring.storage.IdentityPromotionResult
 import dev.notificationmirroring.storage.IdentityTransitionPreconditionException
 import dev.notificationmirroring.transport.AndroidDeviceRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
+import dev.notificationmirroring.transport.AndroidPendingMembershipStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
 import dev.notificationmirroring.transport.BoundedReconnectBackoff
 import dev.notificationmirroring.transport.CredentialCandidateSource
 import dev.notificationmirroring.transport.DeviceRegistrationClient
+import dev.notificationmirroring.transport.MembershipTransportPromotionCoordinator
 import dev.notificationmirroring.transport.TransportCredentialRotationClient
+import dev.notificationmirroring.transport.WorkspaceMembershipClient
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
@@ -79,6 +84,8 @@ class AndroidTransportCoordinator(context: Context) {
     private val applicationContext = context.applicationContext
     private val identityStore = AndroidHpkeIdentityStore(applicationContext)
     private val credentialStore = AndroidTransportCredentialStore(applicationContext)
+    private val pendingMembershipStore = AndroidPendingMembershipStore(applicationContext)
+    private val workspaceMembershipStore = AndroidWorkspaceMembershipStore(applicationContext)
     private val trustedPeerStore = AndroidTrustedPeerStore(applicationContext)
     private val replayLedger = AndroidReplayLedger(applicationContext)
     private val operationLedger = AndroidOperationLedger(applicationContext)
@@ -104,6 +111,16 @@ class AndroidTransportCoordinator(context: Context) {
     private val httpClient = OkHttpClient()
     private val registrationClient = DeviceRegistrationClient(httpClient, credentialStore)
     private val rotationClient = TransportCredentialRotationClient(httpClient, credentialStore)
+    private val membershipClient = WorkspaceMembershipClient(
+        httpClient,
+        workspaceMembershipStore,
+        pendingMembershipStore,
+    )
+    private val membershipPromotionCoordinator = MembershipTransportPromotionCoordinator(
+        pendingMembershipStore,
+        workspaceMembershipStore,
+        credentialStore,
+    )
     private val webSocketFactory = AuthenticatedWebSocketFactory(httpClient)
     private val executor = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "notification-transport").apply { isDaemon = true }
@@ -321,6 +338,21 @@ class AndroidTransportCoordinator(context: Context) {
         terminalGeneration = Long.MIN_VALUE
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
+        val membershipReady = try {
+            recoverPendingMembership()
+        } catch (_: IOException) {
+            mutableState.value = AndroidTransportState.OFFLINE
+            scheduleReconnect(requestedGeneration)
+            return
+        } catch (_: Throwable) {
+            mutableState.value = AndroidTransportState.SECURITY_ERROR
+            return
+        }
+        if (!membershipReady) {
+            mutableState.value = AndroidTransportState.REGISTERING
+            scheduleReconnect(requestedGeneration)
+            return
+        }
         val candidate = try {
             // Replay any cross-store promotion before transport can observe partial state.
             identityPromotionCoordinator.promoteReady()
@@ -789,6 +821,27 @@ class AndroidTransportCoordinator(context: Context) {
                 nextWakeDelayMs,
                 TimeUnit.MILLISECONDS,
             )
+        }
+    }
+
+    private fun recoverPendingMembership(): Boolean {
+        val observed = pendingMembershipStore.load() ?: return true
+        observed.pending.authToken.fill(0)
+        observed.canonicalProof?.fill(0)
+        val identity = checkNotNull(identityStore.loadExisting()) {
+            "Pending membership enrollment has no local identity"
+        }
+        try {
+            val refreshed = membershipClient.resume(identity)
+            if (refreshed.serverState != "approved") return false
+            check(refreshed.transportEligible) {
+                "Approved local device is not active in the durable workspace roster"
+            }
+            membershipPromotionCoordinator.promoteApproved().authToken.fill(0)
+            return true
+        } finally {
+            identity.publicKey.fill(0)
+            identity.privateKey.fill(0)
         }
     }
 
