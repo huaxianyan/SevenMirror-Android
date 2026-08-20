@@ -19,6 +19,9 @@ android {
     sourceSets.getByName("test").resources.srcDir(
         rootProject.file("protocol/test-vectors"),
     )
+    sourceSets.getByName("androidTest").assets.srcDir(
+        rootProject.file("protocol/test-vectors"),
+    )
 }
 
 dependencies {

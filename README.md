@@ -35,7 +35,7 @@ secret names, and recovery rules.
 - `app`: Compose application, permission guidance, synthetic-only registration UI, and process-lifetime authenticated transport/action coordinator
 - `core-notification`: `NotificationListenerService` integration and approved-sender action dispatcher
 - `core-protocol`: protocol models and generated code location
-- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
+- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
 - `core-storage`: local persistence boundary
 - `core-transport`: strict code-gated registration, Keystore-wrapped current/pending transport credentials, recoverable rotation, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
 
