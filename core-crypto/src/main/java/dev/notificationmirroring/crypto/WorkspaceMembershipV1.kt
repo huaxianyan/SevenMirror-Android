@@ -54,6 +54,20 @@ object WorkspaceMembershipV1 {
         }
     }
 
+    fun requireProofBinding(
+        canonicalProof: ByteArray,
+        workspaceId: ByteArray,
+        deviceId: ByteArray,
+        identityKeyId: ByteArray,
+    ) {
+        val proof = decodeProof(canonicalProof)
+        require(
+            proof.workspaceId.toByteArray().contentEquals(workspaceId) &&
+                proof.deviceId.toByteArray().contentEquals(deviceId) &&
+                proof.identityKeyId.toByteArray().contentEquals(identityKeyId),
+        ) { "Pending membership proof binding does not match" }
+    }
+
     fun createProof(canonicalChallenge: ByteArray): ByteArray {
         val challenge = decodeChallenge(canonicalChallenge)
         return PendingIdentityProof.newBuilder()

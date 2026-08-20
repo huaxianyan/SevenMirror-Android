@@ -37,8 +37,9 @@ class WorkspaceMembershipClientTest {
         }"""))
         server.start()
         val store = FakeTrustStore(vector.initialRoster, vector.revokedRoster)
+        val journal = FakePendingStore()
         try {
-            val client = WorkspaceMembershipClient(OkHttpClient(), store)
+            val client = WorkspaceMembershipClient(OkHttpClient(), store, journal)
             val pending = client.begin(AndroidMembershipRegistration(
                 server.url("/").toString().removeSuffix("/"),
                 "A".repeat(32),
@@ -49,6 +50,7 @@ class WorkspaceMembershipClientTest {
             val proofRequest = server.takeRequest()
             assertEquals("/v1/membership/prove", proofRequest.path)
             assertTrue(proofRequest.body.readUtf8().contains("\"proof\":\"${b64(vector.proof)}\""))
+            assertEquals(PendingMembershipPhase.PENDING_APPROVAL, journal.stored!!.phase)
             assertArrayEquals(vector.authority, store.state!!.authorityPublicKey)
             assertEquals(0L, store.state!!.rosterEpoch)
 
@@ -65,6 +67,62 @@ class WorkspaceMembershipClientTest {
             server.shutdown()
             token.fill(0)
         }
+    }
+
+    @Test
+    fun exactProofResumesAfterAmbiguousAttempt() {
+        val vector = Vector.load()
+        val server = MockWebServer()
+        server.enqueue(jsonResponse(200, """{
+            "state":"pending_proof","authority_public_key":"${b64(vector.authority)}",
+            "rosters":[],"latest_roster_epoch":"0"
+        }"""))
+        server.enqueue(jsonResponse(200, """{"state":"pending_approval"}"""))
+        server.enqueue(jsonResponse(200, """{
+            "state":"pending_approval","authority_public_key":"${b64(vector.authority)}",
+            "rosters":[],"latest_roster_epoch":"0"
+        }"""))
+        server.start()
+        val trust = FakeTrustStore(vector.initialRoster, vector.revokedRoster)
+        val journal = FakePendingStore()
+        val pending = PendingAndroidMembership(
+            server.url("/").toString().removeSuffix("/"), vector.workspaceId, vector.deviceId,
+            ByteArray(32) { 8 }, vector.identityKeyId,
+        )
+        trust.pinAuthority(vector.workspaceId, vector.deviceId, vector.authority)
+        journal.prepareRegistration(pending, vector.authority, vector.enc, vector.ciphertext)
+        journal.bindProof(pending, vector.proof)
+        journal.markProofAttempted(pending, vector.proof)
+        try {
+            val result = WorkspaceMembershipClient(OkHttpClient(), trust, journal).resume(
+                AuthenticatedHpke.KeyPair(vector.identityPublicKey, vector.identityPrivateKey),
+            )
+            assertEquals("pending_approval", result.serverState)
+            server.takeRequest()
+            assertTrue(server.takeRequest().body.readUtf8().contains("\"proof\":\"${b64(vector.proof)}\""))
+            server.takeRequest()
+            assertEquals(PendingMembershipPhase.PENDING_APPROVAL, journal.stored!!.phase)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    private class FakePendingStore : PendingAndroidMembershipStore {
+        var stored: StoredPendingAndroidMembership? = null
+        override fun prepareRegistration(value: PendingAndroidMembership, authorityPublicKey: ByteArray, challengeEnc: ByteArray, challengeCiphertext: ByteArray): StoredPendingAndroidMembership {
+            return StoredPendingAndroidMembership(value, authorityPublicKey, challengeEnc, challengeCiphertext, null, PendingMembershipPhase.REGISTERED).also { stored = it }
+        }
+        override fun bindProof(value: PendingAndroidMembership, canonicalProof: ByteArray) {
+            stored = checkNotNull(stored).copy(canonicalProof = canonicalProof.copyOf())
+        }
+        override fun markProofAttempted(value: PendingAndroidMembership, canonicalProof: ByteArray) {
+            stored = checkNotNull(stored).copy(phase = PendingMembershipPhase.PROOF_ATTEMPTED)
+        }
+        override fun markPendingApproval(value: PendingAndroidMembership) {
+            stored = checkNotNull(stored).copy(phase = PendingMembershipPhase.PENDING_APPROVAL)
+        }
+        override fun load(): StoredPendingAndroidMembership? = stored
+        override fun clear() { stored = null }
     }
 
     private class FakeTrustStore(
@@ -101,14 +159,14 @@ class WorkspaceMembershipClientTest {
     private data class Vector(
         val authority: ByteArray, val workspaceId: ByteArray, val deviceId: ByteArray,
         val identityPrivateKey: ByteArray, val identityPublicKey: ByteArray,
-        val enc: ByteArray, val ciphertext: ByteArray, val proof: ByteArray,
+        val identityKeyId: ByteArray, val enc: ByteArray, val ciphertext: ByteArray, val proof: ByteArray,
         val certificate: ByteArray, val initialRoster: ByteArray, val revokedRoster: ByteArray,
     ) {
         companion object {
             fun load(): Vector {
                 val text = checkNotNull(Vector::class.java.classLoader?.getResourceAsStream("workspace-membership-v1.json")).bufferedReader().use { it.readText() }
                 fun hex(name: String): ByteArray { val value = checkNotNull(Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"").find(text)?.groupValues?.get(1)); return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray() }
-                return Vector(hex("authorityPublicKeyHex"), hex("workspaceIdHex"), hex("deviceIdHex"), hex("identityPrivateScalarHex"), hex("identityPublicKeyHex"), hex("possessionHpkeEncapsulatedKeyHex"), hex("possessionHpkeCiphertextHex"), hex("proofEncodedHex"), hex("certificateEncodedHex"), hex("initialRosterEncodedHex"), hex("revokedRosterEncodedHex"))
+                return Vector(hex("authorityPublicKeyHex"), hex("workspaceIdHex"), hex("deviceIdHex"), hex("identityPrivateScalarHex"), hex("identityPublicKeyHex"), hex("identityKeyIdHex"), hex("possessionHpkeEncapsulatedKeyHex"), hex("possessionHpkeCiphertextHex"), hex("proofEncodedHex"), hex("certificateEncodedHex"), hex("initialRosterEncodedHex"), hex("revokedRosterEncodedHex"))
             }
         }
     }

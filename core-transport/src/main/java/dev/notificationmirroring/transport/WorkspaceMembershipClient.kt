@@ -44,6 +44,7 @@ data class AndroidMembershipRefresh(
 class WorkspaceMembershipClient(
     httpClient: OkHttpClient,
     private val trustStore: WorkspaceMembershipTrustStore,
+    private val journal: PendingAndroidMembershipStore,
 ) {
     private val client = httpClient.newBuilder()
         .followRedirects(false)
@@ -76,33 +77,27 @@ class WorkspaceMembershipClient(
             decodeBase64Url(registration.authToken, 32, "auth_token"),
             identityKeyId,
         )
+        val authority = decodeBase64Url(registration.authorityPublicKey, 32, "authority_public_key")
+        val challengeEnc = decodeBase64Url(registration.challengeEnc, 65, "challenge_enc")
+        val challengeCiphertext = decodeBase64UrlVariable(registration.challengeCiphertext, "challenge_ciphertext")
         try {
-            trustStore.pinAuthority(
-                pending.workspaceId,
-                pending.deviceId,
-                decodeBase64Url(registration.authorityPublicKey, 32, "authority_public_key"),
-            )
+            journal.prepareRegistration(pending, authority, challengeEnc, challengeCiphertext)
+            trustStore.pinAuthority(pending.workspaceId, pending.deviceId, authority)
             val canonicalChallenge = WorkspaceMembershipV1.openChallengeCanonical(
                 request.identity.publicKey,
                 request.identity.privateKey,
                 pending.workspaceId,
                 pending.deviceId,
                 identityKeyId,
-                decodeBase64Url(registration.challengeEnc, 65, "challenge_enc"),
-                decodeBase64UrlVariable(registration.challengeCiphertext, "challenge_ciphertext"),
+                challengeEnc,
+                challengeCiphertext,
             )
             val proof = WorkspaceMembershipV1.createProof(canonicalChallenge)
             try {
-                check(
-                    parseProof(
-                        post(origin, "/v1/membership/prove", 200, jsonObject {
-                            name("workspace_id").value(registration.workspaceId)
-                            name("device_id").value(registration.deviceId)
-                            name("auth_token").value(registration.authToken)
-                            name("proof").value(encodeBase64Url(proof))
-                        }),
-                    ) == "pending_approval",
-                ) { "Membership proof returned an invalid state" }
+                journal.bindProof(pending, proof)
+                journal.markProofAttempted(pending, proof)
+                submitProof(pending, proof)
+                journal.markPendingApproval(pending)
             } finally {
                 canonicalChallenge.fill(0)
                 proof.fill(0)
@@ -111,6 +106,34 @@ class WorkspaceMembershipClient(
         } catch (error: Throwable) {
             pending.authToken.fill(0)
             throw error
+        }
+    }
+
+    fun resume(identity: AuthenticatedHpke.KeyPair): AndroidMembershipRefresh {
+        val stored = checkNotNull(journal.load()) { "Pending membership enrollment is missing" }
+        try {
+            trustStore.pinAuthority(stored.pending.workspaceId, stored.pending.deviceId, stored.authorityPublicKey)
+            val proof = recoverProof(stored, identity)
+            try {
+                var refreshed = refresh(stored.pending)
+                if (refreshed.serverState == "pending_proof") {
+                    check(stored.phase != PendingMembershipPhase.PENDING_APPROVAL) {
+                        "Membership server rolled back completed identity proof"
+                    }
+                    journal.markProofAttempted(stored.pending, proof)
+                    submitProof(stored.pending, proof)
+                    journal.markPendingApproval(stored.pending)
+                    refreshed = refresh(stored.pending)
+                } else {
+                    journal.markPendingApproval(stored.pending)
+                }
+                return refreshed
+            } finally {
+                proof.fill(0)
+            }
+        } finally {
+            stored.pending.authToken.fill(0)
+            stored.canonicalProof?.fill(0)
         }
     }
 
@@ -174,6 +197,46 @@ class WorkspaceMembershipClient(
             }
         }
         error("Membership roster pagination did not converge")
+    }
+
+    private fun recoverProof(
+        stored: StoredPendingAndroidMembership,
+        identity: AuthenticatedHpke.KeyPair,
+    ): ByteArray {
+        val keyId = sha256(identity.publicKey)
+        check(keyId.contentEquals(stored.pending.identityKeyId)) {
+            "Pending enrollment identity no longer matches"
+        }
+        stored.canonicalProof?.let { return it.copyOf() }
+        val challenge = WorkspaceMembershipV1.openChallengeCanonical(
+            identity.publicKey,
+            identity.privateKey,
+            stored.pending.workspaceId,
+            stored.pending.deviceId,
+            stored.pending.identityKeyId,
+            stored.challengeEnc,
+            stored.challengeCiphertext,
+        )
+        return try {
+            WorkspaceMembershipV1.createProof(challenge).also {
+                journal.bindProof(stored.pending, it)
+            }
+        } finally {
+            challenge.fill(0)
+        }
+    }
+
+    private fun submitProof(pending: PendingAndroidMembership, canonicalProof: ByteArray) {
+        check(
+            parseProof(
+                post(pending.serverOrigin, "/v1/membership/prove", 200, jsonObject {
+                    name("workspace_id").value(encodeBase64Url(pending.workspaceId))
+                    name("device_id").value(encodeBase64Url(pending.deviceId))
+                    name("auth_token").value(encodeBase64Url(pending.authToken))
+                    name("proof").value(encodeBase64Url(canonicalProof))
+                }),
+            ) == "pending_approval",
+        ) { "Membership proof returned an invalid state" }
     }
 
     private fun post(origin: String, path: String, expectedStatus: Int, body: String): String {
