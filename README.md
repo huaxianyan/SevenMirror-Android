@@ -2,7 +2,7 @@
 
 Android source device for private, end-to-end encrypted notification mirroring. This is one of three independent repositories.
 
-Repository: <https://github.com/huaxianyan/SyncNotifications-Android>
+Repository: <https://github.com/huaxianyan/SevenMirror-Android>
 
 > Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, recoverable Keystore-wrapped transport credential rotation, and authenticated WebSocket transport are validated. The app exposes synthetic-only registration/rotation, process-start restoration, network-change recovery, and bounded reconnect; real notification synchronization remains disabled.
 
