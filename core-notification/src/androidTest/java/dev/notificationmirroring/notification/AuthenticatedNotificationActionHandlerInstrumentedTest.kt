@@ -19,6 +19,8 @@ import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.AuthenticatedHpke
+import dev.notificationmirroring.crypto.WorkspaceActionPeer
+import dev.notificationmirroring.crypto.WorkspaceActionPeerResolver
 import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedEnvelopePartsV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
@@ -75,7 +77,11 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             workspaceId = workspace,
             recipientDeviceId = recipientDevice,
             recipientIdentity = recipient,
-            trustedPeers = trustedPeers,
+            actionPeers = WorkspaceActionPeerResolver { resolvedWorkspace, _, deviceId, keyId, _ ->
+                trustedPeers.findApproved(resolvedWorkspace, deviceId, keyId)?.let {
+                    WorkspaceActionPeer(deviceId, keyId, it)
+                }
+            },
             replayLedger = replay,
             operationLedger = operations,
             resultOutbox = outbox,
@@ -110,7 +116,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            assertThrows(ActionSenderNotApprovedException::class.java) {
+            assertThrows(ActionSenderNotAuthorizedException::class.java) {
                 dispatcher.receiveOnce(first, now)
             }
             trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
@@ -132,7 +138,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 recipient,
             )
             trustedPeers.remove(workspace, ByteArray(16) { 2 })
-            assertThrows(ActionSenderNotApprovedException::class.java) {
+            assertThrows(ActionSenderNotAuthorizedException::class.java) {
                 dispatcher.receiveAnyOnce(exactAckFrame, now)
             }
             assertEquals(1, outbox.snapshot(now).completedResults)

@@ -5,7 +5,7 @@ import dev.notificationmirroring.crypto.ActionReceipt
 import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
-import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
+import dev.notificationmirroring.crypto.WorkspaceActionPeerResolver
 import dev.notificationmirroring.crypto.AuthenticatedActionResultAckReceiver
 import dev.notificationmirroring.crypto.AuthenticatedEnvelopeReceiver
 import dev.notificationmirroring.crypto.AuthenticatedHpke
@@ -16,7 +16,7 @@ import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
 
-class ActionSenderNotApprovedException : Exception("ACTION_SENDER_NOT_APPROVED")
+class ActionSenderNotAuthorizedException : Exception("ACTION_SENDER_NOT_AUTHORIZED")
 
 sealed interface AuthenticatedInboundReceipt {
     data class Action(val receipt: ActionReceipt) : AuthenticatedInboundReceipt
@@ -28,15 +28,15 @@ sealed interface AuthenticatedInboundReceipt {
 /**
  * Serialized production boundary for inbound action.invoke envelopes.
  *
- * Routing is checked against the active local credential before the immutable approved-peer store
- * is queried. No server directory data can establish E2EE trust through this dispatcher.
+ * Routing is checked against the active local credential before the latest durable signed roster
+ * authorizes the exact Chrome action peer.
  */
 class AndroidActionInvokeDispatcher(
     context: Context,
     workspaceId: ByteArray,
     recipientDeviceId: ByteArray,
     recipientIdentity: AuthenticatedHpke.KeyPair,
-    private val trustedPeers: AndroidTrustedPeerStore,
+    private val actionPeers: WorkspaceActionPeerResolver,
     private val replayLedger: AndroidReplayLedger,
     private val operationLedger: AndroidOperationLedger,
     private val resultOutbox: AndroidActionResultOutbox,
@@ -83,11 +83,13 @@ class AndroidActionInvokeDispatcher(
             MessageDigest.isEqual(header.recipientKeyId, sha256(recipientIdentity.publicKey)),
             EnvelopeRejectedException.Code.RECIPIENT_KEY_MISMATCH,
         )
-        val senderPublicKey = trustedPeers.findApproved(
+        val senderPublicKey = actionPeers.resolveActionPeer(
             workspaceId = workspaceId,
-            deviceId = header.senderDeviceId,
-            keyId = header.senderKeyId,
-        ) ?: throw ActionSenderNotApprovedException()
+            localDeviceId = recipientDeviceId,
+            peerDeviceId = header.senderDeviceId,
+            peerKeyId = header.senderKeyId,
+            nowUnixMs = nowUnixMs,
+        )?.identityPublicKey ?: throw ActionSenderNotAuthorizedException()
 
         val opened = try {
             AuthenticatedEnvelopeReceiver.openOnce(

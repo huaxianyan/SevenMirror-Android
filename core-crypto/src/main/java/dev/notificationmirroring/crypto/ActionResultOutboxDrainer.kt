@@ -2,12 +2,12 @@ package dev.notificationmirroring.crypto
 
 import java.security.SecureRandom
 
-/** Encrypts due durable results for their still-approved recipient and performs bounded sends. */
+/** Encrypts due durable results for their still-authorized roster recipient. */
 class ActionResultOutboxDrainer(
     workspaceId: ByteArray,
     senderDeviceId: ByteArray,
     senderIdentity: AuthenticatedHpke.KeyPair,
-    private val trustedPeers: AndroidTrustedPeerStore,
+    private val actionPeers: WorkspaceActionPeerResolver,
     private val outbox: AndroidActionResultOutbox,
     private val random: SecureRandom = SecureRandom(),
 ) {
@@ -48,11 +48,13 @@ class ActionResultOutboxDrainer(
         var attempted = 0
         var nextWakeDelayMs: Long? = null
         outbox.due(nowUnixMs).forEach { entry ->
-            val recipientPublicKey = trustedPeers.findApproved(
+            val recipientPublicKey = actionPeers.resolveActionPeer(
                 workspaceId = workspaceId,
-                deviceId = entry.recipientDeviceId,
-                keyId = entry.recipientKeyId,
-            ) ?: return@forEach // Revocation must immediately prevent further encryption.
+                localDeviceId = senderDeviceId,
+                peerDeviceId = entry.recipientDeviceId,
+                peerKeyId = entry.recipientKeyId,
+                nowUnixMs = nowUnixMs,
+            )?.identityPublicKey ?: return@forEach // Revocation must immediately prevent further encryption.
             attempted += 1
             val frame = ActionResultEnvelopeSender.create(
                 ActionResultEnvelopeContext(

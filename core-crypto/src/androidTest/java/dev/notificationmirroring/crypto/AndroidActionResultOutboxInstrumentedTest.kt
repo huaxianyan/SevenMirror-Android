@@ -82,7 +82,7 @@ class AndroidActionResultOutboxInstrumentedTest {
     }
 
     @Test
-    fun encryptsAndRetriesOnlyForStillApprovedRecipient() {
+    fun encryptsAndRetriesOnlyForStillAuthorizedRecipient() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val name = "test-${UUID.randomUUID()}"
         val outbox = AndroidActionResultOutbox(context, name)
@@ -105,7 +105,11 @@ class AndroidActionResultOutboxInstrumentedTest {
                 workspace,
                 senderDeviceId,
                 sender,
-                trustedPeers,
+                WorkspaceActionPeerResolver { resolvedWorkspace, _, deviceId, keyId, _ ->
+                    trustedPeers.findApproved(resolvedWorkspace, deviceId, keyId)?.let {
+                        WorkspaceActionPeer(deviceId, keyId, it)
+                    }
+                },
                 outbox,
             )
             var encryptedFrame: ByteArray? = null

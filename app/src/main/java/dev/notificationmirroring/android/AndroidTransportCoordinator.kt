@@ -403,7 +403,7 @@ class AndroidTransportCoordinator(context: Context) {
                     workspaceId = credential.workspaceId,
                     recipientDeviceId = credential.deviceId,
                     recipientIdentity = identity,
-                    trustedPeers = trustedPeerStore,
+                    actionPeers = workspaceMembershipStore,
                     replayLedger = replayLedger,
                     operationLedger = operationLedger,
                     resultOutbox = resultOutbox,
@@ -424,7 +424,7 @@ class AndroidTransportCoordinator(context: Context) {
                         workspaceId = credential.workspaceId,
                         senderDeviceId = credential.deviceId,
                         senderIdentity = identity,
-                        trustedPeers = trustedPeerStore,
+                        actionPeers = workspaceMembershipStore,
                         outbox = resultOutbox,
                     ),
                     identityTransitionDrainer = identityRotation?.let { rotation ->

@@ -23,6 +23,22 @@ fun interface WorkspaceNotificationRecipientDirectory {
     ): List<WorkspaceNotificationRecipient>
 }
 
+data class WorkspaceActionPeer(
+    val deviceId: ByteArray,
+    val identityKeyId: ByteArray,
+    val identityPublicKey: ByteArray,
+)
+
+fun interface WorkspaceActionPeerResolver {
+    fun resolveActionPeer(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        peerDeviceId: ByteArray,
+        peerKeyId: ByteArray,
+        nowUnixMs: Long,
+    ): WorkspaceActionPeer?
+}
+
 interface WorkspaceMembershipTrustStore {
     fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): AndroidWorkspaceMembershipStore.PinResult
     fun reconcileApproved(workspaceId: ByteArray, deviceId: ByteArray, signedCertificate: ByteArray, signedRoster: ByteArray): AndroidWorkspaceMembershipStore.ReconcileResult
@@ -32,7 +48,7 @@ interface WorkspaceMembershipTrustStore {
 class AndroidWorkspaceMembershipStore(
     context: Context,
     storeName: String = "default",
-) : WorkspaceMembershipTrustStore, WorkspaceNotificationRecipientDirectory, AutoCloseable {
+) : WorkspaceMembershipTrustStore, WorkspaceNotificationRecipientDirectory, WorkspaceActionPeerResolver, AutoCloseable {
     enum class PinResult { PINNED, ALREADY_PINNED }
     enum class ReconcileResult { APPLIED, ALREADY_APPLIED }
 
@@ -195,6 +211,31 @@ class AndroidWorkspaceMembershipStore(
         }
     }
 
+    override fun resolveActionPeer(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        peerDeviceId: ByteArray,
+        peerKeyId: ByteArray,
+        nowUnixMs: Long,
+    ): WorkspaceActionPeer? {
+        require(nowUnixMs > 0) { "Current time is invalid" }
+        val state = load(workspaceId, localDeviceId) ?: return null
+        if (!state.localDeviceActive) return null
+        val roster = WorkspaceMembershipV1.decodeRoster(
+            checkNotNull(state.signedRoster),
+            state.authorityPublicKey,
+        ).roster
+        val local = roster.activeCertificatesList.singleOrNull {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), localDeviceId) &&
+                MessageDigest.isEqual(it.toByteArray(), state.signedCertificate)
+        }?.certificate ?: return null
+        val peer = roster.activeCertificatesList.singleOrNull {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), peerDeviceId) &&
+                MessageDigest.isEqual(it.certificate.identityKeyId.toByteArray(), peerKeyId)
+        }?.certificate ?: return null
+        return authorizeWorkspaceActionPeer(local, peer, nowUnixMs)
+    }
+
     fun clear() {
         helper.writableDatabase.delete(TABLE, null, null)
     }
@@ -296,4 +337,25 @@ class AndroidWorkspaceMembershipStore(
         private fun requireId(value: ByteArray, name: String) { require(value.size == 16 && value.any { it != 0.toByte() }) { "$name must be a non-zero 16-byte value" } }
         private fun ByteArray.toHex() = joinToString("") { "%02x".format(it) }
     }
+}
+
+internal fun authorizeWorkspaceActionPeer(
+    local: DeviceCertificate,
+    peer: DeviceCertificate,
+    nowUnixMs: Long,
+): WorkspaceActionPeer? {
+    fun current(certificate: DeviceCertificate) =
+        certificate.issuedAtUnixMs <= nowUnixMs &&
+            (certificate.expiresAtUnixMs == 0L || certificate.expiresAtUnixMs > nowUnixMs)
+    if (local.deviceType != DeviceType.DEVICE_TYPE_ANDROID ||
+        DeviceRole.DEVICE_ROLE_SEND_NOTIFICATIONS !in local.rolesList ||
+        peer.deviceType != DeviceType.DEVICE_TYPE_CHROME ||
+        DeviceRole.DEVICE_ROLE_INVOKE_NOTIFICATION_ACTIONS !in peer.rolesList ||
+        !current(local) || !current(peer)
+    ) return null
+    return WorkspaceActionPeer(
+        peer.deviceId.toByteArray(),
+        peer.identityKeyId.toByteArray(),
+        peer.identityPublicKey.toByteArray(),
+    )
 }
