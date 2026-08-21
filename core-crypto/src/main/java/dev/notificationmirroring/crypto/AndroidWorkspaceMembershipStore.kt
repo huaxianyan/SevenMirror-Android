@@ -4,7 +4,24 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
 import java.security.MessageDigest
+
+data class WorkspaceNotificationRecipient(
+    val deviceId: ByteArray,
+    val identityKeyId: ByteArray,
+    val identityPublicKey: ByteArray,
+)
+
+fun interface WorkspaceNotificationRecipientDirectory {
+    fun listNotificationRecipients(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        nowUnixMs: Long,
+    ): List<WorkspaceNotificationRecipient>
+}
 
 interface WorkspaceMembershipTrustStore {
     fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): AndroidWorkspaceMembershipStore.PinResult
@@ -15,7 +32,7 @@ interface WorkspaceMembershipTrustStore {
 class AndroidWorkspaceMembershipStore(
     context: Context,
     storeName: String = "default",
-) : WorkspaceMembershipTrustStore, AutoCloseable {
+) : WorkspaceMembershipTrustStore, WorkspaceNotificationRecipientDirectory, AutoCloseable {
     enum class PinResult { PINNED, ALREADY_PINNED }
     enum class ReconcileResult { APPLIED, ALREADY_APPLIED }
 
@@ -147,6 +164,37 @@ class AndroidWorkspaceMembershipStore(
     override fun load(workspaceId: ByteArray, deviceId: ByteArray): State? =
         read(helper.readableDatabase, workspaceId, deviceId)?.copyState()
 
+    override fun listNotificationRecipients(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        nowUnixMs: Long,
+    ): List<WorkspaceNotificationRecipient> {
+        require(nowUnixMs > 0) { "Current time is invalid" }
+        val state = load(workspaceId, localDeviceId) ?: return emptyList()
+        if (!state.localDeviceActive) return emptyList()
+        val signedRoster = checkNotNull(state.signedRoster)
+        val roster = WorkspaceMembershipV1.decodeRoster(signedRoster, state.authorityPublicKey).roster
+        val local = roster.activeCertificatesList.singleOrNull {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), localDeviceId) &&
+                MessageDigest.isEqual(it.toByteArray(), state.signedCertificate)
+        }?.certificate ?: return emptyList()
+        if (DeviceRole.DEVICE_ROLE_SEND_NOTIFICATIONS !in local.rolesList ||
+            !certificateIsCurrent(local, nowUnixMs)
+        ) return emptyList()
+        return roster.activeCertificatesList.mapNotNull { signed ->
+            val certificate = signed.certificate
+            if (certificate.deviceType != DeviceType.DEVICE_TYPE_CHROME ||
+                DeviceRole.DEVICE_ROLE_RECEIVE_NOTIFICATIONS !in certificate.rolesList ||
+                !certificateIsCurrent(certificate, nowUnixMs)
+            ) return@mapNotNull null
+            WorkspaceNotificationRecipient(
+                certificate.deviceId.toByteArray(),
+                certificate.identityKeyId.toByteArray(),
+                certificate.identityPublicKey.toByteArray(),
+            )
+        }
+    }
+
     fun clear() {
         helper.writableDatabase.delete(TABLE, null, null)
     }
@@ -209,6 +257,12 @@ class AndroidWorkspaceMembershipStore(
             }
         }
     }
+
+    private fun certificateIsCurrent(
+        certificate: DeviceCertificate,
+        nowUnixMs: Long,
+    ): Boolean = certificate.issuedAtUnixMs <= nowUnixMs &&
+        (certificate.expiresAtUnixMs == 0L || certificate.expiresAtUnixMs > nowUnixMs)
 
     private fun State.copyState() = copy(
         workspaceId = workspaceId.copyOf(), deviceId = deviceId.copyOf(),

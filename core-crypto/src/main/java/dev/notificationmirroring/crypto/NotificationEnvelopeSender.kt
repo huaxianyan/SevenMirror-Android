@@ -13,7 +13,7 @@ class NotificationEnvelopeSender(
     workspaceId: ByteArray,
     senderDeviceId: ByteArray,
     senderIdentity: AuthenticatedHpke.KeyPair,
-    private val trustedPeers: AndroidTrustedPeerStore,
+    private val recipients: WorkspaceNotificationRecipientDirectory,
     private val allocateSequence: (ByteArray) -> Long,
     private val random: SecureRandom = SecureRandom(),
 ) {
@@ -30,7 +30,7 @@ class NotificationEnvelopeSender(
         title: String?,
         body: String?,
         nowUnixMs: Long,
-    ): ByteArray? {
+    ): List<ByteArray>? {
         val notification = NotificationUpsert.newBuilder()
             .setNotificationId(notificationId)
             .setNotificationRevision(revision)
@@ -50,7 +50,7 @@ class NotificationEnvelopeSender(
         notificationId: String,
         revision: Long,
         nowUnixMs: Long,
-    ): ByteArray? = create(
+    ): List<ByteArray>? = create(
         EncryptedPayload.newBuilder()
             .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
             .setNotificationRemoved(
@@ -66,7 +66,7 @@ class NotificationEnvelopeSender(
         highWaterRevision: Long,
         activeNotifications: Map<String, Long>,
         nowUnixMs: Long,
-    ): ByteArray? {
+    ): List<ByteArray>? {
         val orderedIds = canonicalNotificationIds(activeNotifications.keys)
         val manifest = NotificationSnapshotManifest.newBuilder()
             .setHighWaterRevision(highWaterRevision)
@@ -90,35 +90,39 @@ class NotificationEnvelopeSender(
         senderIdentity.privateKey.fill(0)
     }
 
-    private fun create(payload: EncryptedPayload, nowUnixMs: Long): ByteArray? {
+    private fun create(payload: EncryptedPayload, nowUnixMs: Long): List<ByteArray>? {
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
-        val peers = trustedPeers.listApproved(workspaceId)
-        if (peers.size != 1) return null
-        val peer = peers.single()
-        val recipientPublicKey = trustedPeers.findApproved(
-            workspaceId,
-            peer.deviceId,
-            peer.keyId,
-        ) ?: return null
+        val targets = recipients.listNotificationRecipients(workspaceId, senderDeviceId, nowUnixMs)
+        if (targets.isEmpty()) return null
         val canonicalPayload = EncryptedPayloadCodecV1.encode(payload)
-        return try {
-            AuthenticatedPayloadEnvelopeSender.create(
-                AuthenticatedPayloadEnvelopeContext(
-                    workspaceId = workspaceId,
-                    senderDeviceId = senderDeviceId,
-                    recipientDeviceId = peer.deviceId,
-                    senderIdentity = senderIdentity,
-                    recipientPublicKey = recipientPublicKey,
-                    messageId = nextMessageId(),
-                    sequence = allocateSequence(peer.keyId),
-                    createdAtUnixMs = nowUnixMs,
-                    expiresAtUnixMs = Math.addExact(nowUnixMs, ENVELOPE_TTL_MS),
-                ),
-                canonicalPayload,
-            )
+        val frames = ArrayList<ByteArray>(targets.size)
+        try {
+            for (target in targets) {
+                try {
+                    frames += AuthenticatedPayloadEnvelopeSender.create(
+                        AuthenticatedPayloadEnvelopeContext(
+                            workspaceId = workspaceId,
+                            senderDeviceId = senderDeviceId,
+                            recipientDeviceId = target.deviceId,
+                            senderIdentity = senderIdentity,
+                            recipientPublicKey = target.identityPublicKey,
+                            messageId = nextMessageId(),
+                            sequence = allocateSequence(target.identityKeyId),
+                            createdAtUnixMs = nowUnixMs,
+                            expiresAtUnixMs = Math.addExact(nowUnixMs, ENVELOPE_TTL_MS),
+                        ),
+                        canonicalPayload,
+                    )
+                } finally {
+                    target.identityPublicKey.fill(0)
+                }
+            }
+            return frames
+        } catch (error: Throwable) {
+            frames.forEach { it.fill(0) }
+            throw error
         } finally {
             canonicalPayload.fill(0)
-            recipientPublicKey.fill(0)
         }
     }
 

@@ -603,10 +603,8 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun sendSyntheticNotification(
-        createFrame: (NotificationEnvelopeSender, Long) -> ByteArray?,
-    ) = sendSyntheticNotifications { sender, nowUnixMs ->
-        createFrame(sender, nowUnixMs)?.let(::listOf)
-    }
+        createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
+    ) = sendSyntheticNotifications(createFrames)
 
     private fun sendSyntheticSnapshot(snapshot: ActiveNotificationSnapshot) {
         sendSyntheticNotifications { sender, nowUnixMs ->
@@ -614,29 +612,29 @@ class AndroidTransportCoordinator(context: Context) {
             val frames = mutableListOf<ByteArray>()
             for (id in NotificationEnvelopeSender.canonicalNotificationIds(byId.keys)) {
                 val notification = requireNotNull(byId[id])
-                val frame = sender.createUpsert(
+                val notificationFrames = sender.createUpsert(
                     notificationId = notification.key,
                     revision = notification.revision,
                     title = notification.title,
                     body = notification.expandedText ?: notification.text,
                     nowUnixMs = nowUnixMs,
                 )
-                if (frame == null) {
+                if (notificationFrames == null) {
                     frames.forEach { it.fill(0) }
                     return@sendSyntheticNotifications null
                 }
-                frames += frame
+                frames += notificationFrames
             }
-            val manifest = sender.createSnapshotManifest(
+            val manifestFrames = sender.createSnapshotManifest(
                 snapshot.highWaterRevision,
                 snapshot.notifications.associate { it.key to it.revision },
                 nowUnixMs,
             )
-            if (manifest == null) {
+            if (manifestFrames == null) {
                 frames.forEach { it.fill(0) }
                 return@sendSyntheticNotifications null
             }
-            frames + manifest
+            frames + manifestFrames
         }
     }
 
@@ -668,7 +666,7 @@ class AndroidTransportCoordinator(context: Context) {
                 workspaceId = credential.workspaceId,
                 senderDeviceId = credential.deviceId,
                 senderIdentity = loadedIdentity,
-                trustedPeers = trustedPeerStore,
+                recipients = workspaceMembershipStore,
                 allocateSequence = resultOutbox::allocateSequence,
             )
             val frames = createFrames(sender, System.currentTimeMillis()) ?: return

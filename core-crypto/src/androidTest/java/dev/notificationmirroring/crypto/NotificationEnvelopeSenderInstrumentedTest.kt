@@ -1,41 +1,45 @@
 package dev.notificationmirroring.crypto
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
-import java.util.UUID
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NotificationEnvelopeSenderInstrumentedTest {
     @Test
-    fun appNotificationAndReconnectSnapshotAreEncryptedForTheSingleApprovedChrome() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        val store = AndroidTrustedPeerStore(context, "notification-${UUID.randomUUID()}")
+    fun appNotificationIsIndependentlyEncryptedForEveryRosterRecipient() {
         val workspaceId = filled(16, 1)
         val androidDeviceId = filled(16, 2)
-        val chromeDeviceId = filled(16, 3)
+        val firstChromeDeviceId = filled(16, 3)
+        val secondChromeDeviceId = filled(16, 6)
         val androidIdentity = AuthenticatedHpke.deriveKeyPair(filled(32, 4))
-        val chromeIdentity = AuthenticatedHpke.deriveKeyPair(filled(32, 5))
-        try {
-            store.pinApproved(workspaceId, chromeDeviceId, chromeIdentity.publicKey)
-            val sequence = AtomicLong(8)
-            val sender = NotificationEnvelopeSender(
-                workspaceId = workspaceId,
-                senderDeviceId = androidDeviceId,
-                senderIdentity = androidIdentity,
-                trustedPeers = store,
-                allocateSequence = { sequence.incrementAndGet() },
+        val firstChromeIdentity = AuthenticatedHpke.deriveKeyPair(filled(32, 5))
+        val secondChromeIdentity = AuthenticatedHpke.deriveKeyPair(filled(32, 7))
+        val directory = WorkspaceNotificationRecipientDirectory { _, _, _ ->
+            listOf(
+                recipient(firstChromeDeviceId, firstChromeIdentity.publicKey),
+                recipient(secondChromeDeviceId, secondChromeIdentity.publicKey),
             )
-            val frame = requireNotNull(
+        }
+        val sequence = AtomicLong(8)
+        val sender = NotificationEnvelopeSender(
+            workspaceId = workspaceId,
+            senderDeviceId = androidDeviceId,
+            senderIdentity = androidIdentity,
+            recipients = directory,
+            allocateSequence = { sequence.incrementAndGet() },
+        )
+        try {
+            val frames = requireNotNull(
                 sender.createUpsert(
                     notificationId = "synthetic.notification/42",
                     revision = 7,
@@ -45,13 +49,25 @@ class NotificationEnvelopeSenderInstrumentedTest {
                 ),
             )
 
-            assertFalse(frame.toString(Charsets.UTF_8).contains("Encrypted test notification"))
-            val payload = openPayload(frame, chromeIdentity, androidIdentity)
-            assertEquals(9L, payload.first)
-            assertEquals(EncryptedPayload.BodyCase.NOTIFICATION_UPSERT, payload.second.bodyCase)
-            assertEquals("Encrypted test notification", payload.second.notificationUpsert.body)
+            assertEquals(2, frames.size)
+            assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("Encrypted test notification") })
+            val firstPayload = openPayload(frames[0], firstChromeIdentity, androidIdentity)
+            val secondPayload = openPayload(frames[1], secondChromeIdentity, androidIdentity)
+            assertEquals(9L, firstPayload.first)
+            assertEquals(10L, secondPayload.first)
+            assertEquals(EncryptedPayload.BodyCase.NOTIFICATION_UPSERT, firstPayload.second.bodyCase)
+            assertEquals(firstPayload.second, secondPayload.second)
+            assertEquals("Encrypted test notification", firstPayload.second.notificationUpsert.body)
+            val firstRoute = RoutingHeaderCodecV1.decode(
+                EncryptedEnvelopeCodecV1.decode(frames[0]).routingHeaderBytes,
+            )
+            val secondRoute = RoutingHeaderCodecV1.decode(
+                EncryptedEnvelopeCodecV1.decode(frames[1]).routingHeaderBytes,
+            )
+            assertNotEquals(firstRoute.messageId.toList(), secondRoute.messageId.toList())
+            assertNotEquals(frames[0].toList(), frames[1].toList())
 
-            val snapshotFrame = requireNotNull(
+            val snapshotFrames = requireNotNull(
                 sender.createSnapshotManifest(
                     highWaterRevision = 9,
                     activeNotifications = mapOf(
@@ -61,8 +77,9 @@ class NotificationEnvelopeSenderInstrumentedTest {
                     nowUnixMs = 1_700_000_000_000,
                 ),
             )
-            val snapshot = openPayload(snapshotFrame, chromeIdentity, androidIdentity)
-            assertEquals(10L, snapshot.first)
+            assertEquals(2, snapshotFrames.size)
+            val snapshot = openPayload(snapshotFrames[0], firstChromeIdentity, androidIdentity)
+            assertEquals(11L, snapshot.first)
             assertEquals(
                 listOf("synthetic.notification/42", "synthetic.notification/99"),
                 snapshot.second.notificationSnapshotManifest.activeNotificationsList
@@ -70,10 +87,16 @@ class NotificationEnvelopeSenderInstrumentedTest {
             )
             assertEquals(9L, snapshot.second.notificationSnapshotManifest.highWaterRevision)
         } finally {
-            store.clear()
-            store.close()
+            sender.clearIdentity()
         }
     }
+
+    private fun recipient(deviceId: ByteArray, publicKey: ByteArray) =
+        WorkspaceNotificationRecipient(
+            deviceId.copyOf(),
+            MessageDigest.getInstance("SHA-256").digest(publicKey),
+            publicKey.copyOf(),
+        )
 
     private fun openPayload(
         frame: ByteArray,

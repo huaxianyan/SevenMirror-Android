@@ -67,6 +67,13 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
             assertTrue(initial.localDeviceActive)
             assertArrayEquals(vector.authorityPublicKey, initial.authorityPublicKey)
             assertArrayEquals(vector.certificate, initial.signedCertificate)
+            assertTrue(
+                recovered.listNotificationRecipients(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    1_800_000_000_000,
+                ).isEmpty(),
+            )
             assertEquals(
                 AndroidWorkspaceMembershipStore.ReconcileResult.APPLIED,
                 recovered.reconcileApproved(
