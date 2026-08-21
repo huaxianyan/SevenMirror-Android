@@ -59,7 +59,13 @@ class WorkspaceMembershipClientTest {
             assertEquals(1L, approved.state.rosterEpoch)
             assertTrue(server.takeRequest().body.readUtf8().contains("\"after_roster_epoch\":\"0\""))
 
-            val revoked = client.refresh(pending)
+            val revoked = checkNotNull(client.refreshActive(StoredTransportCredential(
+                pending.serverOrigin,
+                pending.workspaceId,
+                pending.deviceId,
+                pending.authToken,
+                pending.identityKeyId,
+            )))
             assertFalse(revoked.transportEligible)
             assertEquals(2L, revoked.state.rosterEpoch)
             assertTrue(server.takeRequest().body.readUtf8().contains("\"after_roster_epoch\":\"1\""))

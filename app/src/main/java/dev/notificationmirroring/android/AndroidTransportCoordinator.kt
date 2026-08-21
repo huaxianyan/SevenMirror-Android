@@ -68,6 +68,8 @@ data class AndroidIdentityTransitionStatus(
     val peers: List<AndroidIdentityTransitionPeerStatus>,
 )
 
+private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 60_000L
+
 enum class AndroidTransportState {
     NOT_CONFIGURED,
     REGISTERING,
@@ -134,6 +136,7 @@ class AndroidTransportCoordinator(context: Context) {
     private var reconnectFuture: ScheduledFuture<*>? = null
     private var resultDrainFuture: ScheduledFuture<*>? = null
     private var identityTransitionDrainFuture: ScheduledFuture<*>? = null
+    private var membershipRefreshFuture: ScheduledFuture<*>? = null
     private var terminalGeneration = Long.MIN_VALUE
     private var preferCurrentFallback = false
 
@@ -339,6 +342,7 @@ class AndroidTransportCoordinator(context: Context) {
         terminalGeneration = Long.MIN_VALUE
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
+        cancelMembershipRefresh()
         val membershipReady = try {
             recoverPendingMembership()
         } catch (_: IOException) {
@@ -369,6 +373,21 @@ class AndroidTransportCoordinator(context: Context) {
         }
         val credential = candidate.credential
         val credentialSource = candidate.source
+        try {
+            val refreshed = membershipClient.refreshActive(credential)
+            check(refreshed == null ||
+                refreshed.serverState == "approved" && refreshed.transportEligible
+            ) { "Local device is not active in the durable workspace roster" }
+        } catch (_: IOException) {
+            credential.authToken.fill(0)
+            mutableState.value = AndroidTransportState.OFFLINE
+            scheduleReconnect(requestedGeneration)
+            return
+        } catch (_: Throwable) {
+            credential.authToken.fill(0)
+            mutableState.value = AndroidTransportState.SECURITY_ERROR
+            return
+        }
         try {
             val identityRotation = identityStore.loadRotation()
             val identity = identityRotation?.current ?: checkNotNull(identityStore.loadExisting()) {
@@ -465,6 +484,7 @@ class AndroidTransportCoordinator(context: Context) {
                                 preferCurrentFallback = false
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
+                                scheduleMembershipRefresh(requestedGeneration, webSocket)
                                 cancelResultDrain()
                                 cancelIdentityTransitionDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
@@ -730,6 +750,7 @@ class AndroidTransportCoordinator(context: Context) {
             }
             cancelResultDrain()
             cancelIdentityTransitionDrain()
+            cancelMembershipRefresh()
             if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
@@ -823,6 +844,58 @@ class AndroidTransportCoordinator(context: Context) {
                 TimeUnit.MILLISECONDS,
             )
         }
+    }
+
+    private fun scheduleMembershipRefresh(requestedGeneration: Long, socket: WebSocket) {
+        if (generation.get() != requestedGeneration || webSocket !== socket ||
+            membershipRefreshFuture != null
+        ) return
+        membershipRefreshFuture = executor.schedule(
+            {
+                membershipRefreshFuture = null
+                if (generation.get() != requestedGeneration || webSocket !== socket ||
+                    mutableState.value != AndroidTransportState.ONLINE
+                ) return@schedule
+                val credential = try {
+                    credentialStore.load()
+                } catch (_: Throwable) {
+                    null
+                }
+                if (credential == null) {
+                    terminalGeneration = requestedGeneration
+                    if (webSocket === socket) webSocket = null
+                    mutableState.value = AndroidTransportState.SECURITY_ERROR
+                    socket.close(1008, "membership trust refresh failed")
+                    return@schedule
+                }
+                try {
+                    val refreshed = membershipClient.refreshActive(credential)
+                    if (refreshed == null) return@schedule
+                    check(refreshed.serverState == "approved" && refreshed.transportEligible) {
+                        "Local device is not active in the durable workspace roster"
+                    }
+                } catch (_: IOException) {
+                    scheduleMembershipRefresh(requestedGeneration, socket)
+                    return@schedule
+                } catch (_: Throwable) {
+                    terminalGeneration = requestedGeneration
+                    if (webSocket === socket) webSocket = null
+                    mutableState.value = AndroidTransportState.SECURITY_ERROR
+                    socket.close(1008, "membership trust refresh failed")
+                    return@schedule
+                } finally {
+                    credential.authToken.fill(0)
+                }
+                scheduleMembershipRefresh(requestedGeneration, socket)
+            },
+            MEMBERSHIP_REFRESH_INTERVAL_MS,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun cancelMembershipRefresh() {
+        membershipRefreshFuture?.cancel(false)
+        membershipRefreshFuture = null
     }
 
     private fun recoverPendingMembership(): Boolean {

@@ -142,6 +142,23 @@ class WorkspaceMembershipClient(
         }
     }
 
+    /** Refreshes a promoted certified device without recreating enrollment state. */
+    fun refreshActive(credential: StoredTransportCredential): AndroidMembershipRefresh? {
+        if (trustStore.load(credential.workspaceId, credential.deviceId) == null) return null
+        val request = PendingAndroidMembership(
+            credential.serverOrigin,
+            credential.workspaceId.copyOf(),
+            credential.deviceId.copyOf(),
+            credential.authToken.copyOf(),
+            credential.identityKeyId.copyOf(),
+        )
+        return try {
+            refresh(request)
+        } finally {
+            request.authToken.fill(0)
+        }
+    }
+
     fun refresh(pending: PendingAndroidMembership): AndroidMembershipRefresh {
         val origin = AndroidTransportCredentialStore.normalizeServerOrigin(pending.serverOrigin)
         requireId(pending.workspaceId, "workspaceId")
