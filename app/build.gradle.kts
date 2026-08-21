@@ -85,7 +85,6 @@ dependencies {
     implementation(project(":core-notification"))
     implementation(project(":core-protocol"))
     implementation(project(":core-crypto"))
-    implementation(project(":core-storage"))
     implementation(project(":core-transport"))
 
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))

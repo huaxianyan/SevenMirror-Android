@@ -9,8 +9,6 @@ import dev.notificationmirroring.notification.SyntheticNotificationMirrorSink
 class NotificationMirroringApplication : Application() {
     lateinit var transportCoordinator: AndroidTransportCoordinator
         private set
-    lateinit var trustPairingController: AndroidTrustPairingController
-        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -31,7 +29,6 @@ class NotificationMirroringApplication : Application() {
                 }
             },
         )
-        trustPairingController = AndroidTrustPairingController(this)
         transportCoordinator.connect()
     }
 }
