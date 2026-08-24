@@ -85,7 +85,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                     deviceId.contentEquals(senderDeviceId) &&
                     keyId.contentEquals(senderKeyId)
                 ) {
-                    WorkspaceActionPeer(deviceId, keyId, sender.publicKey)
+                    WorkspaceActionPeer(deviceId, keyId, sender.publicKey.copyOf())
                 } else {
                     null
                 }

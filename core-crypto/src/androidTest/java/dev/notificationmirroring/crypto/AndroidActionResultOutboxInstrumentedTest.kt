@@ -111,7 +111,7 @@ class AndroidActionResultOutboxInstrumentedTest {
                         deviceId.contentEquals(recipientDeviceId) &&
                         keyId.contentEquals(recipientKeyId)
                     ) {
-                        WorkspaceActionPeer(deviceId, keyId, recipient.publicKey)
+                        WorkspaceActionPeer(deviceId, keyId, recipient.publicKey.copyOf())
                     } else {
                         null
                     }
