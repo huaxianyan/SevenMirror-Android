@@ -42,6 +42,7 @@ fun interface WorkspaceActionPeerResolver {
 interface WorkspaceMembershipTrustStore {
     fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): AndroidWorkspaceMembershipStore.PinResult
     fun reconcileApproved(workspaceId: ByteArray, deviceId: ByteArray, signedCertificate: ByteArray, signedRoster: ByteArray): AndroidWorkspaceMembershipStore.ReconcileResult
+    fun reconcileAuthorityTransition(workspaceId: ByteArray, deviceId: ByteArray, signedTransition: ByteArray, signedActivationRoster: ByteArray): AndroidWorkspaceMembershipStore.ReconcileResult
     fun load(workspaceId: ByteArray, deviceId: ByteArray): AndroidWorkspaceMembershipStore.State?
 }
 
@@ -56,6 +57,8 @@ class AndroidWorkspaceMembershipStore(
         val workspaceId: ByteArray,
         val deviceId: ByteArray,
         val authorityPublicKey: ByteArray,
+        val authorityEpoch: Long,
+        val authorityTransitionDigest: ByteArray,
         val signedCertificate: ByteArray?,
         val rosterEpoch: Long,
         val rosterDigest: ByteArray?,
@@ -82,6 +85,8 @@ class AndroidWorkspaceMembershipStore(
                     put(WORKSPACE, workspaceId.toHex())
                     put(DEVICE, deviceId.toHex())
                     put(AUTHORITY, authorityPublicKey.copyOf())
+                    put(AUTHORITY_EPOCH, 1L)
+                    put(AUTHORITY_DIGEST, ByteArray(32))
                     put(EPOCH, 0L)
                     put(ACTIVE, 0)
                 })
@@ -160,6 +165,8 @@ class AndroidWorkspaceMembershipStore(
                 database.update(
                     TABLE,
                     ContentValues().apply {
+                        put(AUTHORITY_EPOCH, existing.authorityEpoch)
+                        put(AUTHORITY_DIGEST, existing.authorityTransitionDigest.copyOf())
                         put(CERTIFICATE, signedCertificate.copyOf())
                         put(EPOCH, epoch)
                         put(DIGEST, digest)
@@ -172,6 +179,76 @@ class AndroidWorkspaceMembershipStore(
             }
             database.setTransactionSuccessful()
             result
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    @Synchronized
+    override fun reconcileAuthorityTransition(
+        workspaceId: ByteArray,
+        deviceId: ByteArray,
+        signedTransition: ByteArray,
+        signedActivationRoster: ByteArray,
+    ): ReconcileResult {
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        return try {
+            val existing = read(database, workspaceId, deviceId)
+                ?: error("Workspace authority must be pinned before authority transition")
+            check(existing.rosterEpoch > 0 && existing.rosterDigest != null) {
+                "Authority transition requires an accepted predecessor roster"
+            }
+            val signed = WorkspaceMembershipV1.decodeAuthorityTransition(signedTransition)
+            val transition = signed.transition
+            check(transition.workspaceId.toByteArray().contentEquals(workspaceId)) {
+                "Authority transition is not bound to the workspace"
+            }
+            if (transition.transitionEpoch == existing.authorityEpoch) {
+                check(
+                    MessageDigest.isEqual(signed.transitionDigest.toByteArray(), existing.authorityTransitionDigest) &&
+                        MessageDigest.isEqual(transition.newAuthorityPublicKey.toByteArray(), existing.authorityPublicKey) &&
+                        existing.signedRoster != null && MessageDigest.isEqual(signedActivationRoster, existing.signedRoster),
+                ) { "Authority transition epoch is bound to a different transition" }
+                database.setTransactionSuccessful()
+                return ReconcileResult.ALREADY_APPLIED
+            }
+            check(
+                transition.transitionEpoch == Math.addExact(existing.authorityEpoch, 1L) &&
+                    MessageDigest.isEqual(transition.previousTransitionDigest.toByteArray(), existing.authorityTransitionDigest) &&
+                    MessageDigest.isEqual(transition.previousAuthorityPublicKey.toByteArray(), existing.authorityPublicKey),
+            ) { "Authority transition is stale, forked, or non-contiguous" }
+            check(
+                transition.activationRosterEpoch == Math.addExact(existing.rosterEpoch, 1L) &&
+                    MessageDigest.isEqual(transition.previousRosterDigest.toByteArray(), existing.rosterDigest),
+            ) { "Authority transition does not extend the durable roster floor" }
+            val newAuthority = transition.newAuthorityPublicKey.toByteArray()
+            val roster = WorkspaceMembershipV1.decodeRoster(signedActivationRoster, newAuthority)
+            check(
+                roster.roster.workspaceId.toByteArray().contentEquals(workspaceId) &&
+                    roster.roster.rosterEpoch == transition.activationRosterEpoch &&
+                    MessageDigest.isEqual(roster.roster.previousRosterDigest.toByteArray(), transition.previousRosterDigest.toByteArray()),
+            ) { "Authority activation roster does not match the transition" }
+            val local = roster.roster.activeCertificatesList.singleOrNull {
+                it.certificate.deviceId.toByteArray().contentEquals(deviceId)
+            } ?: error("Authority activation roster does not contain the local device")
+            database.update(
+                TABLE,
+                ContentValues().apply {
+                    put(AUTHORITY, newAuthority)
+                    put(AUTHORITY_EPOCH, transition.transitionEpoch)
+                    put(AUTHORITY_DIGEST, signed.transitionDigest.toByteArray())
+                    put(CERTIFICATE, local.toByteArray())
+                    put(EPOCH, roster.roster.rosterEpoch)
+                    put(DIGEST, roster.rosterDigest.toByteArray())
+                    put(ROSTER, signedActivationRoster.copyOf())
+                    put(ACTIVE, 1)
+                },
+                "$WORKSPACE = ? AND $DEVICE = ? AND $AUTHORITY_EPOCH = ? AND $EPOCH = ?",
+                arrayOf(workspaceId.toHex(), deviceId.toHex(), existing.authorityEpoch.toString(), existing.rosterEpoch.toString()),
+            ).also { check(it == 1) { "Membership state changed during authority transition" } }
+            database.setTransactionSuccessful()
+            ReconcileResult.APPLIED
         } finally {
             database.endTransaction()
         }
@@ -247,7 +324,7 @@ class AndroidWorkspaceMembershipStore(
         requireId(deviceId, "deviceId")
         return database.query(
             TABLE,
-            arrayOf(AUTHORITY, CERTIFICATE, EPOCH, DIGEST, ROSTER, ACTIVE),
+            arrayOf(AUTHORITY, AUTHORITY_EPOCH, AUTHORITY_DIGEST, CERTIFICATE, EPOCH, DIGEST, ROSTER, ACTIVE),
             "$WORKSPACE = ? AND $DEVICE = ?",
             arrayOf(workspaceId.toHex(), deviceId.toHex()),
             null,
@@ -259,17 +336,19 @@ class AndroidWorkspaceMembershipStore(
                 workspaceId.copyOf(),
                 deviceId.copyOf(),
                 cursor.getBlob(0).copyOf(),
-                if (cursor.isNull(1)) null else cursor.getBlob(1).copyOf(),
-                cursor.getLong(2),
+                cursor.getLong(1),
+                cursor.getBlob(2).copyOf(),
                 if (cursor.isNull(3)) null else cursor.getBlob(3).copyOf(),
-                if (cursor.isNull(4)) null else cursor.getBlob(4).copyOf(),
-                cursor.getInt(5) == 1,
+                cursor.getLong(4),
+                if (cursor.isNull(5)) null else cursor.getBlob(5).copyOf(),
+                if (cursor.isNull(6)) null else cursor.getBlob(6).copyOf(),
+                cursor.getInt(7) == 1,
             ).also { validateStored(it) }
         }
     }
 
     private fun validateStored(state: State) {
-        check(state.authorityPublicKey.size == 32)
+        check(state.authorityPublicKey.size == 32 && state.authorityEpoch > 0 && state.authorityTransitionDigest.size == 32)
         if (state.rosterEpoch == 0L) {
             check(
                 state.signedCertificate == null && state.rosterDigest == null &&
@@ -308,20 +387,27 @@ class AndroidWorkspaceMembershipStore(
     private fun State.copyState() = copy(
         workspaceId = workspaceId.copyOf(), deviceId = deviceId.copyOf(),
         authorityPublicKey = authorityPublicKey.copyOf(),
+        authorityTransitionDigest = authorityTransitionDigest.copyOf(),
         signedCertificate = signedCertificate?.copyOf(), rosterDigest = rosterDigest?.copyOf(),
         signedRoster = signedRoster?.copyOf(),
     )
 
-    private class Helper(context: Context, name: String) : SQLiteOpenHelper(context, name, null, 1) {
+    private class Helper(context: Context, name: String) : SQLiteOpenHelper(context, name, null, 2) {
         override fun onCreate(database: SQLiteDatabase) {
             database.execSQL(
                 "CREATE TABLE $TABLE (" +
                     "$WORKSPACE TEXT NOT NULL, $DEVICE TEXT NOT NULL, $AUTHORITY BLOB NOT NULL, " +
+                    "$AUTHORITY_EPOCH INTEGER NOT NULL, $AUTHORITY_DIGEST BLOB NOT NULL, " +
                     "$CERTIFICATE BLOB, $EPOCH INTEGER NOT NULL, $DIGEST BLOB, $ROSTER BLOB, " +
                     "$ACTIVE INTEGER NOT NULL, PRIMARY KEY ($WORKSPACE, $DEVICE))",
             )
         }
-        override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+        override fun onUpgrade(database: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            if (oldVersion < 2) {
+                database.execSQL("ALTER TABLE $TABLE ADD COLUMN $AUTHORITY_EPOCH INTEGER NOT NULL DEFAULT 1")
+                database.execSQL("ALTER TABLE $TABLE ADD COLUMN $AUTHORITY_DIGEST BLOB NOT NULL DEFAULT X'0000000000000000000000000000000000000000000000000000000000000000'")
+            }
+        }
     }
 
     companion object {
@@ -329,6 +415,8 @@ class AndroidWorkspaceMembershipStore(
         private const val WORKSPACE = "workspace_id"
         private const val DEVICE = "device_id"
         private const val AUTHORITY = "authority_public_key"
+        private const val AUTHORITY_EPOCH = "authority_epoch"
+        private const val AUTHORITY_DIGEST = "authority_transition_digest"
         private const val CERTIFICATE = "signed_certificate"
         private const val EPOCH = "roster_epoch"
         private const val DIGEST = "roster_digest"

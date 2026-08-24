@@ -102,6 +102,43 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
         }
     }
 
+    @Test
+    fun authorityTransitionAdvancesBothRollbackFloorsAtomically() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vector = Vector.load(context)
+        val store = AndroidWorkspaceMembershipStore(context, "test-${UUID.randomUUID()}")
+        try {
+            store.pinAuthority(vector.workspaceId, vector.deviceId, vector.authorityPublicKey)
+            store.reconcileApproved(vector.workspaceId, vector.deviceId, vector.certificate, vector.initialRoster)
+            assertEquals(
+                AndroidWorkspaceMembershipStore.ReconcileResult.APPLIED,
+                store.reconcileAuthorityTransition(
+                    vector.workspaceId, vector.deviceId, vector.authorityTransition, vector.authorityActivationRoster,
+                ),
+            )
+            val rotated = checkNotNull(store.load(vector.workspaceId, vector.deviceId))
+            assertEquals(2L, rotated.authorityEpoch)
+            assertEquals(2L, rotated.rosterEpoch)
+            assertTrue(rotated.localDeviceActive)
+            assertArrayEquals(vector.newAuthorityPublicKey, rotated.authorityPublicKey)
+            assertEquals(
+                AndroidWorkspaceMembershipStore.ReconcileResult.ALREADY_APPLIED,
+                store.reconcileAuthorityTransition(
+                    vector.workspaceId, vector.deviceId, vector.authorityTransition, vector.authorityActivationRoster,
+                ),
+            )
+            val differentRoster = vector.authorityActivationRoster.copyOf().also { it[it.lastIndex] = (it.last() + 1).toByte() }
+            assertThrows(IllegalStateException::class.java) {
+                store.reconcileAuthorityTransition(vector.workspaceId, vector.deviceId, vector.authorityTransition, differentRoster)
+            }
+            val tampered = vector.authorityTransition.copyOf().also { it[it.lastIndex] = (it.last() + 1).toByte() }
+            assertThrows(IllegalArgumentException::class.java) {
+                store.reconcileAuthorityTransition(vector.workspaceId, vector.deviceId, tampered, vector.authorityActivationRoster)
+            }
+            assertEquals(2L, store.load(vector.workspaceId, vector.deviceId)?.authorityEpoch)
+        } finally { store.clear(); store.close() }
+    }
+
     private data class Vector(
         val authorityPublicKey: ByteArray,
         val workspaceId: ByteArray,
@@ -109,6 +146,9 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
         val certificate: ByteArray,
         val initialRoster: ByteArray,
         val revokedRoster: ByteArray,
+        val newAuthorityPublicKey: ByteArray,
+        val authorityTransition: ByteArray,
+        val authorityActivationRoster: ByteArray,
     ) {
         companion object {
             fun load(context: Context): Vector {
@@ -128,6 +168,9 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
                     hex("certificateEncodedHex"),
                     hex("initialRosterEncodedHex"),
                     hex("revokedRosterEncodedHex"),
+                    hex("newAuthorityPublicKeyHex"),
+                    hex("authorityTransitionEncodedHex"),
+                    hex("authorityActivationRosterEncodedHex"),
                 )
             }
         }

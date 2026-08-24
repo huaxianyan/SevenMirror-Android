@@ -177,13 +177,13 @@ class WorkspaceMembershipClient(
                     name("after_roster_epoch").value(durable.rosterEpoch.toString())
                 }),
             )
-            trustStore.pinAuthority(
-                pending.workspaceId,
-                pending.deviceId,
-                decodeBase64Url(response.authorityPublicKey, 32, "authority_public_key"),
-            )
             if (response.state != "approved") {
-                check(response.signedCertificate == null && response.rosters.isEmpty() && response.latestEpoch == 0L) {
+                trustStore.pinAuthority(
+                    pending.workspaceId,
+                    pending.deviceId,
+                    decodeBase64Url(response.authorityPublicKey, 32, "authority_public_key"),
+                )
+                check(response.signedCertificate == null && response.authorityTransitions.isEmpty() && response.rosters.isEmpty() && response.latestEpoch == 0L) {
                     "Pending membership state exposed approved membership data"
                 }
                 return AndroidMembershipRefresh(response.state, false, durable)
@@ -197,18 +197,45 @@ class WorkspaceMembershipClient(
             check(response.latestEpoch >= durable.rosterEpoch) {
                 "Membership server attempted a roster rollback"
             }
+            val transitions = response.authorityTransitions.map {
+                val bytes = decodeBase64UrlVariable(it, "authority_transition")
+                bytes to WorkspaceMembershipV1.inspectAuthorityTransition(bytes)
+            }
             for (encoded in response.rosters) {
-                trustStore.reconcileApproved(
-                    pending.workspaceId,
-                    pending.deviceId,
-                    certificate,
-                    decodeBase64UrlVariable(encoded, "roster"),
-                )
+                val roster = decodeBase64UrlVariable(encoded, "roster")
+                val rosterEpoch = WorkspaceMembershipV1.inspectRosterEpoch(roster)
+                val current = checkNotNull(trustStore.load(pending.workspaceId, pending.deviceId)) {
+                    "Membership state disappeared during reconciliation"
+                }
+                val transition = transitions.singleOrNull {
+                    it.second.activationRosterEpoch == rosterEpoch &&
+                        it.second.transitionEpoch == current.authorityEpoch + 1
+                }
+                if (transition != null) {
+                    trustStore.reconcileAuthorityTransition(
+                        pending.workspaceId, pending.deviceId, transition.first, roster,
+                    )
+                } else {
+                    trustStore.reconcileApproved(
+                        pending.workspaceId,
+                        pending.deviceId,
+                        current.signedCertificate ?: certificate,
+                        roster,
+                    )
+                }
             }
             val accepted = checkNotNull(trustStore.load(pending.workspaceId, pending.deviceId)) {
                 "Membership state disappeared during reconciliation"
             }
             if (accepted.rosterEpoch == response.latestEpoch) {
+                check(accepted.signedCertificate?.contentEquals(certificate) == true) {
+                    "Membership certificate does not match the accepted roster"
+                }
+                trustStore.pinAuthority(
+                    pending.workspaceId,
+                    pending.deviceId,
+                    decodeBase64Url(response.authorityPublicKey, 32, "authority_public_key"),
+                )
                 check(response.rosters.isNotEmpty() || durable.rosterEpoch == response.latestEpoch) {
                     "Membership roster response made no progress"
                 }
@@ -312,6 +339,7 @@ class WorkspaceMembershipClient(
         var state: String? = null
         var authority: String? = null
         var certificate: String? = null
+        var authorityTransitions: List<String>? = null
         var rosters: List<String>? = null
         var latest: String? = null
         val seen = mutableSetOf<String>()
@@ -324,6 +352,16 @@ class WorkspaceMembershipClient(
                 "authority_public_key" -> authority = reader.nextString()
                 "signed_certificate" -> certificate = reader.nextString()
                 "latest_roster_epoch" -> latest = reader.nextString()
+                "authority_transitions" -> {
+                    val result = mutableListOf<String>()
+                    reader.beginArray()
+                    while (reader.hasNext()) {
+                        check(result.size < 256) { "Membership authority transition chain exceeds 256 entries" }
+                        result += reader.nextString()
+                    }
+                    reader.endArray()
+                    authorityTransitions = result
+                }
                 "rosters" -> {
                     val result = mutableListOf<String>()
                     reader.beginArray()
@@ -347,6 +385,7 @@ class WorkspaceMembershipClient(
             resolvedState,
             checkNotNull(authority) { "Membership state is missing authority_public_key" },
             certificate,
+            checkNotNull(authorityTransitions) { "Membership state is missing authority_transitions" },
             checkNotNull(rosters) { "Membership state is missing rosters" },
             parseEpoch(checkNotNull(latest) { "Membership state is missing latest_roster_epoch" }),
         )
@@ -386,6 +425,7 @@ class WorkspaceMembershipClient(
         val state: String,
         val authorityPublicKey: String,
         val signedCertificate: String?,
+        val authorityTransitions: List<String>,
         val rosters: List<String>,
         val latestEpoch: Long,
     )

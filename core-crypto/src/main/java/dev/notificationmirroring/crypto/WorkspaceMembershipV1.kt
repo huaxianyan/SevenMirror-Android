@@ -2,12 +2,14 @@ package dev.notificationmirroring.crypto
 
 import com.google.protobuf.ByteString
 import com.google.protobuf.CodedInputStream
+import dev.notificationmirroring.protocol.generated.membership.v1.AuthorityKeyTransition
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
 import dev.notificationmirroring.protocol.generated.membership.v1.IdentityPossessionChallenge
 import dev.notificationmirroring.protocol.generated.membership.v1.PendingIdentityProof
 import dev.notificationmirroring.protocol.generated.membership.v1.RevokedCertificate
+import dev.notificationmirroring.protocol.generated.membership.v1.SignedAuthorityKeyTransition
 import dev.notificationmirroring.protocol.generated.membership.v1.SignedDeviceCertificate
 import dev.notificationmirroring.protocol.generated.membership.v1.SignedWorkspaceRoster
 import dev.notificationmirroring.protocol.generated.membership.v1.WorkspaceRoster
@@ -17,6 +19,7 @@ import org.bouncycastle.crypto.params.Ed25519PublicKeyParameters
 import org.bouncycastle.crypto.signers.Ed25519Signer
 
 object WorkspaceMembershipV1 {
+    data class AuthorityTransitionMetadata(val transitionEpoch: Long, val activationRosterEpoch: Long)
     enum class TransportDeviceType { ANDROID, CHROME }
 
     private const val VERSION = 1
@@ -34,6 +37,9 @@ object WorkspaceMembershipV1 {
     private const val CERTIFICATE_SIGNATURE_DOMAIN = "SyncNotifications-membership-device-certificate-signature-v1\u0000"
     private const val ROSTER_DIGEST_DOMAIN = "SyncNotifications-membership-workspace-roster-digest-v1\u0000"
     private const val ROSTER_SIGNATURE_DOMAIN = "SyncNotifications-membership-workspace-roster-signature-v1\u0000"
+    private const val TRANSITION_DIGEST_DOMAIN = "SyncNotifications-membership-authority-transition-digest-v1\u0000"
+    private const val TRANSITION_OLD_SIGNATURE_DOMAIN = "SyncNotifications-membership-authority-transition-old-signature-v1\u0000"
+    private const val TRANSITION_NEW_SIGNATURE_DOMAIN = "SyncNotifications-membership-authority-transition-new-signature-v1\u0000"
 
     fun decodeChallenge(encoded: ByteArray): IdentityPossessionChallenge {
         validateSize(encoded)
@@ -101,6 +107,35 @@ object WorkspaceMembershipV1 {
         }
     }
 
+    fun decodeAuthorityTransition(encoded: ByteArray): SignedAuthorityKeyTransition {
+        validateSize(encoded)
+        validateWire(encoded, Wire.SIGNED_AUTHORITY_TRANSITION)
+        return SignedAuthorityKeyTransition.parseFrom(encoded).also {
+            require(it.hasTransition()) { "Authority transition is required" }
+            validateAuthorityTransition(it.transition)
+            val body = it.transition.toByteArray()
+            require(MessageDigest.isEqual(domainHash(TRANSITION_DIGEST_DOMAIN, body), it.transitionDigest.toByteArray())) {
+                "Authority transition digest is invalid"
+            }
+            verifyEd25519(it.transition.previousAuthorityPublicKey.toByteArray(), TRANSITION_OLD_SIGNATURE_DOMAIN.toByteArray() + body, it.previousAuthoritySignature.toByteArray(), "Previous authority transition signature is invalid")
+            verifyEd25519(it.transition.newAuthorityPublicKey.toByteArray(), TRANSITION_NEW_SIGNATURE_DOMAIN.toByteArray() + body, it.newAuthoritySignature.toByteArray(), "New authority transition signature is invalid")
+            require(it.toByteArray().contentEquals(encoded)) { "Authority transition is not canonically encoded" }
+        }
+    }
+
+    fun inspectAuthorityTransition(encoded: ByteArray): AuthorityTransitionMetadata =
+        decodeAuthorityTransition(encoded).transition.let {
+            AuthorityTransitionMetadata(it.transitionEpoch, it.activationRosterEpoch)
+        }
+
+    fun inspectRosterEpoch(encoded: ByteArray): Long {
+        validateSize(encoded)
+        validateWire(encoded, Wire.SIGNED_ROSTER)
+        return SignedWorkspaceRoster.parseFrom(encoded).also {
+            require(it.toByteArray().contentEquals(encoded)) { "Roster is not canonically encoded" }
+        }.roster.rosterEpoch
+    }
+
     fun requireTransportCertificateBinding(
         encoded: ByteArray,
         authorityPublicKey: ByteArray,
@@ -165,6 +200,24 @@ object WorkspaceMembershipV1 {
                 "Challenge binding does not match"
             }
         }
+    }
+
+    private fun validateAuthorityTransition(value: AuthorityKeyTransition) {
+        require(value.protocolVersion == VERSION && value.workspaceId.size() == ID_SIZE && value.workspaceId.any { it.toInt() != 0 } && value.transitionEpoch >= 2) {
+            "Authority transition version, workspace, or epoch is invalid"
+        }
+        val previousDigest = value.previousTransitionDigest.toByteArray()
+        require(previousDigest.size == DIGEST_SIZE && if (value.transitionEpoch == 2L) previousDigest.all { it == 0.toByte() } else previousDigest.any { it != 0.toByte() }) {
+            "Authority transition previous digest is invalid"
+        }
+        val previousKey = value.previousAuthorityPublicKey.toByteArray()
+        val newKey = value.newAuthorityPublicKey.toByteArray()
+        requireNonZero(previousKey, 32, "Previous authority public key")
+        requireNonZero(newKey, 32, "New authority public key")
+        require(!MessageDigest.isEqual(previousKey, newKey)) { "Authority transition keys must differ" }
+        require(value.activationRosterEpoch >= 2) { "Authority activation roster epoch is invalid" }
+        requireNonZero(value.previousRosterDigest.toByteArray(), DIGEST_SIZE, "Authority transition previous roster digest")
+        require(value.issuedAtUnixMs > 0) { "Authority transition issue time is invalid" }
     }
 
     private fun validateChallenge(value: IdentityPossessionChallenge) {
@@ -255,7 +308,7 @@ object WorkspaceMembershipV1 {
     private fun compareUnsigned(left: ByteArray, right: ByteArray): Int { for (index in 0 until minOf(left.size, right.size)) { val result = (left[index].toInt() and 255) - (right[index].toInt() and 255); if (result != 0) return result }; return left.size - right.size }
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
-    private enum class Wire { CHALLENGE, PROOF, CERTIFICATE, SIGNED_CERTIFICATE, REVOCATION, ROSTER, SIGNED_ROSTER }
+    private enum class Wire { CHALLENGE, PROOF, CERTIFICATE, SIGNED_CERTIFICATE, REVOCATION, ROSTER, SIGNED_ROSTER, AUTHORITY_TRANSITION, SIGNED_AUTHORITY_TRANSITION }
 
     private fun validateWire(encoded: ByteArray, wire: Wire) {
         val input = CodedInputStream.newInstance(encoded)
@@ -265,21 +318,28 @@ object WorkspaceMembershipV1 {
             val repeated = wire == Wire.ROSTER && (tag == 42 || tag == 50)
             require(repeated || seen.add(tag)) { "Membership message contains duplicate fields" }
             when (wire to tag) {
-                Wire.CHALLENGE to 8, Wire.PROOF to 8, Wire.CERTIFICATE to 8, Wire.ROSTER to 8 -> input.readUInt32()
+                Wire.CHALLENGE to 8, Wire.PROOF to 8, Wire.CERTIFICATE to 8, Wire.ROSTER to 8, Wire.AUTHORITY_TRANSITION to 8 -> input.readUInt32()
                 Wire.CHALLENGE to 18, Wire.CHALLENGE to 26, Wire.CHALLENGE to 34, Wire.CHALLENGE to 42,
                 Wire.PROOF to 18, Wire.PROOF to 26, Wire.PROOF to 34, Wire.PROOF to 42, Wire.PROOF to 50,
                 Wire.CERTIFICATE to 18, Wire.CERTIFICATE to 26, Wire.CERTIFICATE to 42, Wire.CERTIFICATE to 50, Wire.CERTIFICATE to 58, Wire.CERTIFICATE to 66,
                 Wire.SIGNED_CERTIFICATE to 18, Wire.SIGNED_CERTIFICATE to 26,
                 Wire.REVOCATION to 10, Wire.REVOCATION to 18,
                 Wire.ROSTER to 18, Wire.ROSTER to 34,
-                Wire.SIGNED_ROSTER to 18, Wire.SIGNED_ROSTER to 26 -> input.readByteArray()
+                Wire.SIGNED_ROSTER to 18, Wire.SIGNED_ROSTER to 26,
+                Wire.AUTHORITY_TRANSITION to 18, Wire.AUTHORITY_TRANSITION to 34, Wire.AUTHORITY_TRANSITION to 42,
+                Wire.AUTHORITY_TRANSITION to 50, Wire.AUTHORITY_TRANSITION to 66,
+                Wire.SIGNED_AUTHORITY_TRANSITION to 18, Wire.SIGNED_AUTHORITY_TRANSITION to 26,
+                Wire.SIGNED_AUTHORITY_TRANSITION to 34 -> input.readByteArray()
                 Wire.CHALLENGE to 48, Wire.CHALLENGE to 56, Wire.CERTIFICATE to 72, Wire.CERTIFICATE to 80, Wire.CERTIFICATE to 88,
-                Wire.REVOCATION to 24, Wire.ROSTER to 24 -> input.readUInt64()
+                Wire.REVOCATION to 24, Wire.ROSTER to 24,
+                Wire.AUTHORITY_TRANSITION to 24, Wire.AUTHORITY_TRANSITION to 56,
+                Wire.AUTHORITY_TRANSITION to 72 -> input.readUInt64()
                 Wire.CERTIFICATE to 32 -> input.readEnum()
                 Wire.SIGNED_CERTIFICATE to 10 -> validateWire(input.readByteArray(), Wire.CERTIFICATE)
                 Wire.ROSTER to 42 -> validateWire(input.readByteArray(), Wire.SIGNED_CERTIFICATE)
                 Wire.ROSTER to 50 -> validateWire(input.readByteArray(), Wire.REVOCATION)
                 Wire.SIGNED_ROSTER to 10 -> validateWire(input.readByteArray(), Wire.ROSTER)
+                Wire.SIGNED_AUTHORITY_TRANSITION to 10 -> validateWire(input.readByteArray(), Wire.AUTHORITY_TRANSITION)
                 else -> throw IllegalArgumentException("Membership message contains unknown fields")
             }
         }
