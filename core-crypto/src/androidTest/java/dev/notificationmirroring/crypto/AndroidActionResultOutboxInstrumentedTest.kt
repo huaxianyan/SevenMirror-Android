@@ -86,7 +86,7 @@ class AndroidActionResultOutboxInstrumentedTest {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val name = "test-${UUID.randomUUID()}"
         val outbox = AndroidActionResultOutbox(context, name)
-        val trustedPeers = AndroidTrustedPeerStore(context, name)
+        var recipientAuthorized = true
         val workspace = ByteArray(16) { 1 }
         val senderDeviceId = ByteArray(16) { 2 }
         val recipientDeviceId = ByteArray(16) { 3 }
@@ -96,7 +96,6 @@ class AndroidActionResultOutboxInstrumentedTest {
             .digest(recipient.publicKey)
         val payload = resultPayload(ByteArray(16) { 4 })
         try {
-            trustedPeers.pinApproved(workspace, recipientDeviceId, recipient.publicKey)
             assertEquals(
                 AndroidActionResultOutbox.EnqueueResult.ENQUEUED,
                 outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 1_000),
@@ -106,8 +105,15 @@ class AndroidActionResultOutboxInstrumentedTest {
                 senderDeviceId,
                 sender,
                 WorkspaceActionPeerResolver { resolvedWorkspace, _, deviceId, keyId, _ ->
-                    trustedPeers.findApproved(resolvedWorkspace, deviceId, keyId)?.let {
-                        WorkspaceActionPeer(deviceId, keyId, it)
+                    if (
+                        recipientAuthorized &&
+                        resolvedWorkspace.contentEquals(workspace) &&
+                        deviceId.contentEquals(recipientDeviceId) &&
+                        keyId.contentEquals(recipientKeyId)
+                    ) {
+                        WorkspaceActionPeer(deviceId, keyId, recipient.publicKey)
+                    } else {
+                        null
                     }
                 },
                 outbox,
@@ -137,14 +143,13 @@ class AndroidActionResultOutboxInstrumentedTest {
             assertEquals(null, finalAttempt.nextWakeDelayMs)
             assertTrue(outbox.due(30_000).isEmpty())
 
-            trustedPeers.remove(workspace, recipientDeviceId)
+            recipientAuthorized = false
             assertEquals(
                 AndroidActionResultOutbox.EnqueueResult.ALREADY_ENQUEUED,
                 outbox.enqueue(recipientDeviceId, recipientKeyId, payload, 31_000),
             )
             assertEquals(0, drainer.drainDue(31_000) { true }.attemptedEntries)
         } finally {
-            trustedPeers.clear()
             outbox.clear()
         }
     }

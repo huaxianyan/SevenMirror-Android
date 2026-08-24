@@ -17,7 +17,6 @@ import dev.notificationmirroring.crypto.ActionResultAckRejectedException
 import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
-import dev.notificationmirroring.crypto.AndroidTrustedPeerStore
 import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.WorkspaceActionPeer
 import dev.notificationmirroring.crypto.WorkspaceActionPeerResolver
@@ -65,7 +64,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val name = "notification-action-${System.nanoTime()}"
         val replay = AndroidReplayLedger(context, name)
         val operations = AndroidOperationLedger(context, name)
-        val trustedPeers = AndroidTrustedPeerStore(context, name)
+        var senderAuthorized = false
         val outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val sender = AuthenticatedHpke.generateKeyPair()
@@ -78,8 +77,17 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             recipientDeviceId = recipientDevice,
             recipientIdentity = recipient,
             actionPeers = WorkspaceActionPeerResolver { resolvedWorkspace, _, deviceId, keyId, _ ->
-                trustedPeers.findApproved(resolvedWorkspace, deviceId, keyId)?.let {
-                    WorkspaceActionPeer(deviceId, keyId, it)
+                val senderDeviceId = ByteArray(16) { 2 }
+                val senderKeyId = sha256(sender.publicKey)
+                if (
+                    senderAuthorized &&
+                    resolvedWorkspace.contentEquals(workspace) &&
+                    deviceId.contentEquals(senderDeviceId) &&
+                    keyId.contentEquals(senderKeyId)
+                ) {
+                    WorkspaceActionPeer(deviceId, keyId, sender.publicKey)
+                } else {
+                    null
                 }
             },
             replayLedger = replay,
@@ -119,7 +127,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             assertThrows(ActionSenderNotAuthorizedException::class.java) {
                 dispatcher.receiveOnce(first, now)
             }
-            trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
+            senderAuthorized = true
             val firstResult = dispatcher.receiveOnce(first, now)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, firstResult.result.status)
             assertEquals(false, firstResult.recovered)
@@ -137,15 +145,15 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 sender,
                 recipient,
             )
-            trustedPeers.remove(workspace, ByteArray(16) { 2 })
+            senderAuthorized = false
             assertThrows(ActionSenderNotAuthorizedException::class.java) {
                 dispatcher.receiveAnyOnce(exactAckFrame, now)
             }
             assertEquals(1, outbox.snapshot(now).completedResults)
 
-            // Pin rejection occurs before HPKE/replay acceptance, so explicit reapproval permits
-            // this same envelope exactly once without having deleted its bound result.
-            trustedPeers.pinApproved(workspace, ByteArray(16) { 2 }, sender.publicKey)
+            // Authorization rejection occurs before HPKE/replay acceptance, so reauthorization
+            // permits this same envelope exactly once without deleting its bound result.
+            senderAuthorized = true
             val wrongDigest = assertThrows(ActionResultAckRejectedException::class.java) {
                 dispatcher.receiveAnyOnce(
                     ackFrame(
@@ -227,7 +235,6 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             LocalNotificationController.clear()
             replay.clear()
             operations.clear()
-            trustedPeers.clear()
             outbox.clear()
         }
     }

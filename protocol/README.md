@@ -26,7 +26,7 @@ Run `./gradlew verifyVendoredProtocol` after updating it. Do not edit the vendor
 
 `workspace-membership-v1.md`, `vendor/membership/v1/membership.proto`, and their vector define ADR-005 identity-possession proof, authority-signed device certificates, monotonic signed rosters, roles, and revocation. `MEMBERSHIP_SCHEMA_SHA256`, `MEMBERSHIP_SPEC_SHA256`, and `MEMBERSHIP_VECTOR_SHA256` pin these assets.
 
-`trusted-device-pairing-v1.md` and its vector are frozen provisional 1 × 1 pairing artifacts. They are not the final membership trust source and must not be expanded.
+`trusted-device-pairing-v1.md`, `e2ee-identity-key-transition-v1.md`, and their vectors are frozen historical SPIKE-004 artifacts. Android has no runtime pairing or identity-transition implementation; Workspace Membership v1 is the only product trust source. These assets remain solely for protocol history and hash verification and must not be expanded.
 
 After updating vendored schemas, regenerate committed Java Lite sources with the pinned configuration:
 

@@ -107,3 +107,5 @@ The serialized private scalar and deterministic key derivation exist for spike v
 - corruption/lost-Keystore recovery UX
 - Generic relay cursor and 2 Android × 2 Chrome offline convergence remain separate from the completed per-operation ACK recovery matrix
 - camera pairing UX, E2EE identity rotation, client-visible revocation, and lost-device behavior
+
+- 2026-08-24 source retirement: the unused bilateral pairing, trusted-peer, identity-transition, promotion-journal, and peer-removal implementations and their dedicated `core-storage` module were deleted after the authority-roster product cutover. The shared authenticated-envelope boundary now contains business-envelope authentication and replay handling only. The identity store rejects retired persisted pending-identity state and requires administrator revocation plus re-enrollment instead of reviving the old transition path. Canonical pairing/transition specs, hashes, vectors, and generated schema fields remain frozen as historical protocol evidence.
