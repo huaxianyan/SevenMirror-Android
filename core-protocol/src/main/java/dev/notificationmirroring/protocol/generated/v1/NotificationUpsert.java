@@ -7,7 +7,7 @@ package dev.notificationmirroring.protocol.generated.v1;
 
 /**
  * <pre>
- * NotificationUpsert carries the current text state of one source-device
+ * NotificationUpsert carries the bounded display state of one source-device
  * notification. The authenticated envelope sender supplies sourceDeviceId.
  * </pre>
  *
@@ -87,7 +87,7 @@ public  final class NotificationUpsert extends
    * @param value The notificationRevision to set.
    */
   private void setNotificationRevision(long value) {
-    
+
     notificationRevision_ = value;
   }
   /**
@@ -210,6 +210,126 @@ public  final class NotificationUpsert extends
     bitField0_ |= 0x00000002;
   }
 
+  public static final int APP_ICON_FIELD_NUMBER = 5;
+  private dev.notificationmirroring.protocol.generated.v1.NotificationMedia appIcon_;
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAppIcon() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAppIcon() {
+    return appIcon_ == null ? dev.notificationmirroring.protocol.generated.v1.NotificationMedia.getDefaultInstance() : appIcon_;
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setAppIcon(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+    value.getClass();  // minimal bytecode null check
+    appIcon_ = value;
+    bitField0_ |= 0x00000004;
+    }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   */
+  @java.lang.SuppressWarnings({"ReferenceEquality", "ReturnValueIgnored"})
+  private void mergeAppIcon(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+    value.getClass();  // minimal bytecode null check
+    if (appIcon_ != null &&
+        appIcon_ != dev.notificationmirroring.protocol.generated.v1.NotificationMedia.getDefaultInstance()) {
+      appIcon_ =
+        dev.notificationmirroring.protocol.generated.v1.NotificationMedia.newBuilder(appIcon_).mergeFrom(value).buildPartial();
+    } else {
+      appIcon_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   */
+  private void clearAppIcon() {  appIcon_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int AVATAR_FIELD_NUMBER = 6;
+  private dev.notificationmirroring.protocol.generated.v1.NotificationMedia avatar_;
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   */
+  @java.lang.Override
+  public boolean hasAvatar() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAvatar() {
+    return avatar_ == null ? dev.notificationmirroring.protocol.generated.v1.NotificationMedia.getDefaultInstance() : avatar_;
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setAvatar(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+    value.getClass();  // minimal bytecode null check
+    avatar_ = value;
+    bitField0_ |= 0x00000008;
+    }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   */
+  @java.lang.SuppressWarnings({"ReferenceEquality", "ReturnValueIgnored"})
+  private void mergeAvatar(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+    value.getClass();  // minimal bytecode null check
+    if (avatar_ != null &&
+        avatar_ != dev.notificationmirroring.protocol.generated.v1.NotificationMedia.getDefaultInstance()) {
+      avatar_ =
+        dev.notificationmirroring.protocol.generated.v1.NotificationMedia.newBuilder(avatar_).mergeFrom(value).buildPartial();
+    } else {
+      avatar_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   */
+  private void clearAvatar() {  avatar_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
+  public static final int CONTAINS_CONTENT_IMAGE_FIELD_NUMBER = 7;
+  private boolean containsContentImage_;
+  /**
+   * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+   * @return The containsContentImage.
+   */
+  @java.lang.Override
+  public boolean getContainsContentImage() {
+    return containsContentImage_;
+  }
+  /**
+   * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+   * @param value The containsContentImage to set.
+   */
+  private void setContainsContentImage(boolean value) {
+
+    containsContentImage_ = value;
+  }
+  /**
+   * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+   */
+  private void clearContainsContentImage() {
+
+    containsContentImage_ = false;
+  }
+
   public static dev.notificationmirroring.protocol.generated.v1.NotificationUpsert parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -295,7 +415,7 @@ public  final class NotificationUpsert extends
 
   /**
    * <pre>
-   * NotificationUpsert carries the current text state of one source-device
+   * NotificationUpsert carries the bounded display state of one source-device
    * notification. The authenticated envelope sender supplies sourceDeviceId.
    * </pre>
    *
@@ -503,6 +623,128 @@ public  final class NotificationUpsert extends
       return this;
     }
 
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAppIcon() {
+      return instance.hasAppIcon();
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAppIcon() {
+      return instance.getAppIcon();
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    public Builder setAppIcon(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+      copyOnWrite();
+      instance.setAppIcon(value);
+      return this;
+      }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    public Builder setAppIcon(
+        dev.notificationmirroring.protocol.generated.v1.NotificationMedia.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAppIcon(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    public Builder mergeAppIcon(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+      copyOnWrite();
+      instance.mergeAppIcon(value);
+      return this;
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+     */
+    public Builder clearAppIcon() {  copyOnWrite();
+      instance.clearAppIcon();
+      return this;
+    }
+
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    @java.lang.Override
+    public boolean hasAvatar() {
+      return instance.hasAvatar();
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAvatar() {
+      return instance.getAvatar();
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    public Builder setAvatar(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+      copyOnWrite();
+      instance.setAvatar(value);
+      return this;
+      }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    public Builder setAvatar(
+        dev.notificationmirroring.protocol.generated.v1.NotificationMedia.Builder builderForValue) {
+      copyOnWrite();
+      instance.setAvatar(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    public Builder mergeAvatar(dev.notificationmirroring.protocol.generated.v1.NotificationMedia value) {
+      copyOnWrite();
+      instance.mergeAvatar(value);
+      return this;
+    }
+    /**
+     * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+     */
+    public Builder clearAvatar() {  copyOnWrite();
+      instance.clearAvatar();
+      return this;
+    }
+
+    /**
+     * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+     * @return The containsContentImage.
+     */
+    @java.lang.Override
+    public boolean getContainsContentImage() {
+      return instance.getContainsContentImage();
+    }
+    /**
+     * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+     * @param value The containsContentImage to set.
+     * @return This builder for chaining.
+     */
+    public Builder setContainsContentImage(boolean value) {
+      copyOnWrite();
+      instance.setContainsContentImage(value);
+      return this;
+    }
+    /**
+     * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearContainsContentImage() {
+      copyOnWrite();
+      instance.clearContainsContentImage();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.NotificationUpsert)
   }
   @java.lang.Override
@@ -524,10 +766,14 @@ public  final class NotificationUpsert extends
             "notificationRevision_",
             "title_",
             "body_",
+            "appIcon_",
+            "avatar_",
+            "containsContentImage_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
-              "\u0003\u1208\u0000\u0004\u1208\u0001";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
+              "\u0003\u1208\u0000\u0004\u1208\u0001\u0005\u1009\u0002\u0006\u1009\u0003\u0007\u0007" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

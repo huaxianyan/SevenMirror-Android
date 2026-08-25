@@ -60,4 +60,32 @@ public interface NotificationUpsertOrBuilder extends
    */
   com.google.protobuf.ByteString
       getBodyBytes();
+
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   * @return Whether the appIcon field is set.
+   */
+  boolean hasAppIcon();
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia app_icon = 5 [json_name = "appIcon"];</code>
+   * @return The appIcon.
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAppIcon();
+
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   * @return Whether the avatar field is set.
+   */
+  boolean hasAvatar();
+  /**
+   * <code>optional .notification.mirroring.v1.NotificationMedia avatar = 6 [json_name = "avatar"];</code>
+   * @return The avatar.
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationMedia getAvatar();
+
+  /**
+   * <code>bool contains_content_image = 7 [json_name = "containsContentImage"];</code>
+   * @return The containsContentImage.
+   */
+  boolean getContainsContentImage();
 }

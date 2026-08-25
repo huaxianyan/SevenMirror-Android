@@ -9,6 +9,8 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
+import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
@@ -18,11 +20,13 @@ import java.security.MessageDigest
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 1
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
-    const val NOTIFICATION_SCHEMA_VERSION = 3
+    const val NOTIFICATION_SCHEMA_VERSION = 4
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_NOTIFICATION_TITLE_BYTES = 512
     const val MAX_NOTIFICATION_BODY_BYTES = 4_000
+    const val MAX_NOTIFICATION_MEDIA_BYTES = 128 * 1_024
+    const val MAX_NOTIFICATION_MEDIA_DIMENSION = 256
     const val MAX_SNAPSHOT_ENTRIES = 200
     const val MAX_REPLY_TEXT_BYTES = 4_000
     const val MAX_RESULT_DETAIL_BYTES = 256
@@ -108,7 +112,48 @@ object EncryptedPayloadCodecV1 {
         if (notification.hasBody()) {
             validateText(notification.body, MAX_NOTIFICATION_BODY_BYTES, "Notification body")
         }
+        require(
+            !notification.containsContentImage ||
+                notification.hasBody() && notification.body.contains(CONTENT_IMAGE_PLACEHOLDER),
+        ) { "Notification content image requires a body placeholder" }
+        if (notification.hasAppIcon()) {
+            validateNotificationMedia(notification.appIcon)
+        }
+        if (notification.hasAvatar()) {
+            validateNotificationMedia(notification.avatar)
+        }
     }
+
+    private fun validateNotificationMedia(media: NotificationMedia) {
+        val encoded = media.encodedBytes.toByteArray()
+        require(encoded.size in 1..MAX_NOTIFICATION_MEDIA_BYTES) {
+            "Notification media bytes are out of range"
+        }
+        require(
+            media.width in 1..MAX_NOTIFICATION_MEDIA_DIMENSION &&
+                media.height in 1..MAX_NOTIFICATION_MEDIA_DIMENSION,
+        ) { "Notification media dimensions are out of range" }
+        require(
+            MessageDigest.getInstance("SHA-256").digest(encoded)
+                .contentEquals(media.contentSha256.toByteArray()),
+        ) { "Notification media SHA-256 does not match encoded bytes" }
+        when (media.mimeType) {
+            NotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_PNG ->
+                require(encoded.hasBytesAt(0, PNG_SIGNATURE)) {
+                    "Notification media does not have a PNG signature"
+                }
+            NotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_WEBP ->
+                require(
+                    encoded.size >= 12 &&
+                        encoded.hasBytesAt(0, RIFF_SIGNATURE) &&
+                        encoded.hasBytesAt(8, WEBP_SIGNATURE),
+                ) { "Notification media does not have a WebP signature" }
+            else -> throw IllegalArgumentException("Notification media MIME type is unsupported")
+        }
+    }
+
+    private fun ByteArray.hasBytesAt(offset: Int, expected: ByteArray): Boolean =
+        size >= offset + expected.size && expected.indices.all { this[offset + it] == expected[it] }
 
     private fun validateNotificationRemoved(notification: NotificationRemoved) {
         validateNotificationBinding(notification.notificationId, notification.notificationRevision)
@@ -327,6 +372,17 @@ object EncryptedPayloadCodecV1 {
                     16 -> { input.readUInt64(); 2 }
                     26 -> { input.readByteArray(); 4 }
                     34 -> { input.readByteArray(); 8 }
+                    42 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_MEDIA); 16 }
+                    50 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_MEDIA); 32 }
+                    56 -> { input.readBool(); 64 }
+                    else -> invalidWireField()
+                }
+                WireMessage.NOTIFICATION_MEDIA -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readEnum(); 2 }
+                    24 -> { input.readUInt32(); 4 }
+                    32 -> { input.readUInt32(); 8 }
+                    42 -> { input.readByteArray(); 16 }
                     else -> invalidWireField()
                 }
                 WireMessage.NOTIFICATION_REMOVED,
@@ -361,10 +417,16 @@ object EncryptedPayloadCodecV1 {
         IDENTITY_KEY_TRANSITION_ACK,
         IDENTITY_KEY_TRANSITION_COMMIT,
         NOTIFICATION_UPSERT,
+        NOTIFICATION_MEDIA,
         NOTIFICATION_REMOVED,
         NOTIFICATION_SNAPSHOT_MANIFEST,
         NOTIFICATION_SNAPSHOT_ENTRY,
     }
+
+    private const val CONTENT_IMAGE_PLACEHOLDER = "[图片]"
+    private val PNG_SIGNATURE = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+    private val RIFF_SIGNATURE = "RIFF".toByteArray(Charsets.US_ASCII)
+    private val WEBP_SIGNATURE = "WEBP".toByteArray(Charsets.US_ASCII)
 
     private val TWO = BigInteger.valueOf(2)
     private val THREE = BigInteger.valueOf(3)

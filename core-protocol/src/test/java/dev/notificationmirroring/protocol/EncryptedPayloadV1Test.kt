@@ -9,6 +9,8 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
+import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
@@ -91,7 +93,10 @@ class EncryptedPayloadV1Test {
                     .setNotificationId(vector.notificationPayloadId)
                     .setNotificationRevision(vector.notificationUpsertRevision)
                     .setTitle(vector.notificationTitle)
-                    .setBody(vector.notificationBody),
+                    .setBody(vector.notificationBody)
+                    .setAppIcon(vector.notificationAppIcon.toProto())
+                    .setAvatar(vector.notificationAvatar.toProto())
+                    .setContainsContentImage(vector.notificationContainsContentImage),
             )
             .build()
         assertArrayEquals(vector.notificationUpsertEncoded, EncryptedPayloadCodecV1.encode(upsert))
@@ -192,6 +197,48 @@ class EncryptedPayloadV1Test {
             assertThrows(IllegalArgumentException::class.java) {
                 EncryptedPayloadCodecV1.encode(invalid)
             }
+        }
+    }
+
+    @Test
+    fun rejectsInvalidNotificationMedia() {
+        val valid = NotificationUpsert.newBuilder()
+            .setNotificationId(vector.notificationPayloadId)
+            .setNotificationRevision(vector.notificationUpsertRevision)
+            .setTitle(vector.notificationTitle)
+            .setAppIcon(vector.notificationAppIcon.toProto())
+            .build()
+        fun payload(upsert: NotificationUpsert) = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationUpsert(upsert)
+            .build()
+
+        val invalidMedia = listOf(
+            valid.appIcon.toBuilder().setContentSha256(ByteString.copyFrom(ByteArray(32))).build(),
+            valid.appIcon.toBuilder()
+                .setMimeType(NotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_UNSPECIFIED)
+                .build(),
+            valid.appIcon.toBuilder().setWidth(0).build(),
+            valid.appIcon.toBuilder()
+                .setHeight(EncryptedPayloadCodecV1.MAX_NOTIFICATION_MEDIA_DIMENSION + 1)
+                .build(),
+            valid.appIcon.toBuilder()
+                .setEncodedBytes(ByteString.copyFrom(ByteArray(EncryptedPayloadCodecV1.MAX_NOTIFICATION_MEDIA_BYTES + 1)))
+                .build(),
+            valid.appIcon.toBuilder()
+                .setMimeType(NotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_WEBP)
+                .build(),
+        )
+        invalidMedia.forEach { media ->
+            assertThrows(IllegalArgumentException::class.java) {
+                EncryptedPayloadCodecV1.encode(payload(valid.toBuilder().setAppIcon(media).build()))
+            }
+        }
+
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.encode(
+                payload(valid.toBuilder().setContainsContentImage(true).build()),
+            )
         }
     }
 
@@ -364,7 +411,13 @@ class EncryptedPayloadV1Test {
         val notificationUpsertRevision: Long get() = string("notificationUpsertRevision").toLong()
         val notificationRemovedRevision: Long get() = string("notificationRemovedRevision").toLong()
         val notificationTitle: String get() = string("notificationTitle")
-        val notificationBody: String get() = string("notificationBody")
+        val notificationBody: String get() = string("notificationBody").replace("\\n", "\n")
+        val notificationContainsContentImage: Boolean
+            get() = Regex("\\\"notificationContainsContentImage\\\"\\s*:\\s*(true|false)")
+                .find(json)?.groupValues?.get(1)?.toBooleanStrict()
+                ?: error("Missing notificationContainsContentImage")
+        val notificationAppIcon: MediaVector get() = media("notificationAppIcon")
+        val notificationAvatar: MediaVector get() = media("notificationAvatar")
         val notificationUpsertEncoded: ByteArray get() = hex("notificationUpsertEncodedHex")
         val notificationRemovedEncoded: ByteArray get() = hex("notificationRemovedEncodedHex")
         val notificationSnapshotHighWaterRevision: Long
@@ -381,8 +434,31 @@ class EncryptedPayloadV1Test {
             val value = Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"")
                 .find(json)?.groupValues?.get(1)
                 ?: error("Missing $name")
-            return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
+            return value.hexToBytes()
         }
+
+        private fun media(name: String): MediaVector {
+            val body = Regex("\\\"$name\\\"\\s*:\\s*\\{([^}]*)}", RegexOption.DOT_MATCHES_ALL)
+                .find(json)?.groupValues?.get(1)
+                ?: error("Missing $name")
+            fun value(field: String): String =
+                Regex("\\\"$field\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+                    .find(body)?.groupValues?.get(1)
+                    ?: error("Missing $name.$field")
+            fun number(field: String): Int =
+                Regex("\\\"$field\\\"\\s*:\\s*(\\d+)")
+                    .find(body)?.groupValues?.get(1)?.toInt()
+                    ?: error("Missing $name.$field")
+            return MediaVector(
+                contentSha256 = value("contentSha256Hex").hexToBytes(),
+                width = number("width"),
+                height = number("height"),
+                encoded = value("encodedHex").hexToBytes(),
+            )
+        }
+
+        private fun String.hexToBytes(): ByteArray =
+            chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
         companion object {
             fun load(): Vector {
@@ -393,5 +469,20 @@ class EncryptedPayloadV1Test {
                 return Vector(stream.bufferedReader().use { it.readText() })
             }
         }
+    }
+
+    private data class MediaVector(
+        val contentSha256: ByteArray,
+        val width: Int,
+        val height: Int,
+        val encoded: ByteArray,
+    ) {
+        fun toProto(): NotificationMedia = NotificationMedia.newBuilder()
+            .setContentSha256(ByteString.copyFrom(contentSha256))
+            .setMimeType(NotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_PNG)
+            .setWidth(width)
+            .setHeight(height)
+            .setEncodedBytes(ByteString.copyFrom(encoded))
+            .build()
     }
 }
