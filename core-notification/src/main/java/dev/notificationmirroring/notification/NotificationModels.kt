@@ -8,6 +8,9 @@ data class NotificationSnapshot(
     val title: String?,
     val text: String?,
     val expandedText: String?,
+    val appIcon: NotificationMedia?,
+    val avatar: NotificationMedia?,
+    val containsContentImage: Boolean,
     val postedAtMillis: Long,
     val isClearable: Boolean,
     val isOngoing: Boolean,
@@ -16,6 +19,30 @@ data class NotificationSnapshot(
     val isGroupSummary: Boolean,
     val actions: List<NotificationActionDescriptor>,
 )
+
+enum class NotificationMediaMimeType {
+    PNG,
+}
+
+data class NotificationMedia(
+    val contentSha256: ByteArray,
+    val mimeType: NotificationMediaMimeType,
+    val width: Int,
+    val height: Int,
+    val bytes: ByteArray,
+) {
+    init {
+        require(contentSha256.size == 32) { "media content hash must be 32 bytes" }
+        require(width in 1..MAX_DIMENSION) { "media width is out of range" }
+        require(height in 1..MAX_DIMENSION) { "media height is out of range" }
+        require(bytes.isNotEmpty() && bytes.size <= MAX_ENCODED_BYTES) { "media bytes are out of range" }
+    }
+
+    companion object {
+        const val MAX_DIMENSION = 256
+        const val MAX_ENCODED_BYTES = 128 * 1024
+    }
+}
 
 data class NotificationActionDescriptor(
     val token: NotificationActionToken,
