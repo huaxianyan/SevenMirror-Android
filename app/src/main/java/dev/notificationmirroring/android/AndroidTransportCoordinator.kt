@@ -16,7 +16,11 @@ import dev.notificationmirroring.crypto.NotificationEnvelopeSender
 import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.notification.LocalNotificationController
+import dev.notificationmirroring.notification.NotificationMedia
+import dev.notificationmirroring.notification.NotificationMediaMimeType
 import dev.notificationmirroring.notification.NotificationSnapshot
+import dev.notificationmirroring.protocol.generated.v1.NotificationMedia as ProtocolNotificationMedia
+import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType as ProtocolNotificationMediaMimeType
 import dev.notificationmirroring.transport.AndroidMembershipRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AndroidPendingMembershipStore
@@ -43,6 +47,20 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 
 private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 60_000L
+
+private fun NotificationMedia.toProtocol(): ProtocolNotificationMedia =
+    ProtocolNotificationMedia.newBuilder()
+        .setContentSha256(com.google.protobuf.ByteString.copyFrom(contentSha256))
+        .setMimeType(
+            when (mimeType) {
+                NotificationMediaMimeType.PNG ->
+                    ProtocolNotificationMediaMimeType.NOTIFICATION_MEDIA_MIME_TYPE_PNG
+            },
+        )
+        .setWidth(width)
+        .setHeight(height)
+        .setEncodedBytes(com.google.protobuf.ByteString.copyFrom(bytes))
+        .build()
 
 enum class AndroidTransportState {
     NOT_CONFIGURED,
@@ -105,6 +123,9 @@ class AndroidTransportCoordinator(context: Context) {
                     revision = snapshot.revision,
                     title = snapshot.title,
                     body = snapshot.expandedText ?: snapshot.text,
+                    appIcon = snapshot.appIcon?.toProtocol(),
+                    avatar = snapshot.avatar?.toProtocol(),
+                    containsContentImage = snapshot.containsContentImage,
                     nowUnixMs = nowUnixMs,
                 )
             }
@@ -440,6 +461,9 @@ class AndroidTransportCoordinator(context: Context) {
                     revision = notification.revision,
                     title = notification.title,
                     body = notification.expandedText ?: notification.text,
+                    appIcon = notification.appIcon?.toProtocol(),
+                    avatar = notification.avatar?.toProtocol(),
+                    containsContentImage = notification.containsContentImage,
                     nowUnixMs = nowUnixMs,
                 )
                 if (notificationFrames == null) {

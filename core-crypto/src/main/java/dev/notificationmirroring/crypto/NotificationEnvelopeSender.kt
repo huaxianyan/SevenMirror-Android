@@ -2,13 +2,14 @@ package dev.notificationmirroring.crypto
 
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.security.SecureRandom
 
-/** Online-only sender for the P0 app-owned synthetic text notification slice. */
+/** Online-only sender for the app-owned synthetic notification slice. */
 class NotificationEnvelopeSender(
     workspaceId: ByteArray,
     senderDeviceId: ByteArray,
@@ -29,6 +30,9 @@ class NotificationEnvelopeSender(
         revision: Long,
         title: String?,
         body: String?,
+        appIcon: NotificationMedia?,
+        avatar: NotificationMedia?,
+        containsContentImage: Boolean,
         nowUnixMs: Long,
     ): List<ByteArray>? {
         val notification = NotificationUpsert.newBuilder()
@@ -36,6 +40,9 @@ class NotificationEnvelopeSender(
             .setNotificationRevision(revision)
             .also { builder -> title?.let(builder::setTitle) }
             .also { builder -> body?.let(builder::setBody) }
+            .also { builder -> appIcon?.let(builder::setAppIcon) }
+            .also { builder -> avatar?.let(builder::setAvatar) }
+            .setContainsContentImage(containsContentImage)
             .build()
         return create(
             EncryptedPayload.newBuilder()
