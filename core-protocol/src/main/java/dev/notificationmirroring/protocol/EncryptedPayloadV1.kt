@@ -9,6 +9,7 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
@@ -20,11 +21,13 @@ import java.security.MessageDigest
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 1
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
-    const val NOTIFICATION_SCHEMA_VERSION = 4
+    const val NOTIFICATION_SCHEMA_VERSION = 5
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_NOTIFICATION_TITLE_BYTES = 512
     const val MAX_NOTIFICATION_BODY_BYTES = 4_000
+    const val MAX_NOTIFICATION_ACTIONS = 16
+    const val MAX_NOTIFICATION_ACTION_TITLE_BYTES = 256
     const val MAX_NOTIFICATION_MEDIA_BYTES = 128 * 1_024
     const val MAX_NOTIFICATION_MEDIA_DIMENSION = 256
     const val MAX_SNAPSHOT_ENTRIES = 200
@@ -122,7 +125,29 @@ object EncryptedPayloadCodecV1 {
         if (notification.hasAvatar()) {
             validateNotificationMedia(notification.avatar)
         }
+        require(notification.actionsCount <= MAX_NOTIFICATION_ACTIONS) {
+            "Notification has too many actions"
+        }
+        val actionIds = HashSet<String>(notification.actionsCount)
+        for (action in notification.actionsList) {
+            validateNotificationActionDescriptor(action)
+            require(actionIds.add(action.actionId.toByteArray().toHex())) {
+                "Notification action ids must be unique"
+            }
+        }
     }
+
+    private fun validateNotificationActionDescriptor(action: NotificationActionDescriptor) {
+        require(action.actionId.size() == IDENTIFIER_SIZE) {
+            "Notification action id must be 16 bytes"
+        }
+        validateText(action.title, MAX_NOTIFICATION_ACTION_TITLE_BYTES, "Notification action title")
+        require(!action.allowsFreeFormInput || action.requiresTextInput) {
+            "Notification action cannot allow text without requiring text input"
+        }
+    }
+
+    private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun validateNotificationMedia(media: NotificationMedia) {
         val encoded = media.encodedBytes.toByteArray()
@@ -375,6 +400,17 @@ object EncryptedPayloadCodecV1 {
                     42 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_MEDIA); 16 }
                     50 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_MEDIA); 32 }
                     56 -> { input.readBool(); 64 }
+                    66 -> {
+                        validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_ACTION_DESCRIPTOR)
+                        0
+                    }
+                    else -> invalidWireField()
+                }
+                WireMessage.NOTIFICATION_ACTION_DESCRIPTOR -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    18 -> { input.readByteArray(); 2 }
+                    24 -> { input.readBool(); 4 }
+                    32 -> { input.readBool(); 8 }
                     else -> invalidWireField()
                 }
                 WireMessage.NOTIFICATION_MEDIA -> when (tag) {
@@ -417,6 +453,7 @@ object EncryptedPayloadCodecV1 {
         IDENTITY_KEY_TRANSITION_ACK,
         IDENTITY_KEY_TRANSITION_COMMIT,
         NOTIFICATION_UPSERT,
+        NOTIFICATION_ACTION_DESCRIPTOR,
         NOTIFICATION_MEDIA,
         NOTIFICATION_REMOVED,
         NOTIFICATION_SNAPSHOT_MANIFEST,

@@ -88,4 +88,18 @@ public interface NotificationUpsertOrBuilder extends
    * @return The containsContentImage.
    */
   boolean getContainsContentImage();
+
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  java.util.List<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor>
+      getActionsList();
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor getActions(int index);
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  int getActionsCount();
 }

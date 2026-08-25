@@ -6,6 +6,7 @@ import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.RoutingHeaderCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import java.security.MessageDigest
@@ -65,12 +66,19 @@ class NotificationEnvelopeSenderInstrumentedTest {
                     appIcon = appIcon,
                     avatar = avatar,
                     containsContentImage = true,
+                    actions = listOf(
+                        NotificationActionDescriptor.newBuilder()
+                            .setActionId(ByteString.copyFrom(filled(16, 11)))
+                            .setTitle("Mark handled")
+                            .build(),
+                    ),
                     nowUnixMs = 1_700_000_000_000,
                 ),
             )
 
             assertEquals(2, frames.size)
             assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("Encrypted test notification") })
+            assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("Mark handled") })
             assertFalse(frames.any { it.contains(appIcon.encodedBytes.toByteArray()) })
             assertFalse(frames.any { it.contains(avatar.encodedBytes.toByteArray()) })
             val firstPayload = openPayload(frames[0], firstChromeIdentity, androidIdentity)
@@ -84,6 +92,7 @@ class NotificationEnvelopeSenderInstrumentedTest {
             assertEquals(true, upsert.containsContentImage)
             assertEquals(appIcon, upsert.appIcon)
             assertEquals(avatar, upsert.avatar)
+            assertEquals("Mark handled", upsert.getActions(0).title)
             val firstRoute = RoutingHeaderCodecV1.decode(
                 EncryptedEnvelopeCodecV1.decode(frames[0]).routingHeaderBytes,
             )

@@ -16,9 +16,12 @@ import dev.notificationmirroring.crypto.NotificationEnvelopeSender
 import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.notification.LocalNotificationController
+import dev.notificationmirroring.notification.NotificationActionDescriptor
 import dev.notificationmirroring.notification.NotificationMedia
 import dev.notificationmirroring.notification.NotificationMediaMimeType
 import dev.notificationmirroring.notification.NotificationSnapshot
+import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
+import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor as ProtocolNotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia as ProtocolNotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType as ProtocolNotificationMediaMimeType
 import dev.notificationmirroring.transport.AndroidMembershipRegistration
@@ -47,6 +50,22 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 
 private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 60_000L
+
+private fun NotificationActionDescriptor.toProtocolOrNull(): ProtocolNotificationActionDescriptor? {
+    if (title.toByteArray(Charsets.UTF_8).size !in 1..EncryptedPayloadCodecV1.MAX_NOTIFICATION_ACTION_TITLE_BYTES) return null
+    return ProtocolNotificationActionDescriptor.newBuilder()
+        .setActionId(com.google.protobuf.ByteString.copyFrom(token.actionId.toByteArray()))
+        .setTitle(title)
+        .setRequiresTextInput(requiresTextInput)
+        .setAllowsFreeFormInput(allowsFreeFormInput)
+        .build()
+}
+
+private fun NotificationSnapshot.protocolActions(): List<ProtocolNotificationActionDescriptor> = actions
+    .asSequence()
+    .mapNotNull(NotificationActionDescriptor::toProtocolOrNull)
+    .take(EncryptedPayloadCodecV1.MAX_NOTIFICATION_ACTIONS)
+    .toList()
 
 private fun NotificationMedia.toProtocol(): ProtocolNotificationMedia =
     ProtocolNotificationMedia.newBuilder()
@@ -126,6 +145,7 @@ class AndroidTransportCoordinator(context: Context) {
                     appIcon = snapshot.appIcon?.toProtocol(),
                     avatar = snapshot.avatar?.toProtocol(),
                     containsContentImage = snapshot.containsContentImage,
+                    actions = snapshot.protocolActions(),
                     nowUnixMs = nowUnixMs,
                 )
             }
@@ -464,6 +484,7 @@ class AndroidTransportCoordinator(context: Context) {
                     appIcon = notification.appIcon?.toProtocol(),
                     avatar = notification.avatar?.toProtocol(),
                     containsContentImage = notification.containsContentImage,
+                    actions = notification.protocolActions(),
                     nowUnixMs = nowUnixMs,
                 )
                 if (notificationFrames == null) {

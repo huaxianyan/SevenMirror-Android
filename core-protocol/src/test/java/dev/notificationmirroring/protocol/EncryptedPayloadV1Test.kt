@@ -9,6 +9,7 @@ import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransition
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionAck
 import dev.notificationmirroring.protocol.generated.v1.IdentityKeyTransitionCommit
+import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
@@ -96,7 +97,8 @@ class EncryptedPayloadV1Test {
                     .setBody(vector.notificationBody)
                     .setAppIcon(vector.notificationAppIcon.toProto())
                     .setAvatar(vector.notificationAvatar.toProto())
-                    .setContainsContentImage(vector.notificationContainsContentImage),
+                    .setContainsContentImage(vector.notificationContainsContentImage)
+                    .addAllActions(vector.notificationActions.map(ActionVector::toProto)),
             )
             .build()
         assertArrayEquals(vector.notificationUpsertEncoded, EncryptedPayloadCodecV1.encode(upsert))
@@ -176,7 +178,12 @@ class EncryptedPayloadV1Test {
                 NotificationUpsert.newBuilder()
                     .setNotificationId(vector.notificationPayloadId)
                     .setNotificationRevision(vector.notificationUpsertRevision)
-                    .setTitle(vector.notificationTitle),
+                    .setTitle(vector.notificationTitle)
+                    .addActions(
+                        NotificationActionDescriptor.newBuilder()
+                            .setActionId(ByteString.copyFrom(ByteArray(16) { 1 }))
+                            .setTitle("Mark handled"),
+                    ),
             )
             .build()
         listOf(
@@ -192,6 +199,20 @@ class EncryptedPayloadV1Test {
             ).build(),
             valid.toBuilder().setNotificationUpsert(
                 valid.notificationUpsert.toBuilder().setTitle(""),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().setActions(
+                    0,
+                    valid.notificationUpsert.getActions(0).toBuilder().clearActionId(),
+                ),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().setActions(
+                    0,
+                    valid.notificationUpsert.getActions(0).toBuilder()
+                        .setRequiresTextInput(false)
+                        .setAllowsFreeFormInput(true),
+                ),
             ).build(),
         ).forEach { invalid ->
             assertThrows(IllegalArgumentException::class.java) {
@@ -416,6 +437,30 @@ class EncryptedPayloadV1Test {
             get() = Regex("\\\"notificationContainsContentImage\\\"\\s*:\\s*(true|false)")
                 .find(json)?.groupValues?.get(1)?.toBooleanStrict()
                 ?: error("Missing notificationContainsContentImage")
+        val notificationActions: List<ActionVector>
+            get() {
+                val body = Regex(
+                    "\\\"notificationActions\\\"\\s*:\\s*\\[([^]]*)]",
+                    RegexOption.DOT_MATCHES_ALL,
+                ).find(json)?.groupValues?.get(1) ?: error("Missing notificationActions")
+                return Regex("\\{([^}]*)}", RegexOption.DOT_MATCHES_ALL).findAll(body).map { match ->
+                    val action = match.groupValues[1]
+                    fun value(field: String): String =
+                        Regex("\\\"$field\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+                            .find(action)?.groupValues?.get(1)
+                            ?: error("Missing notificationActions.$field")
+                    fun flag(field: String): Boolean =
+                        Regex("\\\"$field\\\"\\s*:\\s*(true|false)")
+                            .find(action)?.groupValues?.get(1)?.toBooleanStrict()
+                            ?: error("Missing notificationActions.$field")
+                    ActionVector(
+                        actionId = value("actionIdHex").hexToBytes(),
+                        title = value("title"),
+                        requiresTextInput = flag("requiresTextInput"),
+                        allowsFreeFormInput = flag("allowsFreeFormInput"),
+                    )
+                }.toList()
+            }
         val notificationAppIcon: MediaVector get() = media("notificationAppIcon")
         val notificationAvatar: MediaVector get() = media("notificationAvatar")
         val notificationUpsertEncoded: ByteArray get() = hex("notificationUpsertEncodedHex")
@@ -469,6 +514,20 @@ class EncryptedPayloadV1Test {
                 return Vector(stream.bufferedReader().use { it.readText() })
             }
         }
+    }
+
+    private data class ActionVector(
+        val actionId: ByteArray,
+        val title: String,
+        val requiresTextInput: Boolean,
+        val allowsFreeFormInput: Boolean,
+    ) {
+        fun toProto(): NotificationActionDescriptor = NotificationActionDescriptor.newBuilder()
+            .setActionId(ByteString.copyFrom(actionId))
+            .setTitle(title)
+            .setRequiresTextInput(requiresTextInput)
+            .setAllowsFreeFormInput(allowsFreeFormInput)
+            .build()
     }
 
     private data class MediaVector(

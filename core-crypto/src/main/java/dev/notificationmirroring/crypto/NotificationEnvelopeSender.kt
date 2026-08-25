@@ -2,6 +2,7 @@ package dev.notificationmirroring.crypto
 
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
@@ -33,6 +34,7 @@ class NotificationEnvelopeSender(
         appIcon: NotificationMedia?,
         avatar: NotificationMedia?,
         containsContentImage: Boolean,
+        actions: List<NotificationActionDescriptor>,
         nowUnixMs: Long,
     ): List<ByteArray>? {
         val notification = NotificationUpsert.newBuilder()
@@ -43,6 +45,7 @@ class NotificationEnvelopeSender(
             .also { builder -> appIcon?.let(builder::setAppIcon) }
             .also { builder -> avatar?.let(builder::setAvatar) }
             .setContainsContentImage(containsContentImage)
+            .addAllActions(actions)
             .build()
         return create(
             EncryptedPayload.newBuilder()

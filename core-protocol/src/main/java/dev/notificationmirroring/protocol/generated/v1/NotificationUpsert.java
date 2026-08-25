@@ -22,6 +22,7 @@ public  final class NotificationUpsert extends
     notificationId_ = "";
     title_ = "";
     body_ = "";
+    actions_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int NOTIFICATION_ID_FIELD_NUMBER = 1;
@@ -328,6 +329,103 @@ public  final class NotificationUpsert extends
   private void clearContainsContentImage() {
 
     containsContentImage_ = false;
+  }
+
+  public static final int ACTIONS_FIELD_NUMBER = 8;
+  private com.google.protobuf.Internal.ProtobufList<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> actions_;
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> getActionsList() {
+    return actions_;
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  public java.util.List<? extends dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptorOrBuilder>
+      getActionsOrBuilderList() {
+    return actions_;
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.Override
+  public int getActionsCount() {
+    return actions_.size();
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor getActions(int index) {
+    return actions_.get(index);
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  public dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptorOrBuilder getActionsOrBuilder(
+      int index) {
+    return actions_.get(index);
+  }
+  private void ensureActionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> tmp = actions_;
+    if (!tmp.isModifiable()) {
+      actions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setActions(
+      int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+    value.getClass();  // minimal bytecode null check
+    ensureActionsIsMutable();
+    actions_.set(index, value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void addActions(dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+    value.getClass();  // minimal bytecode null check
+    ensureActionsIsMutable();
+    actions_.add(value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void addActions(
+      int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+    value.getClass();  // minimal bytecode null check
+    ensureActionsIsMutable();
+    actions_.add(index, value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  private void addAllActions(
+      java.lang.Iterable<? extends dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> values) {
+    ensureActionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, actions_);
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  private void clearActions() {
+    actions_ = emptyProtobufList();
+  }
+  /**
+   * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+   */
+  private void removeActions(int index) {
+    ensureActionsIsMutable();
+    actions_.remove(index);
   }
 
   public static dev.notificationmirroring.protocol.generated.v1.NotificationUpsert parseFrom(
@@ -745,6 +843,108 @@ public  final class NotificationUpsert extends
       return this;
     }
 
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> getActionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getActionsList());
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    @java.lang.Override
+    public int getActionsCount() {
+      return instance.getActionsCount();
+    }/**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor getActions(int index) {
+      return instance.getActions(index);
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder setActions(
+        int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+      copyOnWrite();
+      instance.setActions(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder setActions(
+        int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor.Builder builderForValue) {
+      copyOnWrite();
+      instance.setActions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder addActions(dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+      copyOnWrite();
+      instance.addActions(value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder addActions(
+        int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor value) {
+      copyOnWrite();
+      instance.addActions(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder addActions(
+        dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor.Builder builderForValue) {
+      copyOnWrite();
+      instance.addActions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder addActions(
+        int index, dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor.Builder builderForValue) {
+      copyOnWrite();
+      instance.addActions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder addAllActions(
+        java.lang.Iterable<? extends dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> values) {
+      copyOnWrite();
+      instance.addAllActions(values);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder clearActions() {
+      copyOnWrite();
+      instance.clearActions();
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
+     */
+    public Builder removeActions(int index) {
+      copyOnWrite();
+      instance.removeActions(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.NotificationUpsert)
   }
   @java.lang.Override
@@ -769,10 +969,12 @@ public  final class NotificationUpsert extends
             "appIcon_",
             "avatar_",
             "containsContentImage_",
+            "actions_",
+            dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor.class,
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
-              "\u0003\u1208\u0000\u0004\u1208\u0001\u0005\u1009\u0002\u0006\u1009\u0003\u0007\u0007" +
+              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0001\u0000\u0001\u0208\u0002\u0003\u0003\u1208" +
+              "\u0000\u0004\u1208\u0001\u0005\u1009\u0002\u0006\u1009\u0003\u0007\u0007\b\u001b" +
               "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
@@ -827,4 +1029,3 @@ public  final class NotificationUpsert extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-
