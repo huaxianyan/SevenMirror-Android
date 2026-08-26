@@ -3,6 +3,7 @@ package dev.notificationmirroring.notification
 import android.app.Notification
 import android.app.Person
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
 import android.os.Build
 
@@ -54,6 +55,8 @@ internal object NotificationMediaExtractor {
     private inline fun loadDrawable(loader: () -> Drawable?): Drawable? =
         try {
             loader()
+        } catch (_: PackageManager.NameNotFoundException) {
+            null
         } catch (_: RuntimeException) {
             null
         } catch (_: OutOfMemoryError) {

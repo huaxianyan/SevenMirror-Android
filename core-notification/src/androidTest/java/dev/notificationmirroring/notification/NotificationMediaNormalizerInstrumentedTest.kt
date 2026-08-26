@@ -64,6 +64,23 @@ class NotificationMediaNormalizerInstrumentedTest {
     }
 
     @Test
+    fun missingApplicationPackageDoesNotBlockMediaExtraction() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val notification = Notification.Builder(context, "test")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("Missing package")
+            .build()
+
+        val media = NotificationMediaExtractor.extract(
+            context,
+            "dev.notificationmirroring.missing.package",
+            notification,
+        )
+
+        assertNull(media.appIcon)
+    }
+
+    @Test
     fun contentImageBecomesPlaceholderWhileIconAndAvatarRemainBounded() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val picture = Bitmap.createBitmap(800, 600, Bitmap.Config.ARGB_8888).apply {
