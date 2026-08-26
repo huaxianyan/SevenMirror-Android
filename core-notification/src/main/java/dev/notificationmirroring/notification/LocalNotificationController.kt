@@ -37,6 +37,7 @@ object LocalNotificationController {
         val revision: Long,
         val actions: List<RegisteredAction>,
         val mirrorEligible: Boolean,
+        val isClearable: Boolean,
     )
 
     private val secureRandom = SecureRandom()
@@ -46,12 +47,18 @@ object LocalNotificationController {
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
     @Volatile
     private var syntheticMirrorSink: SyntheticNotificationMirrorSink? = null
+    @Volatile
+    private var dismissSink: ((String) -> Unit)? = null
     private var activeSetReady = false
 
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
 
     fun installSyntheticMirrorSink(sink: SyntheticNotificationMirrorSink) {
         syntheticMirrorSink = sink
+    }
+
+    fun installDismissSink(sink: ((String) -> Unit)?) {
+        dismissSink = sink
     }
 
     @Synchronized
@@ -72,7 +79,12 @@ object LocalNotificationController {
             actions.map(RegisteredAction::id),
         )
         val mirrorEligible = sbn.packageName == context.packageName
-        registered[sbn.key] = RegisteredNotification(revision, actions, mirrorEligible)
+        registered[sbn.key] = RegisteredNotification(
+            revision = revision,
+            actions = actions,
+            mirrorEligible = mirrorEligible,
+            isClearable = snapshot.isClearable,
+        )
         mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
             .sortedByDescending(NotificationSnapshot::postedAtMillis)
         if (mirrorEligible) syntheticMirrorSink?.onUpsert(snapshot)
@@ -112,6 +124,32 @@ object LocalNotificationController {
         activeSetReady = false
         registered.clear()
         mutableNotifications.value = emptyList()
+    }
+
+    @Synchronized
+    fun dismiss(
+        notificationKey: String,
+        notificationRevision: Long,
+    ): ActionExecutionResult {
+        val notification = registered[notificationKey]
+            ?: return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
+        if (!notification.mirrorEligible) {
+            return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
+        }
+        if (notification.revision != notificationRevision) {
+            return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
+        }
+        if (!notification.isClearable) {
+            return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_NOT_CLEARABLE")
+        }
+        val sink = dismissSink
+            ?: return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "LISTENER_NOT_CONNECTED")
+        return try {
+            sink(notificationKey)
+            ActionExecutionResult(ActionExecutionStatus.SUCCEEDED)
+        } catch (error: RuntimeException) {
+            ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, error::class.java.simpleName)
+        }
     }
 
     @Synchronized

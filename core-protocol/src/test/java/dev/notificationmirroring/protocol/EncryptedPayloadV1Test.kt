@@ -38,7 +38,7 @@ class EncryptedPayloadV1Test {
     fun roundTripsCanonicalActionResult() {
         val encoded = EncryptedPayloadCodecV1.encode(
             EncryptedPayload.newBuilder()
-                .setSchemaVersion(1)
+                .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
                 .setActionResult(
                     ActionResult.newBuilder()
                         .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xb2.toByte() }))
@@ -58,7 +58,7 @@ class EncryptedPayloadV1Test {
     @Test
     fun roundTripsCanonicalActionResultAck() {
         val payload = EncryptedPayload.newBuilder()
-            .setSchemaVersion(1)
+            .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
             .setActionResultAck(
                 ActionResultAck.newBuilder()
                     .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xb2.toByte() }))
@@ -339,8 +339,34 @@ class EncryptedPayloadV1Test {
                 EncryptedPayloadCodecV1.encode(invalid)
             }
         }
-        assertThrows(IllegalArgumentException::class.java) {
-            EncryptedPayloadCodecV1.encode(validPayload().toBuilder().setSchemaVersion(2).build())
+    }
+
+    @Test
+    fun matchesCanonicalDismissAndRejectsMixedOperations() {
+        val dismiss = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
+            .setActionInvoke(
+                ActionInvoke.newBuilder()
+                    .setNotificationId("test.notification/42")
+                    .setNotificationRevision(8)
+                    .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { 0xc3.toByte() }))
+                    .setDismissNotification(true),
+            )
+            .build()
+        assertArrayEquals(vector.dismissEncoded, EncryptedPayloadCodecV1.encode(dismiss))
+        assertEquals(true, EncryptedPayloadCodecV1.decode(vector.dismissEncoded).actionInvoke.dismissNotification)
+
+        listOf(
+            dismiss.toBuilder().setActionInvoke(
+                dismiss.actionInvoke.toBuilder().setActionId(ByteString.copyFrom(ByteArray(16) { 1 })),
+            ).build(),
+            dismiss.toBuilder().setActionInvoke(
+                dismiss.actionInvoke.toBuilder().setReplyText("reply"),
+            ).build(),
+        ).forEach { invalid ->
+            assertThrows(IllegalArgumentException::class.java) {
+                EncryptedPayloadCodecV1.encode(invalid)
+            }
         }
     }
 
@@ -348,7 +374,7 @@ class EncryptedPayloadV1Test {
     fun rejectsDuplicateUnknownAndInvalidSemanticFields() {
         val valid = vector.encoded
         listOf(
-            byteArrayOf(8, 1) + valid,
+            byteArrayOf(8, EncryptedPayloadCodecV1.SCHEMA_VERSION.toByte()) + valid,
             valid + byteArrayOf(0x78, 1),
         ).forEach {
             assertThrows(IllegalArgumentException::class.java) {
@@ -383,7 +409,7 @@ class EncryptedPayloadV1Test {
         .build()
 
     private fun validPayload(): EncryptedPayload = EncryptedPayload.newBuilder()
-        .setSchemaVersion(1)
+        .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
         .setActionInvoke(
             ActionInvoke.newBuilder()
                 .setNotificationId("test.notification/42")
@@ -425,6 +451,7 @@ class EncryptedPayloadV1Test {
 
     private class Vector(private val json: String) {
         val encoded: ByteArray get() = hex("encodedHex")
+        val dismissEncoded: ByteArray get() = hex("dismissEncodedHex")
         val actionResultEncoded: ByteArray get() = hex("actionResultEncodedHex")
         val actionResultSha256: ByteArray get() = hex("actionResultSha256Hex")
         val actionResultAckEncoded: ByteArray get() = hex("actionResultAckEncodedHex")

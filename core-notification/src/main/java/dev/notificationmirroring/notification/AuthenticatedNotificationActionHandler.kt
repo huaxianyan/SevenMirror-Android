@@ -67,15 +67,22 @@ object AuthenticatedNotificationActionHandler {
         androidContext: Context,
         request: dev.notificationmirroring.protocol.generated.v1.ActionInvoke,
     ): ActionResult {
-        val localResult = LocalNotificationController.invoke(
-            androidContext,
-            NotificationActionToken(
+        val localResult = if (request.dismissNotification) {
+            LocalNotificationController.dismiss(
                 notificationKey = request.notificationId,
                 notificationRevision = request.notificationRevision,
-                actionId = NotificationActionId.fromBytes(request.actionId.toByteArray()),
-            ),
-            replyText = request.replyText.takeIf { request.hasReplyText() },
-        )
+            )
+        } else {
+            LocalNotificationController.invoke(
+                androidContext,
+                NotificationActionToken(
+                    notificationKey = request.notificationId,
+                    notificationRevision = request.notificationRevision,
+                    actionId = NotificationActionId.fromBytes(request.actionId.toByteArray()),
+                ),
+                replyText = request.replyText.takeIf { request.hasReplyText() },
+            )
+        }
         return ActionResult.newBuilder()
             .setIdempotencyKey(request.idempotencyKey)
             .setStatus(localResult.status.toProtocolStatus())

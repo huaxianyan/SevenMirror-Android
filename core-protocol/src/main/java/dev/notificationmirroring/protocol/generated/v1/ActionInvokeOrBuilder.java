@@ -55,4 +55,14 @@ public interface ActionInvokeOrBuilder extends
    */
   com.google.protobuf.ByteString
       getReplyTextBytes();
+
+  /**
+   * <pre>
+   * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+   * </pre>
+   *
+   * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+   * @return The dismissNotification.
+   */
+  boolean getDismissNotification();
 }

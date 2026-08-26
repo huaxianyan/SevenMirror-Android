@@ -294,7 +294,7 @@ class AuthenticatedActionReceiverInstrumentedTest {
             .build()
         return EncryptedPayloadCodecV1.encode(
             EncryptedPayload.newBuilder()
-                .setSchemaVersion(1)
+                .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
                 .setActionInvoke(action)
                 .build(),
         )

@@ -107,6 +107,8 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             context.registerReceiver(sideEffectReceiver, IntentFilter(TEST_ACTION))
         }
         LocalNotificationController.clear()
+        val dismissRequests = mutableListOf<String>()
+        LocalNotificationController.installDismissSink(dismissRequests::add)
 
         try {
             val sbn = testNotification(context)
@@ -230,8 +232,38 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 unknownResult.result.status,
             )
             assertEquals(1, ActionSideEffectReceiver.count.get())
+
+            val dismiss = actionFrame(
+                16,
+                0xe5,
+                current,
+                now,
+                workspace,
+                recipientDevice,
+                sender,
+                recipient,
+                dismissNotification = true,
+            )
+            val dismissResult = dispatcher.receiveOnce(dismiss, now)
+            assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, dismissResult.result.status)
+            assertEquals(listOf(current.notificationKey), dismissRequests)
+
+            val duplicateDismiss = actionFrame(
+                17,
+                0xe5,
+                current,
+                now,
+                workspace,
+                recipientDevice,
+                sender,
+                recipient,
+                dismissNotification = true,
+            )
+            assertEquals(true, dispatcher.receiveOnce(duplicateDismiss, now).recovered)
+            assertEquals(1, dismissRequests.size)
         } finally {
             context.unregisterReceiver(sideEffectReceiver)
+            LocalNotificationController.installDismissSink(null)
             LocalNotificationController.clear()
             replay.clear()
             operations.clear()
@@ -295,16 +327,23 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         recipientDevice: ByteArray,
         sender: AuthenticatedHpke.KeyPair,
         recipient: AuthenticatedHpke.KeyPair,
+        dismissNotification: Boolean = false,
     ): ByteArray {
         val request = ActionInvoke.newBuilder()
             .setNotificationId(token.notificationKey)
             .setNotificationRevision(token.notificationRevision)
-            .setActionId(ByteString.copyFrom(token.actionId.toByteArray()))
             .setIdempotencyKey(ByteString.copyFrom(ByteArray(16) { idempotencyByte.toByte() }))
+            .apply {
+                if (dismissNotification) {
+                    setDismissNotification(true)
+                } else {
+                    setActionId(ByteString.copyFrom(token.actionId.toByteArray()))
+                }
+            }
             .build()
         val plaintext = EncryptedPayloadCodecV1.encode(
             EncryptedPayload.newBuilder()
-                .setSchemaVersion(1)
+                .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
                 .setActionInvoke(request)
                 .build(),
         )
@@ -339,7 +378,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
     ): ByteArray {
         val plaintext = EncryptedPayloadCodecV1.encode(
             EncryptedPayload.newBuilder()
-                .setSchemaVersion(1)
+                .setSchemaVersion(EncryptedPayloadCodecV1.SCHEMA_VERSION)
                 .setActionResultAck(
                     ActionResultAck.newBuilder()
                         .setIdempotencyKey(ByteString.copyFrom(idempotencyKey))

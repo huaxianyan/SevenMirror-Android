@@ -12,6 +12,7 @@ import android.service.notification.StatusBarNotification
 class MirroringNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
+        LocalNotificationController.installDismissSink(::cancelNotification)
         activeNotifications.orEmpty().forEach {
             LocalNotificationController.onPosted(this, it, isSilent(it.key))
         }
@@ -19,6 +20,7 @@ class MirroringNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onListenerDisconnected() {
+        LocalNotificationController.installDismissSink(null)
         LocalNotificationController.clear()
         super.onListenerDisconnected()
     }
@@ -29,6 +31,11 @@ class MirroringNotificationListenerService : NotificationListenerService() {
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         sbn?.key?.let { LocalNotificationController.onRemoved(this, it) }
+    }
+
+    override fun onDestroy() {
+        LocalNotificationController.installDismissSink(null)
+        super.onDestroy()
     }
 
     private fun isSilent(notificationKey: String): Boolean {

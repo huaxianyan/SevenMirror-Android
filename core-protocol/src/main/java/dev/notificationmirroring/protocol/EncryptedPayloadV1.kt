@@ -19,7 +19,7 @@ import java.math.BigInteger
 import java.security.MessageDigest
 
 object EncryptedPayloadCodecV1 {
-    const val SCHEMA_VERSION = 1
+    const val SCHEMA_VERSION = 2
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
     const val NOTIFICATION_SCHEMA_VERSION = 5
     const val MAX_PLAINTEXT_SIZE = 524_272
@@ -229,10 +229,16 @@ object EncryptedPayloadCodecV1 {
 
     private fun validateAction(action: ActionInvoke) {
         validateNotificationBinding(action.notificationId, action.notificationRevision)
-        require(action.actionId.size() == IDENTIFIER_SIZE) { "Action id must be 16 bytes" }
         require(action.idempotencyKey.size() == IDENTIFIER_SIZE && action.idempotencyKey.any { it.toInt() != 0 }) {
             "Idempotency key must be a non-zero 16-byte value"
         }
+        if (action.dismissNotification) {
+            require(action.actionId.isEmpty && !action.hasReplyText()) {
+                "Dismiss invocation cannot include an action id or reply text"
+            }
+            return
+        }
+        require(action.actionId.size() == IDENTIFIER_SIZE) { "Action id must be 16 bytes" }
         if (action.hasReplyText()) {
             val size = action.replyText.toByteArray().size
             require(size in 1..MAX_REPLY_TEXT_BYTES) { "Reply text is out of range" }
@@ -363,6 +369,7 @@ object EncryptedPayloadCodecV1 {
                     26 -> { input.readByteArray(); 4 }
                     34 -> { input.readByteArray(); 8 }
                     42 -> { input.readByteArray(); 16 }
+                    48 -> { input.readBool(); 32 }
                     else -> invalidWireField()
                 }
                 WireMessage.ACTION_RESULT -> when (tag) {

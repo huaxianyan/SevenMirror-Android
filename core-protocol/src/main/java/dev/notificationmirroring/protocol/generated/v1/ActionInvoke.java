@@ -7,8 +7,8 @@ package dev.notificationmirroring.protocol.generated.v1;
 
 /**
  * <pre>
- * ActionInvoke asks the source Android device to invoke one action currently
- * exposed by a specific notification revision. pendingIntent is never sent.
+ * ActionInvoke asks the source Android device to execute exactly one operation
+ * against a specific notification revision. pendingIntent is never sent.
  * </pre>
  *
  * Protobuf type {@code notification.mirroring.v1.ActionInvoke}
@@ -88,7 +88,7 @@ public  final class ActionInvoke extends
    * @param value The notificationRevision to set.
    */
   private void setNotificationRevision(long value) {
-    
+
     notificationRevision_ = value;
   }
   /**
@@ -115,7 +115,7 @@ public  final class ActionInvoke extends
    */
   private void setActionId(com.google.protobuf.ByteString value) {
     java.lang.Class<?> valueClass = value.getClass();
-  
+
     actionId_ = value;
   }
   /**
@@ -142,7 +142,7 @@ public  final class ActionInvoke extends
    */
   private void setIdempotencyKey(com.google.protobuf.ByteString value) {
     java.lang.Class<?> valueClass = value.getClass();
-  
+
     idempotencyKey_ = value;
   }
   /**
@@ -207,6 +207,44 @@ public  final class ActionInvoke extends
     checkByteStringIsUtf8(value);
     replyText_ = value.toStringUtf8();
     bitField0_ |= 0x00000001;
+  }
+
+  public static final int DISMISS_NOTIFICATION_FIELD_NUMBER = 6;
+  private boolean dismissNotification_;
+  /**
+   * <pre>
+   * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+   * </pre>
+   *
+   * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+   * @return The dismissNotification.
+   */
+  @java.lang.Override
+  public boolean getDismissNotification() {
+    return dismissNotification_;
+  }
+  /**
+   * <pre>
+   * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+   * </pre>
+   *
+   * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+   * @param value The dismissNotification to set.
+   */
+  private void setDismissNotification(boolean value) {
+
+    dismissNotification_ = value;
+  }
+  /**
+   * <pre>
+   * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+   * </pre>
+   *
+   * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+   */
+  private void clearDismissNotification() {
+
+    dismissNotification_ = false;
   }
 
   public static dev.notificationmirroring.protocol.generated.v1.ActionInvoke parseFrom(
@@ -294,8 +332,8 @@ public  final class ActionInvoke extends
 
   /**
    * <pre>
-   * ActionInvoke asks the source Android device to invoke one action currently
-   * exposed by a specific notification revision. pendingIntent is never sent.
+   * ActionInvoke asks the source Android device to execute exactly one operation
+   * against a specific notification revision. pendingIntent is never sent.
    * </pre>
    *
    * Protobuf type {@code notification.mirroring.v1.ActionInvoke}
@@ -501,6 +539,46 @@ public  final class ActionInvoke extends
       return this;
     }
 
+    /**
+     * <pre>
+     * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+     * </pre>
+     *
+     * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+     * @return The dismissNotification.
+     */
+    @java.lang.Override
+    public boolean getDismissNotification() {
+      return instance.getDismissNotification();
+    }
+    /**
+     * <pre>
+     * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+     * </pre>
+     *
+     * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+     * @param value The dismissNotification to set.
+     * @return This builder for chaining.
+     */
+    public Builder setDismissNotification(boolean value) {
+      copyOnWrite();
+      instance.setDismissNotification(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * SevenMirror-owned dismissal. It is mutually exclusive with action_id and reply_text.
+     * </pre>
+     *
+     * <code>bool dismiss_notification = 6 [json_name = "dismissNotification"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearDismissNotification() {
+      copyOnWrite();
+      instance.clearDismissNotification();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.ActionInvoke)
   }
   @java.lang.Override
@@ -523,10 +601,11 @@ public  final class ActionInvoke extends
             "actionId_",
             "idempotencyKey_",
             "replyText_",
+            "dismissNotification_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
-              "\u0003\n\u0004\n\u0005\u1208\u0000";
+              "\u0000\u0006\u0000\u0001\u0001\u0006\u0006\u0000\u0000\u0000\u0001\u0208\u0002\u0003" +
+              "\u0003\n\u0004\n\u0005\u1208\u0000\u0006\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through
@@ -580,4 +659,3 @@ public  final class ActionInvoke extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
-
