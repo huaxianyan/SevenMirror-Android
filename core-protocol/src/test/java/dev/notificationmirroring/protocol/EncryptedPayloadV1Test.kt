@@ -35,6 +35,25 @@ class EncryptedPayloadV1Test {
     }
 
     @Test
+    fun decodesLegacyDurableActionButDoesNotEmitItOrAcceptLegacyDismiss() {
+        val legacy = validPayload().toBuilder().setSchemaVersion(1).build()
+        EncryptedPayloadCodecV1.decode(legacy.toByteArray())
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.encode(legacy)
+        }
+
+        val legacyDismiss = legacy.toBuilder().setActionInvoke(
+            legacy.actionInvoke.toBuilder()
+                .clearActionId()
+                .clearReplyText()
+                .setDismissNotification(true),
+        ).build()
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.decode(legacyDismiss.toByteArray())
+        }
+    }
+
+    @Test
     fun roundTripsCanonicalActionResult() {
         val encoded = EncryptedPayloadCodecV1.encode(
             EncryptedPayload.newBuilder()

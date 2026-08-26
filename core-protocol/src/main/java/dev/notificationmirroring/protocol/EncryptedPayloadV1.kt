@@ -53,7 +53,7 @@ object EncryptedPayloadCodecV1 {
         }
         validateWireFields(encoded, WireMessage.TOP_LEVEL)
         val payload = EncryptedPayload.parseFrom(encoded)
-        validate(payload)
+        validate(payload, allowLegacyActionSchema = true)
         require(payload.toByteArray().contentEquals(encoded)) {
             "Encrypted payload is not canonically encoded"
         }
@@ -61,17 +61,25 @@ object EncryptedPayloadCodecV1 {
     }
 
     fun validate(payload: EncryptedPayload) {
+        validate(payload, allowLegacyActionSchema = false)
+    }
+
+    private fun validate(payload: EncryptedPayload, allowLegacyActionSchema: Boolean) {
         when (payload.bodyCase) {
             EncryptedPayload.BodyCase.ACTION_INVOKE -> {
-                requireSchema(payload, SCHEMA_VERSION)
+                requireActionSchema(
+                    payload,
+                    allowLegacyActionSchema,
+                    payload.actionInvoke.dismissNotification,
+                )
                 validateAction(payload.actionInvoke)
             }
             EncryptedPayload.BodyCase.ACTION_RESULT -> {
-                requireSchema(payload, SCHEMA_VERSION)
+                requireActionSchema(payload, allowLegacyActionSchema, dismissNotification = false)
                 validateResult(payload.actionResult)
             }
             EncryptedPayload.BodyCase.ACTION_RESULT_ACK -> {
-                requireSchema(payload, SCHEMA_VERSION)
+                requireActionSchema(payload, allowLegacyActionSchema, dismissNotification = false)
                 validateResultAck(payload.actionResultAck)
             }
             EncryptedPayload.BodyCase.IDENTITY_KEY_TRANSITION -> {
@@ -267,6 +275,17 @@ object EncryptedPayloadCodecV1 {
         require(ack.resultSha256.size() == SHA256_SIZE && ack.resultSha256.any { it.toInt() != 0 }) {
             "Result SHA-256 must be a non-zero 32-byte value"
         }
+    }
+
+    private fun requireActionSchema(
+        payload: EncryptedPayload,
+        allowLegacy: Boolean,
+        dismissNotification: Boolean,
+    ) {
+        require(
+            payload.schemaVersion == SCHEMA_VERSION ||
+                allowLegacy && payload.schemaVersion == 1 && !dismissNotification,
+        ) { "Encrypted payload schema version does not match body" }
     }
 
     private fun requireSchema(payload: EncryptedPayload, expected: Int) {
