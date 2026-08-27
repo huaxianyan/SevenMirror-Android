@@ -15,6 +15,7 @@ import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.NotificationEnvelopeSender
 import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
+import dev.notificationmirroring.notification.AuthenticatedInboundReceipt
 import dev.notificationmirroring.notification.LocalNotificationController
 import dev.notificationmirroring.notification.NotificationActionDescriptor
 import dev.notificationmirroring.notification.NotificationMedia
@@ -340,6 +341,7 @@ class AndroidTransportCoordinator(context: Context) {
                     recipientDeviceId = credential.deviceId,
                     recipientIdentity = identity,
                     actionPeers = workspaceMembershipStore,
+                    notificationRecipients = workspaceMembershipStore,
                     replayLedger = replayLedger,
                     operationLedger = operationLedger,
                     resultOutbox = resultOutbox,
@@ -400,7 +402,7 @@ class AndroidTransportCoordinator(context: Context) {
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
                                 LocalNotificationController.currentActiveSnapshot(applicationContext)
-                                    ?.let(::sendSyntheticSnapshot)
+                                    ?.let { snapshot -> sendSyntheticSnapshot(snapshot) }
                             } catch (_: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
@@ -430,10 +432,11 @@ class AndroidTransportCoordinator(context: Context) {
                                 val nowUnixMs = System.currentTimeMillis()
                                 when (val message = RelayDeliveryCodecV1.decodeServerMessage(frame)) {
                                     is RelayServerMessageV1.OnlineEnvelope -> {
-                                        handlers.actionDispatcher.receiveAnyOnce(
+                                        val receipt = handlers.actionDispatcher.receiveAnyOnce(
                                             message.envelope,
                                             nowUnixMs,
                                         )
+                                        respondToSnapshotRequest(receipt)
                                     }
                                     is RelayServerMessageV1.Delivery -> {
                                         val cursor = relayDeliveryCursorStore.load(
@@ -447,12 +450,15 @@ class AndroidTransportCoordinator(context: Context) {
                                             cursor.committedDeliveryId,
                                             1L,
                                         )) { "Relay deliveries are not contiguous" }
-                                        handlers.actionDispatcher.receiveAnyOnce(
+                                        val receipt = handlers.actionDispatcher.receiveAnyOnce(
                                             message.envelope,
                                             nowUnixMs,
+                                            allowSnapshotRequestReplayDuplicate = true,
                                         )
-                                        // Dispatch returns only after the exact action result or ACK
-                                        // reconciliation is durable. Cursor commit therefore comes last.
+                                        respondToSnapshotRequest(receipt)
+                                        // Dispatch returns only after the exact action result, ACK,
+                                        // or complete online snapshot response is accepted locally.
+                                        // Cursor commit therefore comes last.
                                         val committed = relayDeliveryCursorStore.commitDelivery(
                                             credential.workspaceId,
                                             credential.deviceId,
@@ -547,59 +553,79 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun sendSyntheticNotification(
         createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
-    ) = sendSyntheticNotifications(createFrames)
+    ) = sendSyntheticNotifications(createFrames = createFrames)
 
-    private fun sendSyntheticSnapshot(snapshot: ActiveNotificationSnapshot) {
-        sendSyntheticNotifications { sender, nowUnixMs ->
-            val byId = snapshot.notifications.associateBy(NotificationSnapshot::key)
-            val frames = mutableListOf<ByteArray>()
-            for (id in NotificationEnvelopeSender.canonicalNotificationIds(byId.keys)) {
-                val notification = requireNotNull(byId[id])
-                val notificationFrames = sender.createUpsert(
-                    notificationId = notification.key,
-                    revision = notification.revision,
-                    sourceApplicationId = notification.packageName,
-                    sourceApplicationName = notification.appName,
-                    title = notification.title,
-                    body = notification.expandedText ?: notification.text,
-                    appIcon = notification.appIcon?.toProtocol(),
-                    avatar = notification.avatar?.toProtocol(),
-                    containsContentImage = notification.containsContentImage,
-                    actions = notification.protocolActions(),
-                    nowUnixMs = nowUnixMs,
-                )
-                if (notificationFrames == null) {
-                    frames.forEach { it.fill(0) }
-                    return@sendSyntheticNotifications null
-                }
-                frames += notificationFrames
-            }
-            val manifestFrames = sender.createSnapshotManifest(
-                snapshot.highWaterRevision,
-                snapshot.notifications.associate { it.key to it.revision },
-                nowUnixMs,
+    private fun sendSyntheticSnapshot(
+        snapshot: ActiveNotificationSnapshot,
+        recoveryRequestId: ByteArray? = null,
+        recipientDeviceId: ByteArray? = null,
+        durable: Boolean = true,
+    ): Boolean = sendSyntheticNotifications(durable) { sender, nowUnixMs ->
+        val byId = snapshot.notifications.associateBy(NotificationSnapshot::key)
+        val frames = mutableListOf<ByteArray>()
+        for (id in NotificationEnvelopeSender.canonicalNotificationIds(byId.keys)) {
+            val notification = requireNotNull(byId[id])
+            val notificationFrames = sender.createUpsert(
+                notificationId = notification.key,
+                revision = notification.revision,
+                sourceApplicationId = notification.packageName,
+                sourceApplicationName = notification.appName,
+                title = notification.title,
+                body = notification.expandedText ?: notification.text,
+                appIcon = notification.appIcon?.toProtocol(),
+                avatar = notification.avatar?.toProtocol(),
+                containsContentImage = notification.containsContentImage,
+                actions = notification.protocolActions(),
+                nowUnixMs = nowUnixMs,
+                recipientDeviceId = recipientDeviceId,
             )
-            if (manifestFrames == null) {
+            if (notificationFrames == null) {
                 frames.forEach { it.fill(0) }
                 return@sendSyntheticNotifications null
             }
-            frames + manifestFrames
+            frames += notificationFrames
         }
+        val manifestFrames = sender.createSnapshotManifest(
+            snapshot.highWaterRevision,
+            snapshot.notifications.associate { it.key to it.revision },
+            nowUnixMs,
+            recoveryRequestId,
+            recipientDeviceId,
+        )
+        if (manifestFrames == null) {
+            frames.forEach { it.fill(0) }
+            return@sendSyntheticNotifications null
+        }
+        frames + manifestFrames
+    }
+
+    private fun respondToSnapshotRequest(receipt: AuthenticatedInboundReceipt) {
+        if (receipt !is AuthenticatedInboundReceipt.SnapshotRequest) return
+        val snapshot = checkNotNull(LocalNotificationController.currentActiveSnapshot(applicationContext)) {
+            "Notification snapshot is not ready"
+        }
+        check(sendSyntheticSnapshot(
+            snapshot = snapshot,
+            recoveryRequestId = receipt.recoveryRequestId,
+            recipientDeviceId = receipt.requesterDeviceId,
+            durable = false,
+        )) { "Snapshot recovery response was not accepted locally" }
     }
 
     private fun sendSyntheticNotifications(
+        durable: Boolean = true,
         createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
-    ) {
-        if (mutableState.value != AndroidTransportState.ONLINE) return
-        val socket = webSocket ?: return
+    ): Boolean {
+        if (mutableState.value != AndroidTransportState.ONLINE) return false
+        val socket = webSocket ?: return false
         var sender: NotificationEnvelopeSender? = null
         var identity: AuthenticatedHpke.KeyPair? = null
         val credential = try {
             credentialStore.load()
         } catch (_: Throwable) {
             rejectInbound(generation.get(), socket)
-            return
-        } ?: return
+            return false
+        } ?: return false
         try {
             val loadedIdentity = checkNotNull(identityStore.loadExisting()) {
                 "Transport credential exists without its bound E2EE identity"
@@ -618,26 +644,32 @@ class AndroidTransportCoordinator(context: Context) {
                 recipients = workspaceMembershipStore,
                 allocateSequence = resultOutbox::allocateSequence,
             )
-            val frames = createFrames(sender, System.currentTimeMillis()) ?: return
+            val frames = createFrames(sender, System.currentTimeMillis()) ?: return false
             try {
                 for (frame in frames) {
-                    val durable = RelayDeliveryCodecV1.encodeDurableSubmission(frame)
+                    val outbound = if (durable) {
+                        RelayDeliveryCodecV1.encodeDurableSubmission(frame)
+                    } else {
+                        frame
+                    }
                     val accepted = try {
-                        socket.send(ByteString.of(*durable))
+                        socket.send(ByteString.of(*outbound))
                     } finally {
-                        durable.fill(0)
+                        if (outbound !== frame) outbound.fill(0)
                     }
                     if (!accepted) {
                         socket.cancel()
                         enqueueTermination(generation.get(), socket)
-                        return
+                        return false
                     }
                 }
+                return true
             } finally {
                 frames.forEach { it.fill(0) }
             }
         } catch (_: Throwable) {
             rejectInbound(generation.get(), socket)
+            return false
         } finally {
             sender?.clearIdentity()
             identity?.privateKey?.fill(0)

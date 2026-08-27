@@ -6,6 +6,7 @@ import dev.notificationmirroring.crypto.AndroidActionResultOutbox
 import dev.notificationmirroring.crypto.AndroidOperationLedger
 import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.WorkspaceActionPeerResolver
+import dev.notificationmirroring.crypto.WorkspaceNotificationRecipientDirectory
 import dev.notificationmirroring.crypto.AuthenticatedActionResultAckReceiver
 import dev.notificationmirroring.crypto.AuthenticatedEnvelopeReceiver
 import dev.notificationmirroring.crypto.AuthenticatedHpke
@@ -23,6 +24,11 @@ sealed interface AuthenticatedInboundReceipt {
     data class ResultAck(
         val result: AndroidActionResultOutbox.AcknowledgeResult,
     ) : AuthenticatedInboundReceipt
+    data class SnapshotRequest(
+        val recoveryRequestId: ByteArray,
+        val resetHighWaterDeliveryId: Long,
+        val requesterDeviceId: ByteArray,
+    ) : AuthenticatedInboundReceipt
 }
 
 /**
@@ -37,6 +43,7 @@ class AndroidActionInvokeDispatcher(
     recipientDeviceId: ByteArray,
     recipientIdentity: AuthenticatedHpke.KeyPair,
     private val actionPeers: WorkspaceActionPeerResolver,
+    private val notificationRecipients: WorkspaceNotificationRecipientDirectory,
     private val replayLedger: AndroidReplayLedger,
     private val operationLedger: AndroidOperationLedger,
     private val resultOutbox: AndroidActionResultOutbox,
@@ -63,12 +70,17 @@ class AndroidActionInvokeDispatcher(
     fun receiveOnce(frameBytes: ByteArray, nowUnixMs: Long): ActionReceipt =
         when (val received = receiveAnyOnce(frameBytes, nowUnixMs)) {
             is AuthenticatedInboundReceipt.Action -> received.receipt
-            is AuthenticatedInboundReceipt.ResultAck ->
+            is AuthenticatedInboundReceipt.ResultAck,
+            is AuthenticatedInboundReceipt.SnapshotRequest ->
                 throw IllegalArgumentException("Expected action.invoke payload")
         }
 
     @Synchronized
-    fun receiveAnyOnce(frameBytes: ByteArray, nowUnixMs: Long): AuthenticatedInboundReceipt {
+    fun receiveAnyOnce(
+        frameBytes: ByteArray,
+        nowUnixMs: Long,
+        allowSnapshotRequestReplayDuplicate: Boolean = false,
+    ): AuthenticatedInboundReceipt {
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
         val header = EncryptedEnvelopeCodecV1.decode(frameBytes).routingHeader
         rejectUnless(
@@ -83,13 +95,23 @@ class AndroidActionInvokeDispatcher(
             MessageDigest.isEqual(header.recipientKeyId, sha256(recipientIdentity.publicKey)),
             EnvelopeRejectedException.Code.RECIPIENT_KEY_MISMATCH,
         )
-        val senderPublicKey = actionPeers.resolveActionPeer(
+        val actionPeer = actionPeers.resolveActionPeer(
             workspaceId = workspaceId,
             localDeviceId = recipientDeviceId,
             peerDeviceId = header.senderDeviceId,
             peerKeyId = header.senderKeyId,
             nowUnixMs = nowUnixMs,
-        )?.identityPublicKey ?: throw ActionSenderNotAuthorizedException()
+        )
+        val notificationPeer = notificationRecipients.listNotificationRecipients(
+            workspaceId,
+            recipientDeviceId,
+            nowUnixMs,
+        ).find { peer ->
+            MessageDigest.isEqual(peer.deviceId, header.senderDeviceId) &&
+                MessageDigest.isEqual(peer.identityKeyId, header.senderKeyId)
+        }
+        val senderPublicKey = (actionPeer?.identityPublicKey ?: notificationPeer?.identityPublicKey)
+            ?.copyOf() ?: throw ActionSenderNotAuthorizedException()
 
         val opened = try {
             AuthenticatedEnvelopeReceiver.openOnce(
@@ -102,6 +124,11 @@ class AndroidActionInvokeDispatcher(
                 ),
                 replayLedger = replayLedger,
                 nowUnixMs = nowUnixMs,
+                allowReplayDuplicate = { plaintext ->
+                    allowSnapshotRequestReplayDuplicate &&
+                        EncryptedPayloadCodecV1.decode(plaintext).bodyCase ==
+                        EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_REQUEST
+                },
             )
         } finally {
             senderPublicKey.fill(0)
@@ -109,7 +136,9 @@ class AndroidActionInvokeDispatcher(
         return try {
             val payload = EncryptedPayloadCodecV1.decode(opened.plaintext)
             when (payload.bodyCase) {
-                EncryptedPayload.BodyCase.ACTION_INVOKE -> AuthenticatedInboundReceipt.Action(
+                EncryptedPayload.BodyCase.ACTION_INVOKE -> {
+                    check(actionPeer != null) { "Action sender is not authorized" }
+                    AuthenticatedInboundReceipt.Action(
                     AuthenticatedNotificationActionHandler.receiveDecodedAndQueue(
                         androidContext = appContext,
                         opened = opened,
@@ -119,7 +148,10 @@ class AndroidActionInvokeDispatcher(
                         nowUnixMs = nowUnixMs,
                     ),
                 )
-                EncryptedPayload.BodyCase.ACTION_RESULT_ACK -> AuthenticatedInboundReceipt.ResultAck(
+                }
+                EncryptedPayload.BodyCase.ACTION_RESULT_ACK -> {
+                    check(actionPeer != null) { "Action acknowledgement sender is not authorized" }
+                    AuthenticatedInboundReceipt.ResultAck(
                     AuthenticatedActionResultAckReceiver.receiveDecoded(
                         opened = opened,
                         payload = payload,
@@ -128,6 +160,17 @@ class AndroidActionInvokeDispatcher(
                         nowUnixMs = nowUnixMs,
                     ),
                 )
+                }
+                EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_REQUEST -> {
+                    check(notificationPeer != null) { "Snapshot requester is not authorized" }
+                    AuthenticatedInboundReceipt.SnapshotRequest(
+                        recoveryRequestId = payload.notificationSnapshotRequest
+                            .recoveryRequestId.toByteArray(),
+                        resetHighWaterDeliveryId = payload.notificationSnapshotRequest
+                            .resetHighWaterDeliveryId,
+                        requesterDeviceId = opened.header.senderDeviceId.copyOf(),
+                    )
+                }
                 else -> throw IllegalArgumentException("Unsupported authenticated payload type")
             }
         } finally {

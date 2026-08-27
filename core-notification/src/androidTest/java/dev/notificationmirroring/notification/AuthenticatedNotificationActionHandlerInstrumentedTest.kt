@@ -20,6 +20,7 @@ import dev.notificationmirroring.crypto.AndroidReplayLedger
 import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.WorkspaceActionPeer
 import dev.notificationmirroring.crypto.WorkspaceActionPeerResolver
+import dev.notificationmirroring.crypto.WorkspaceNotificationRecipientDirectory
 import dev.notificationmirroring.protocol.EncryptedEnvelopeCodecV1
 import dev.notificationmirroring.protocol.EncryptedEnvelopePartsV1
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
@@ -90,6 +91,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                     null
                 }
             },
+            notificationRecipients = WorkspaceNotificationRecipientDirectory { _, _, _ -> emptyList() },
             replayLedger = replay,
             operationLedger = operations,
             resultOutbox = outbox,

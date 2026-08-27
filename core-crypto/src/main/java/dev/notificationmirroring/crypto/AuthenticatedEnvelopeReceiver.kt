@@ -38,9 +38,19 @@ object AuthenticatedEnvelopeReceiver {
         context: EnvelopeRecipientContext,
         replayLedger: AndroidReplayLedger,
         nowUnixMs: Long,
+        allowReplayDuplicate: (ByteArray) -> Boolean = { false },
     ): OpenedEnvelope {
         val opened = authenticateAndOpen(frameBytes, context, nowUnixMs)
-        consumeReplay(opened.header, replayLedger, nowUnixMs)
+        try {
+            consumeReplay(opened.header, replayLedger, nowUnixMs)
+        } catch (error: EnvelopeRejectedException) {
+            if (error.code != EnvelopeRejectedException.Code.DUPLICATE ||
+                !allowReplayDuplicate(opened.plaintext)
+            ) {
+                opened.plaintext.fill(0)
+                throw error
+            }
+        }
         return opened
     }
 

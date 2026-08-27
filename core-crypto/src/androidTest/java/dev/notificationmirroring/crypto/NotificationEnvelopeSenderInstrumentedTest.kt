@@ -127,6 +127,23 @@ class NotificationEnvelopeSenderInstrumentedTest {
                     .map { it.notificationId },
             )
             assertEquals(9L, snapshot.second.notificationSnapshotManifest.highWaterRevision)
+
+            val recoveryRequestId = filled(16, 12)
+            val recoveryFrames = requireNotNull(
+                sender.createSnapshotManifest(
+                    highWaterRevision = 9,
+                    activeNotifications = mapOf("synthetic.notification/42" to 7L),
+                    nowUnixMs = 1_700_000_000_000,
+                    recoveryRequestId = recoveryRequestId,
+                    recipientDeviceId = firstChromeDeviceId,
+                ),
+            )
+            assertEquals(1, recoveryFrames.size)
+            val recovery = openPayload(recoveryFrames.single(), firstChromeIdentity, androidIdentity)
+            assertEquals(
+                recoveryRequestId.toList(),
+                recovery.second.notificationSnapshotManifest.recoveryRequestId.toByteArray().toList(),
+            )
         } finally {
             sender.clearIdentity()
         }

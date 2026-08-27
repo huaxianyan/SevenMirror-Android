@@ -38,6 +38,7 @@ class NotificationEnvelopeSender(
         containsContentImage: Boolean,
         actions: List<NotificationActionDescriptor>,
         nowUnixMs: Long,
+        recipientDeviceId: ByteArray? = null,
     ): List<ByteArray>? {
         val notification = NotificationUpsert.newBuilder()
             .setNotificationId(notificationId)
@@ -57,6 +58,7 @@ class NotificationEnvelopeSender(
                 .setNotificationUpsert(notification)
                 .build(),
             nowUnixMs,
+            recipientDeviceId,
         )
     }
 
@@ -80,10 +82,17 @@ class NotificationEnvelopeSender(
         highWaterRevision: Long,
         activeNotifications: Map<String, Long>,
         nowUnixMs: Long,
+        recoveryRequestId: ByteArray? = null,
+        recipientDeviceId: ByteArray? = null,
     ): List<ByteArray>? {
         val orderedIds = canonicalNotificationIds(activeNotifications.keys)
         val manifest = NotificationSnapshotManifest.newBuilder()
             .setHighWaterRevision(highWaterRevision)
+            .also { builder ->
+                recoveryRequestId?.let {
+                    builder.setRecoveryRequestId(com.google.protobuf.ByteString.copyFrom(it))
+                }
+            }
         orderedIds.forEach { notificationId ->
             manifest.addActiveNotifications(
                 NotificationSnapshotEntry.newBuilder()
@@ -97,6 +106,7 @@ class NotificationEnvelopeSender(
                 .setNotificationSnapshotManifest(manifest)
                 .build(),
             nowUnixMs,
+            recipientDeviceId,
         )
     }
 
@@ -104,9 +114,19 @@ class NotificationEnvelopeSender(
         senderIdentity.privateKey.fill(0)
     }
 
-    private fun create(payload: EncryptedPayload, nowUnixMs: Long): List<ByteArray>? {
+    private fun create(
+        payload: EncryptedPayload,
+        nowUnixMs: Long,
+        recipientDeviceId: ByteArray? = null,
+    ): List<ByteArray>? {
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
+        recipientDeviceId?.let {
+            require(it.size == 16 && it.any { byte -> byte.toInt() != 0 }) {
+                "recipientDeviceId must be a non-zero 16-byte value"
+            }
+        }
         val targets = recipients.listNotificationRecipients(workspaceId, senderDeviceId, nowUnixMs)
+            .filter { target -> recipientDeviceId == null || target.deviceId.contentEquals(recipientDeviceId) }
         if (targets.isEmpty()) return null
         val canonicalPayload = EncryptedPayloadCodecV1.encode(payload)
         val frames = ArrayList<ByteArray>(targets.size)
