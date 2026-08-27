@@ -28,4 +28,23 @@ public interface NotificationSnapshotManifestOrBuilder extends
    * <code>repeated .notification.mirroring.v1.NotificationSnapshotEntry active_notifications = 2 [json_name = "activeNotifications"];</code>
    */
   int getActiveNotificationsCount();
+
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   * @return Whether the recoveryRequestId field is set.
+   */
+  boolean hasRecoveryRequestId();
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   * @return The recoveryRequestId.
+   */
+  com.google.protobuf.ByteString getRecoveryRequestId();
 }

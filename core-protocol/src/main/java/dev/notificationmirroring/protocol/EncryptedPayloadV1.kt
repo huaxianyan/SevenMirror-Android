@@ -14,6 +14,7 @@ import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
 import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.math.BigInteger
 import java.security.MessageDigest
@@ -21,7 +22,7 @@ import java.security.MessageDigest
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 2
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
-    const val NOTIFICATION_SCHEMA_VERSION = 6
+    const val NOTIFICATION_SCHEMA_VERSION = 7
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
     const val MAX_NOTIFICATION_APP_ID_BYTES = 255
@@ -107,6 +108,10 @@ object EncryptedPayloadCodecV1 {
             EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_MANIFEST -> {
                 requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
                 validateNotificationSnapshotManifest(payload.notificationSnapshotManifest)
+            }
+            EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_REQUEST -> {
+                requireSchema(payload, NOTIFICATION_SCHEMA_VERSION)
+                validateNotificationSnapshotRequest(payload.notificationSnapshotRequest)
             }
             else -> throw IllegalArgumentException(
                 "Exactly one supported encrypted payload body is required",
@@ -205,6 +210,12 @@ object EncryptedPayloadCodecV1 {
     }
 
     private fun validateNotificationSnapshotManifest(manifest: NotificationSnapshotManifest) {
+        if (manifest.hasRecoveryRequestId()) {
+            requireNonZeroIdentifier(
+                manifest.recoveryRequestId.toByteArray(),
+                "Snapshot recovery request id",
+            )
+        }
         require(manifest.highWaterRevision in 0..MAX_NOTIFICATION_REVISION) {
             "Notification snapshot high-water revision is out of range"
         }
@@ -222,6 +233,22 @@ object EncryptedPayloadCodecV1 {
                 "Notification snapshot entries are not unique and strictly sorted"
             }
             previousIdBytes = idBytes
+        }
+    }
+
+    private fun validateNotificationSnapshotRequest(request: NotificationSnapshotRequest) {
+        requireNonZeroIdentifier(
+            request.recoveryRequestId.toByteArray(),
+            "Snapshot recovery request id",
+        )
+        require(request.resetHighWaterDeliveryId in 0..MAX_NOTIFICATION_REVISION) {
+            "Snapshot reset high-water delivery id is out of range"
+        }
+    }
+
+    private fun requireNonZeroIdentifier(value: ByteArray, name: String) {
+        require(value.size == IDENTIFIER_SIZE && value.any { it.toInt() != 0 }) {
+            "$name must be a non-zero 16-byte value"
         }
     }
 
@@ -392,6 +419,7 @@ object EncryptedPayloadCodecV1 {
                     130 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_UPSERT); 128 }
                     138 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_REMOVED); 256 }
                     146 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_SNAPSHOT_MANIFEST); 512 }
+                    154 -> { validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_SNAPSHOT_REQUEST); 1024 }
                     else -> invalidWireField()
                 }
                 WireMessage.ACTION_INVOKE -> when (tag) {
@@ -473,6 +501,12 @@ object EncryptedPayloadCodecV1 {
                         validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_SNAPSHOT_ENTRY)
                         0
                     }
+                    26 -> { input.readByteArray(); 2 }
+                    else -> invalidWireField()
+                }
+                WireMessage.NOTIFICATION_SNAPSHOT_REQUEST -> when (tag) {
+                    10 -> { input.readByteArray(); 1 }
+                    16 -> { input.readUInt64(); 2 }
                     else -> invalidWireField()
                 }
             }
@@ -497,6 +531,7 @@ object EncryptedPayloadCodecV1 {
         NOTIFICATION_MEDIA,
         NOTIFICATION_REMOVED,
         NOTIFICATION_SNAPSHOT_MANIFEST,
+        NOTIFICATION_SNAPSHOT_REQUEST,
         NOTIFICATION_SNAPSHOT_ENTRY,
     }
 

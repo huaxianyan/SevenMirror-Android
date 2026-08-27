@@ -32,6 +32,7 @@ public  final class EncryptedPayload extends
     NOTIFICATION_UPSERT(16),
     NOTIFICATION_REMOVED(17),
     NOTIFICATION_SNAPSHOT_MANIFEST(18),
+    NOTIFICATION_SNAPSHOT_REQUEST(19),
     BODY_NOT_SET(0);
     private final int value;
     private BodyCase(int value) {
@@ -56,6 +57,7 @@ public  final class EncryptedPayload extends
         case 16: return NOTIFICATION_UPSERT;
         case 17: return NOTIFICATION_REMOVED;
         case 18: return NOTIFICATION_SNAPSHOT_MANIFEST;
+        case 19: return NOTIFICATION_SNAPSHOT_REQUEST;
         case 0: return BODY_NOT_SET;
         default: return null;
       }
@@ -566,6 +568,58 @@ public  final class EncryptedPayload extends
    */
   private void clearNotificationSnapshotManifest() {
     if (bodyCase_ == 18) {
+      bodyCase_ = 0;
+      body_ = null;
+    }
+  }
+
+  public static final int NOTIFICATION_SNAPSHOT_REQUEST_FIELD_NUMBER = 19;
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+   */
+  @java.lang.Override
+  public boolean hasNotificationSnapshotRequest() {
+    return bodyCase_ == 19;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest getNotificationSnapshotRequest() {
+    if (bodyCase_ == 19) {
+       return (dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest) body_;
+    }
+    return dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest.getDefaultInstance();
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setNotificationSnapshotRequest(dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest value) {
+    value.getClass();  // minimal bytecode null check
+    body_ = value;
+    bodyCase_ = 19;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void mergeNotificationSnapshotRequest(dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest value) {
+    value.getClass();  // minimal bytecode null check
+    if (bodyCase_ == 19 &&
+        body_ != dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest.getDefaultInstance()) {
+      body_ = dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest.newBuilder((dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest) body_)
+          .mergeFrom(value).buildPartial();
+    } else {
+      body_ = value;
+    }
+    bodyCase_ = 19;
+  }
+  /**
+   * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+   */
+  private void clearNotificationSnapshotRequest() {
+    if (bodyCase_ == 19) {
       bodyCase_ = 0;
       body_ = null;
     }
@@ -1145,6 +1199,54 @@ public  final class EncryptedPayload extends
       return this;
     }
 
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    @java.lang.Override
+    public boolean hasNotificationSnapshotRequest() {
+      return instance.hasNotificationSnapshotRequest();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest getNotificationSnapshotRequest() {
+      return instance.getNotificationSnapshotRequest();
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    public Builder setNotificationSnapshotRequest(dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest value) {
+      copyOnWrite();
+      instance.setNotificationSnapshotRequest(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    public Builder setNotificationSnapshotRequest(
+        dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setNotificationSnapshotRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    public Builder mergeNotificationSnapshotRequest(dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest value) {
+      copyOnWrite();
+      instance.mergeNotificationSnapshotRequest(value);
+      return this;
+    }
+    /**
+     * <code>.notification.mirroring.v1.NotificationSnapshotRequest notification_snapshot_request = 19 [json_name = "notificationSnapshotRequest"];</code>
+     */
+    public Builder clearNotificationSnapshotRequest() {
+      copyOnWrite();
+      instance.clearNotificationSnapshotRequest();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.EncryptedPayload)
   }
   @java.lang.Override
@@ -1173,11 +1275,12 @@ public  final class EncryptedPayload extends
             dev.notificationmirroring.protocol.generated.v1.NotificationUpsert.class,
             dev.notificationmirroring.protocol.generated.v1.NotificationRemoved.class,
             dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest.class,
+            dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest.class,
           };
           java.lang.String info =
-              "\u0000\n\u0001\u0000\u0001\u0012\n\u0000\u0000\u0000\u0001\u000b\n<\u0000\u000b<" +
-              "\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000\u0012" +
-              "<\u0000";
+              "\u0000\u000b\u0001\u0000\u0001\u0013\u000b\u0000\u0000\u0000\u0001\u000b\n<\u0000" +
+              "\u000b<\u0000\f<\u0000\r<\u0000\u000e<\u0000\u000f<\u0000\u0010<\u0000\u0011<\u0000" +
+              "\u0012<\u0000\u0013<\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

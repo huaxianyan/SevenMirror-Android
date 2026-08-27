@@ -21,7 +21,9 @@ public  final class NotificationSnapshotManifest extends
     NotificationSnapshotManifestOrBuilder {
   private NotificationSnapshotManifest() {
     activeNotifications_ = emptyProtobufList();
+    recoveryRequestId_ = com.google.protobuf.ByteString.EMPTY;
   }
+  private int bitField0_;
   public static final int HIGH_WATER_REVISION_FIELD_NUMBER = 1;
   private long highWaterRevision_;
   /**
@@ -143,6 +145,57 @@ public  final class NotificationSnapshotManifest extends
   private void removeActiveNotifications(int index) {
     ensureActiveNotificationsIsMutable();
     activeNotifications_.remove(index);
+  }
+
+  public static final int RECOVERY_REQUEST_ID_FIELD_NUMBER = 3;
+  private com.google.protobuf.ByteString recoveryRequestId_;
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   * @return Whether the recoveryRequestId field is set.
+   */
+  @java.lang.Override
+  public boolean hasRecoveryRequestId() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   * @return The recoveryRequestId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString getRecoveryRequestId() {
+    return recoveryRequestId_;
+  }
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   * @param value The recoveryRequestId to set.
+   */
+  private void setRecoveryRequestId(com.google.protobuf.ByteString value) {
+    java.lang.Class<?> valueClass = value.getClass();
+  bitField0_ |= 0x00000001;
+    recoveryRequestId_ = value;
+  }
+  /**
+   * <pre>
+   * Present only when responding to an authenticated recovery request.
+   * </pre>
+   *
+   * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+   */
+  private void clearRecoveryRequestId() {
+    bitField0_ = (bitField0_ & ~0x00000001);
+    recoveryRequestId_ = getDefaultInstance().getRecoveryRequestId();
   }
 
   public static dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest parseFrom(
@@ -378,6 +431,58 @@ public  final class NotificationSnapshotManifest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Present only when responding to an authenticated recovery request.
+     * </pre>
+     *
+     * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+     * @return Whether the recoveryRequestId field is set.
+     */
+    @java.lang.Override
+    public boolean hasRecoveryRequestId() {
+      return instance.hasRecoveryRequestId();
+    }
+    /**
+     * <pre>
+     * Present only when responding to an authenticated recovery request.
+     * </pre>
+     *
+     * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+     * @return The recoveryRequestId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getRecoveryRequestId() {
+      return instance.getRecoveryRequestId();
+    }
+    /**
+     * <pre>
+     * Present only when responding to an authenticated recovery request.
+     * </pre>
+     *
+     * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+     * @param value The recoveryRequestId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRecoveryRequestId(com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setRecoveryRequestId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Present only when responding to an authenticated recovery request.
+     * </pre>
+     *
+     * <code>optional bytes recovery_request_id = 3 [json_name = "recoveryRequestId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRecoveryRequestId() {
+      copyOnWrite();
+      instance.clearRecoveryRequestId();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.NotificationSnapshotManifest)
   }
   @java.lang.Override
@@ -394,13 +499,15 @@ public  final class NotificationSnapshotManifest extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "highWaterRevision_",
             "activeNotifications_",
             dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry.class,
+            "recoveryRequestId_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0001\u0000\u0001\u0003\u0002\u001b" +
-              "";
+              "\u0000\u0003\u0000\u0001\u0001\u0003\u0003\u0000\u0001\u0000\u0001\u0003\u0002\u001b" +
+              "\u0003\u100a\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

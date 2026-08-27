@@ -15,6 +15,7 @@ import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
 import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
+import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotRequest
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -142,6 +143,19 @@ class EncryptedPayloadV1Test {
             EncryptedPayloadCodecV1.decode(vector.notificationRemovedEncoded).bodyCase,
         )
 
+        val request = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationSnapshotRequest(
+                NotificationSnapshotRequest.newBuilder()
+                    .setRecoveryRequestId(ByteString.copyFrom(vector.notificationSnapshotRecoveryRequestId))
+                    .setResetHighWaterDeliveryId(vector.notificationSnapshotResetHighWaterDeliveryId),
+            )
+            .build()
+        assertArrayEquals(
+            vector.notificationSnapshotRequestEncoded,
+            EncryptedPayloadCodecV1.encode(request),
+        )
+
         val manifest = validSnapshotManifest()
         assertArrayEquals(
             vector.notificationSnapshotManifestEncoded,
@@ -159,6 +173,9 @@ class EncryptedPayloadV1Test {
         val manifest = valid.notificationSnapshotManifest
         listOf(
             valid.toBuilder().setSchemaVersion(1).build(),
+            valid.toBuilder().setNotificationSnapshotManifest(
+                manifest.toBuilder().setRecoveryRequestId(ByteString.copyFrom(ByteArray(16))),
+            ).build(),
             valid.toBuilder().setNotificationSnapshotManifest(
                 manifest.toBuilder().setHighWaterRevision(6),
             ).build(),
@@ -189,6 +206,18 @@ class EncryptedPayloadV1Test {
             )
             .build()
         EncryptedPayloadCodecV1.decode(EncryptedPayloadCodecV1.encode(empty))
+
+        val invalidRequest = EncryptedPayload.newBuilder()
+            .setSchemaVersion(EncryptedPayloadCodecV1.NOTIFICATION_SCHEMA_VERSION)
+            .setNotificationSnapshotRequest(
+                NotificationSnapshotRequest.newBuilder()
+                    .setRecoveryRequestId(ByteString.copyFrom(ByteArray(16)))
+                    .setResetHighWaterDeliveryId(9),
+            )
+            .build()
+        assertThrows(IllegalArgumentException::class.java) {
+            EncryptedPayloadCodecV1.encode(invalidRequest)
+        }
     }
 
     @Test
@@ -426,6 +455,7 @@ class EncryptedPayloadV1Test {
         .setNotificationSnapshotManifest(
             NotificationSnapshotManifest.newBuilder()
                 .setHighWaterRevision(vector.notificationSnapshotHighWaterRevision)
+                .setRecoveryRequestId(ByteString.copyFrom(vector.notificationSnapshotRecoveryRequestId))
                 .addActiveNotifications(
                     NotificationSnapshotEntry.newBuilder()
                         .setNotificationId("synthetic.notification/42")
@@ -527,6 +557,12 @@ class EncryptedPayloadV1Test {
         val notificationRemovedEncoded: ByteArray get() = hex("notificationRemovedEncodedHex")
         val notificationSnapshotHighWaterRevision: Long
             get() = string("notificationSnapshotHighWaterRevision").toLong()
+        val notificationSnapshotRecoveryRequestId: ByteArray
+            get() = hex("notificationSnapshotRecoveryRequestIdHex")
+        val notificationSnapshotResetHighWaterDeliveryId: Long
+            get() = string("notificationSnapshotResetHighWaterDeliveryId").toLong()
+        val notificationSnapshotRequestEncoded: ByteArray
+            get() = hex("notificationSnapshotRequestEncodedHex")
         val notificationSnapshotManifestEncoded: ByteArray
             get() = hex("notificationSnapshotManifestEncodedHex")
 
