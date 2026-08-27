@@ -92,7 +92,7 @@ public interface NotificationUpsertOrBuilder extends
   /**
    * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
    */
-  java.util.List<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor>
+  java.util.List<dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor> 
       getActionsList();
   /**
    * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
@@ -102,4 +102,44 @@ public interface NotificationUpsertOrBuilder extends
    * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
    */
   int getActionsCount();
+
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @return The sourceApplicationId.
+   */
+  java.lang.String getSourceApplicationId();
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @return The bytes for sourceApplicationId.
+   */
+  com.google.protobuf.ByteString
+      getSourceApplicationIdBytes();
+
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @return The sourceApplicationName.
+   */
+  java.lang.String getSourceApplicationName();
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @return The bytes for sourceApplicationName.
+   */
+  com.google.protobuf.ByteString
+      getSourceApplicationNameBytes();
 }

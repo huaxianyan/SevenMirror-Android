@@ -21,9 +21,11 @@ import java.security.MessageDigest
 object EncryptedPayloadCodecV1 {
     const val SCHEMA_VERSION = 2
     const val IDENTITY_LIFECYCLE_SCHEMA_VERSION = 2
-    const val NOTIFICATION_SCHEMA_VERSION = 5
+    const val NOTIFICATION_SCHEMA_VERSION = 6
     const val MAX_PLAINTEXT_SIZE = 524_272
     const val MAX_NOTIFICATION_ID_BYTES = 512
+    const val MAX_NOTIFICATION_APP_ID_BYTES = 255
+    const val MAX_NOTIFICATION_APP_NAME_BYTES = 512
     const val MAX_NOTIFICATION_TITLE_BYTES = 512
     const val MAX_NOTIFICATION_BODY_BYTES = 4_000
     const val MAX_NOTIFICATION_ACTIONS = 16
@@ -114,6 +116,16 @@ object EncryptedPayloadCodecV1 {
 
     private fun validateNotificationUpsert(notification: NotificationUpsert) {
         validateNotificationBinding(notification.notificationId, notification.notificationRevision)
+        validateText(
+            notification.sourceApplicationId,
+            MAX_NOTIFICATION_APP_ID_BYTES,
+            "Notification source application id",
+        )
+        validateText(
+            notification.sourceApplicationName,
+            MAX_NOTIFICATION_APP_NAME_BYTES,
+            "Notification source application name",
+        )
         require(notification.hasTitle() || notification.hasBody()) {
             "Notification upsert requires title or body"
         }
@@ -430,6 +442,8 @@ object EncryptedPayloadCodecV1 {
                         validateWireFields(input.readByteArray(), WireMessage.NOTIFICATION_ACTION_DESCRIPTOR)
                         0
                     }
+                    74 -> { input.readByteArray(); 128 }
+                    82 -> { input.readByteArray(); 256 }
                     else -> invalidWireField()
                 }
                 WireMessage.NOTIFICATION_ACTION_DESCRIPTOR -> when (tag) {

@@ -112,6 +112,8 @@ class EncryptedPayloadV1Test {
                 NotificationUpsert.newBuilder()
                     .setNotificationId(vector.notificationPayloadId)
                     .setNotificationRevision(vector.notificationUpsertRevision)
+                    .setSourceApplicationId(vector.notificationSourceApplicationId)
+                    .setSourceApplicationName(vector.notificationSourceApplicationName)
                     .setTitle(vector.notificationTitle)
                     .setBody(vector.notificationBody)
                     .setAppIcon(vector.notificationAppIcon.toProto())
@@ -197,6 +199,8 @@ class EncryptedPayloadV1Test {
                 NotificationUpsert.newBuilder()
                     .setNotificationId(vector.notificationPayloadId)
                     .setNotificationRevision(vector.notificationUpsertRevision)
+                    .setSourceApplicationId(vector.notificationSourceApplicationId)
+                    .setSourceApplicationName(vector.notificationSourceApplicationName)
                     .setTitle(vector.notificationTitle)
                     .addActions(
                         NotificationActionDescriptor.newBuilder()
@@ -212,6 +216,12 @@ class EncryptedPayloadV1Test {
             ).build(),
             valid.toBuilder().setNotificationUpsert(
                 valid.notificationUpsert.toBuilder().setNotificationRevision(0),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().clearSourceApplicationId(),
+            ).build(),
+            valid.toBuilder().setNotificationUpsert(
+                valid.notificationUpsert.toBuilder().clearSourceApplicationName(),
             ).build(),
             valid.toBuilder().setNotificationUpsert(
                 valid.notificationUpsert.toBuilder().clearTitle(),
@@ -245,6 +255,8 @@ class EncryptedPayloadV1Test {
         val valid = NotificationUpsert.newBuilder()
             .setNotificationId(vector.notificationPayloadId)
             .setNotificationRevision(vector.notificationUpsertRevision)
+            .setSourceApplicationId(vector.notificationSourceApplicationId)
+            .setSourceApplicationName(vector.notificationSourceApplicationName)
             .setTitle(vector.notificationTitle)
             .setAppIcon(vector.notificationAppIcon.toProto())
             .build()
@@ -477,6 +489,8 @@ class EncryptedPayloadV1Test {
         val notificationPayloadId: String get() = string("notificationPayloadId")
         val notificationUpsertRevision: Long get() = string("notificationUpsertRevision").toLong()
         val notificationRemovedRevision: Long get() = string("notificationRemovedRevision").toLong()
+        val notificationSourceApplicationId: String get() = string("notificationSourceApplicationId")
+        val notificationSourceApplicationName: String get() = string("notificationSourceApplicationName")
         val notificationTitle: String get() = string("notificationTitle")
         val notificationBody: String get() = string("notificationBody").replace("\\n", "\n")
         val notificationContainsContentImage: Boolean

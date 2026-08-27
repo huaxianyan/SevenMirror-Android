@@ -140,6 +140,8 @@ class AndroidTransportCoordinator(context: Context) {
                 sender.createUpsert(
                     notificationId = snapshot.key,
                     revision = snapshot.revision,
+                    sourceApplicationId = snapshot.packageName,
+                    sourceApplicationName = snapshot.appName,
                     title = snapshot.title,
                     body = snapshot.expandedText ?: snapshot.text,
                     appIcon = snapshot.appIcon?.toProtocol(),
@@ -479,6 +481,8 @@ class AndroidTransportCoordinator(context: Context) {
                 val notificationFrames = sender.createUpsert(
                     notificationId = notification.key,
                     revision = notification.revision,
+                    sourceApplicationId = notification.packageName,
+                    sourceApplicationName = notification.appName,
                     title = notification.title,
                     body = notification.expandedText ?: notification.text,
                     appIcon = notification.appIcon?.toProtocol(),

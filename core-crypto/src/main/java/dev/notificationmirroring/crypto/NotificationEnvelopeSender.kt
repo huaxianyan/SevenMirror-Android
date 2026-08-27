@@ -29,6 +29,8 @@ class NotificationEnvelopeSender(
     fun createUpsert(
         notificationId: String,
         revision: Long,
+        sourceApplicationId: String,
+        sourceApplicationName: String,
         title: String?,
         body: String?,
         appIcon: NotificationMedia?,
@@ -40,6 +42,8 @@ class NotificationEnvelopeSender(
         val notification = NotificationUpsert.newBuilder()
             .setNotificationId(notificationId)
             .setNotificationRevision(revision)
+            .setSourceApplicationId(sourceApplicationId)
+            .setSourceApplicationName(sourceApplicationName)
             .also { builder -> title?.let(builder::setTitle) }
             .also { builder -> body?.let(builder::setBody) }
             .also { builder -> appIcon?.let(builder::setAppIcon) }

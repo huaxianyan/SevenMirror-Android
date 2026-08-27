@@ -23,6 +23,8 @@ public  final class NotificationUpsert extends
     title_ = "";
     body_ = "";
     actions_ = emptyProtobufList();
+    sourceApplicationId_ = "";
+    sourceApplicationName_ = "";
   }
   private int bitField0_;
   public static final int NOTIFICATION_ID_FIELD_NUMBER = 1;
@@ -88,7 +90,7 @@ public  final class NotificationUpsert extends
    * @param value The notificationRevision to set.
    */
   private void setNotificationRevision(long value) {
-
+    
     notificationRevision_ = value;
   }
   /**
@@ -320,7 +322,7 @@ public  final class NotificationUpsert extends
    * @param value The containsContentImage to set.
    */
   private void setContainsContentImage(boolean value) {
-
+    
     containsContentImage_ = value;
   }
   /**
@@ -343,7 +345,7 @@ public  final class NotificationUpsert extends
   /**
    * <code>repeated .notification.mirroring.v1.NotificationActionDescriptor actions = 8 [json_name = "actions"];</code>
    */
-  public java.util.List<? extends dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptorOrBuilder>
+  public java.util.List<? extends dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptorOrBuilder> 
       getActionsOrBuilderList() {
     return actions_;
   }
@@ -426,6 +428,142 @@ public  final class NotificationUpsert extends
   private void removeActions(int index) {
     ensureActionsIsMutable();
     actions_.remove(index);
+  }
+
+  public static final int SOURCE_APPLICATION_ID_FIELD_NUMBER = 9;
+  private java.lang.String sourceApplicationId_;
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @return The sourceApplicationId.
+   */
+  @java.lang.Override
+  public java.lang.String getSourceApplicationId() {
+    return sourceApplicationId_;
+  }
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @return The bytes for sourceApplicationId.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSourceApplicationIdBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(sourceApplicationId_);
+  }
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @param value The sourceApplicationId to set.
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setSourceApplicationId(
+      java.lang.String value) {
+    value.getClass();  // minimal bytecode null check
+
+    sourceApplicationId_ = value;
+  }
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   */
+  private void clearSourceApplicationId() {
+
+    sourceApplicationId_ = getDefaultInstance().getSourceApplicationId();
+  }
+  /**
+   * <pre>
+   * Stable Android package name used only inside E2EE content for local rules.
+   * </pre>
+   *
+   * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+   * @param value The bytes for sourceApplicationId to set.
+   */
+  private void setSourceApplicationIdBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    sourceApplicationId_ = value.toStringUtf8();
+
+  }
+
+  public static final int SOURCE_APPLICATION_NAME_FIELD_NUMBER = 10;
+  private java.lang.String sourceApplicationName_;
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @return The sourceApplicationName.
+   */
+  @java.lang.Override
+  public java.lang.String getSourceApplicationName() {
+    return sourceApplicationName_;
+  }
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @return The bytes for sourceApplicationName.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSourceApplicationNameBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(sourceApplicationName_);
+  }
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @param value The sourceApplicationName to set.
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setSourceApplicationName(
+      java.lang.String value) {
+    value.getClass();  // minimal bytecode null check
+
+    sourceApplicationName_ = value;
+  }
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   */
+  private void clearSourceApplicationName() {
+
+    sourceApplicationName_ = getDefaultInstance().getSourceApplicationName();
+  }
+  /**
+   * <pre>
+   * User-visible Android application label preserved as source application data.
+   * </pre>
+   *
+   * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+   * @param value The bytes for sourceApplicationName to set.
+   */
+  private void setSourceApplicationNameBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    sourceApplicationName_ = value.toStringUtf8();
+
   }
 
   public static dev.notificationmirroring.protocol.generated.v1.NotificationUpsert parseFrom(
@@ -945,6 +1083,144 @@ public  final class NotificationUpsert extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Stable Android package name used only inside E2EE content for local rules.
+     * </pre>
+     *
+     * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+     * @return The sourceApplicationId.
+     */
+    @java.lang.Override
+    public java.lang.String getSourceApplicationId() {
+      return instance.getSourceApplicationId();
+    }
+    /**
+     * <pre>
+     * Stable Android package name used only inside E2EE content for local rules.
+     * </pre>
+     *
+     * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+     * @return The bytes for sourceApplicationId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSourceApplicationIdBytes() {
+      return instance.getSourceApplicationIdBytes();
+    }
+    /**
+     * <pre>
+     * Stable Android package name used only inside E2EE content for local rules.
+     * </pre>
+     *
+     * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+     * @param value The sourceApplicationId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSourceApplicationId(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSourceApplicationId(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Stable Android package name used only inside E2EE content for local rules.
+     * </pre>
+     *
+     * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSourceApplicationId() {
+      copyOnWrite();
+      instance.clearSourceApplicationId();
+      return this;
+    }
+    /**
+     * <pre>
+     * Stable Android package name used only inside E2EE content for local rules.
+     * </pre>
+     *
+     * <code>string source_application_id = 9 [json_name = "sourceApplicationId"];</code>
+     * @param value The bytes for sourceApplicationId to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSourceApplicationIdBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSourceApplicationIdBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * User-visible Android application label preserved as source application data.
+     * </pre>
+     *
+     * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+     * @return The sourceApplicationName.
+     */
+    @java.lang.Override
+    public java.lang.String getSourceApplicationName() {
+      return instance.getSourceApplicationName();
+    }
+    /**
+     * <pre>
+     * User-visible Android application label preserved as source application data.
+     * </pre>
+     *
+     * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+     * @return The bytes for sourceApplicationName.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSourceApplicationNameBytes() {
+      return instance.getSourceApplicationNameBytes();
+    }
+    /**
+     * <pre>
+     * User-visible Android application label preserved as source application data.
+     * </pre>
+     *
+     * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+     * @param value The sourceApplicationName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSourceApplicationName(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSourceApplicationName(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * User-visible Android application label preserved as source application data.
+     * </pre>
+     *
+     * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSourceApplicationName() {
+      copyOnWrite();
+      instance.clearSourceApplicationName();
+      return this;
+    }
+    /**
+     * <pre>
+     * User-visible Android application label preserved as source application data.
+     * </pre>
+     *
+     * <code>string source_application_name = 10 [json_name = "sourceApplicationName"];</code>
+     * @param value The bytes for sourceApplicationName to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSourceApplicationNameBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSourceApplicationNameBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.v1.NotificationUpsert)
   }
   @java.lang.Override
@@ -971,11 +1247,13 @@ public  final class NotificationUpsert extends
             "containsContentImage_",
             "actions_",
             dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor.class,
+            "sourceApplicationId_",
+            "sourceApplicationName_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0001\u0001\b\b\u0000\u0001\u0000\u0001\u0208\u0002\u0003\u0003\u1208" +
+              "\u0000\n\u0000\u0001\u0001\n\n\u0000\u0001\u0000\u0001\u0208\u0002\u0003\u0003\u1208" +
               "\u0000\u0004\u1208\u0001\u0005\u1009\u0002\u0006\u1009\u0003\u0007\u0007\b\u001b" +
-              "";
+              "\t\u0208\n\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through
@@ -1029,3 +1307,4 @@ public  final class NotificationUpsert extends
     return DEFAULT_INSTANCE.getParserForType();
   }
 }
+

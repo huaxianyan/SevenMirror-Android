@@ -61,6 +61,8 @@ class NotificationEnvelopeSenderInstrumentedTest {
                 sender.createUpsert(
                     notificationId = "synthetic.notification/42",
                     revision = 7,
+                    sourceApplicationId = "dev.notificationmirroring.android",
+                    sourceApplicationName = "SevenMirror",
                     title = "Synthetic notification",
                     body = "Encrypted test notification\n[图片]",
                     appIcon = appIcon,
@@ -78,6 +80,8 @@ class NotificationEnvelopeSenderInstrumentedTest {
 
             assertEquals(2, frames.size)
             assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("Encrypted test notification") })
+            assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("dev.notificationmirroring.android") })
+            assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("SevenMirror") })
             assertFalse(frames.any { it.toString(Charsets.UTF_8).contains("Mark handled") })
             assertFalse(frames.any { it.contains(appIcon.encodedBytes.toByteArray()) })
             assertFalse(frames.any { it.contains(avatar.encodedBytes.toByteArray()) })
@@ -86,6 +90,8 @@ class NotificationEnvelopeSenderInstrumentedTest {
             assertEquals(9L, firstPayload.first)
             assertEquals(10L, secondPayload.first)
             assertEquals(EncryptedPayload.BodyCase.NOTIFICATION_UPSERT, firstPayload.second.bodyCase)
+            assertEquals("dev.notificationmirroring.android", firstPayload.second.notificationUpsert.sourceApplicationId)
+            assertEquals("SevenMirror", firstPayload.second.notificationUpsert.sourceApplicationName)
             assertEquals(firstPayload.second, secondPayload.second)
             val upsert = firstPayload.second.notificationUpsert
             assertEquals("Encrypted test notification\n[图片]", upsert.body)
