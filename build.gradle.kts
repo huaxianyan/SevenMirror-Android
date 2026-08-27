@@ -70,6 +70,11 @@ tasks.register("verifyVendoredProtocol") {
             "protocol/test-vectors/device-auth-frame-v1.json",
             "protocol/DEVICE_AUTH_VECTOR_SHA256",
         )
+        verify("protocol/relay-delivery-v1.md", "protocol/RELAY_DELIVERY_SPEC_SHA256")
+        verify(
+            "protocol/test-vectors/relay-delivery-v1.json",
+            "protocol/RELAY_DELIVERY_VECTOR_SHA256",
+        )
         verify(
             "protocol/trusted-device-pairing-v1.md",
             "protocol/TRUST_PAIRING_SPEC_SHA256",

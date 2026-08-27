@@ -27,10 +27,13 @@ import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
 import dev.notificationmirroring.transport.AndroidMembershipRegistration
 import dev.notificationmirroring.transport.AndroidTransportCredentialStore
 import dev.notificationmirroring.transport.AndroidPendingMembershipStore
+import dev.notificationmirroring.transport.AndroidRelayDeliveryCursorStore
 import dev.notificationmirroring.transport.AuthenticatedWebSocketFactory
 import dev.notificationmirroring.transport.BoundedReconnectBackoff
 import dev.notificationmirroring.transport.CredentialCandidateSource
 import dev.notificationmirroring.transport.MembershipTransportPromotionCoordinator
+import dev.notificationmirroring.transport.RelayDeliveryCodecV1
+import dev.notificationmirroring.transport.RelayServerMessageV1
 import dev.notificationmirroring.transport.TransportCredentialRotationClient
 import dev.notificationmirroring.transport.WorkspaceMembershipClient
 import java.io.IOException
@@ -97,6 +100,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val identityStore = AndroidHpkeIdentityStore(applicationContext)
     private val credentialStore = AndroidTransportCredentialStore(applicationContext)
     private val pendingMembershipStore = AndroidPendingMembershipStore(applicationContext)
+    private val relayDeliveryCursorStore = AndroidRelayDeliveryCursorStore(applicationContext)
     private val workspaceMembershipStore = AndroidWorkspaceMembershipStore(applicationContext)
     private val replayLedger = AndroidReplayLedger(applicationContext)
     private val operationLedger = AndroidOperationLedger(applicationContext)
@@ -375,6 +379,21 @@ class AndroidTransportCoordinator(context: Context) {
                                     credentialStore.promotePending().authToken.fill(0)
                                 }
                                 preferCurrentFallback = false
+                                val resumeCursor = relayDeliveryCursorStore.load(
+                                    credential.workspaceId,
+                                    credential.deviceId,
+                                ).committedDeliveryId
+                                val resume = RelayDeliveryCodecV1.encodeResume(resumeCursor)
+                                val resumeAccepted = try {
+                                    webSocket.send(ByteString.of(*resume))
+                                } finally {
+                                    resume.fill(0)
+                                }
+                                if (!resumeAccepted) {
+                                    webSocket.cancel()
+                                    enqueueTermination(requestedGeneration, webSocket)
+                                    return@execute
+                                }
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
                                 scheduleMembershipRefresh(requestedGeneration, webSocket)
@@ -389,7 +408,7 @@ class AndroidTransportCoordinator(context: Context) {
                                     this@AndroidTransportCoordinator.webSocket = null
                                 }
                                 mutableState.value = AndroidTransportState.SECURITY_ERROR
-                                webSocket.close(1008, "pending credential promotion failed")
+                                webSocket.close(1008, "connection initialization failed")
                             }
                         }
                     }
@@ -408,11 +427,69 @@ class AndroidTransportCoordinator(context: Context) {
                                 return@execute
                             }
                             try {
-                                handlers.actionDispatcher.receiveAnyOnce(
-                                    frame,
-                                    System.currentTimeMillis(),
-                                )
-                                // Execution returns only after the exact result is durable.
+                                val nowUnixMs = System.currentTimeMillis()
+                                when (val message = RelayDeliveryCodecV1.decodeServerMessage(frame)) {
+                                    is RelayServerMessageV1.OnlineEnvelope -> {
+                                        handlers.actionDispatcher.receiveAnyOnce(
+                                            message.envelope,
+                                            nowUnixMs,
+                                        )
+                                    }
+                                    is RelayServerMessageV1.Delivery -> {
+                                        val cursor = relayDeliveryCursorStore.load(
+                                            credential.workspaceId,
+                                            credential.deviceId,
+                                        )
+                                        check(cursor.snapshotRequiredHighWater == null) {
+                                            "Relay delivery requires snapshot reconciliation"
+                                        }
+                                        check(message.deliveryId == Math.addExact(
+                                            cursor.committedDeliveryId,
+                                            1L,
+                                        )) { "Relay deliveries are not contiguous" }
+                                        handlers.actionDispatcher.receiveAnyOnce(
+                                            message.envelope,
+                                            nowUnixMs,
+                                        )
+                                        // Dispatch returns only after the exact action result or ACK
+                                        // reconciliation is durable. Cursor commit therefore comes last.
+                                        val committed = relayDeliveryCursorStore.commitDelivery(
+                                            credential.workspaceId,
+                                            credential.deviceId,
+                                            message.deliveryId,
+                                        )
+                                        val acknowledgement =
+                                            RelayDeliveryCodecV1.encodeAcknowledgement(
+                                                committed.committedDeliveryId,
+                                            )
+                                        val accepted = try {
+                                            webSocket.send(ByteString.of(*acknowledgement))
+                                        } finally {
+                                            acknowledgement.fill(0)
+                                        }
+                                        if (!accepted) {
+                                            webSocket.cancel()
+                                            enqueueTermination(requestedGeneration, webSocket)
+                                            return@execute
+                                        }
+                                    }
+                                    is RelayServerMessageV1.CaughtUp -> {
+                                        val cursor = relayDeliveryCursorStore.load(
+                                            credential.workspaceId,
+                                            credential.deviceId,
+                                        )
+                                        check(cursor.snapshotRequiredHighWater == null &&
+                                            message.highWater == cursor.committedDeliveryId
+                                        ) { "Relay caught-up marker does not match committed cursor" }
+                                    }
+                                    is RelayServerMessageV1.SnapshotRequired -> {
+                                        relayDeliveryCursorStore.requireSnapshot(
+                                            credential.workspaceId,
+                                            credential.deviceId,
+                                            message.highWater,
+                                        )
+                                    }
+                                }
                                 cancelResultDrain()
                                 drainResults(
                                     requestedGeneration,
@@ -544,7 +621,13 @@ class AndroidTransportCoordinator(context: Context) {
             val frames = createFrames(sender, System.currentTimeMillis()) ?: return
             try {
                 for (frame in frames) {
-                    if (!socket.send(ByteString.of(*frame))) {
+                    val durable = RelayDeliveryCodecV1.encodeDurableSubmission(frame)
+                    val accepted = try {
+                        socket.send(ByteString.of(*durable))
+                    } finally {
+                        durable.fill(0)
+                    }
+                    if (!accepted) {
                         socket.cancel()
                         enqueueTermination(generation.get(), socket)
                         return
@@ -612,7 +695,12 @@ class AndroidTransportCoordinator(context: Context) {
         if (generation.get() != requestedGeneration || webSocket !== socket) return
         val result = try {
             drainer.drainDue(System.currentTimeMillis()) { frame ->
-                socket.send(ByteString.of(*frame))
+                val durable = RelayDeliveryCodecV1.encodeDurableSubmission(frame)
+                try {
+                    socket.send(ByteString.of(*durable))
+                } finally {
+                    durable.fill(0)
+                }
             }
         } catch (_: Throwable) {
             rejectInbound(requestedGeneration, socket)
