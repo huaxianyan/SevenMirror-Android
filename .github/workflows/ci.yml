@@ -6,9 +6,29 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
+  security-events: write
 
 jobs:
+  release-runtime-vulnerability-gate:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+    with:
+      scan-args: |-
+        --lockfile=gradle/release-runtime/gradle.lockfile
+      upload-sarif: false
+      fail-on-vuln: true
+      matrix-property: release-runtime-
+
+  complete-supply-chain-vulnerability-audit:
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+    with:
+      scan-args: |-
+        --lockfile=gradle/verification-metadata.xml
+      upload-sarif: false
+      fail-on-vuln: false
+      matrix-property: supply-chain-
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -32,6 +52,21 @@ jobs:
           java-version: '17'
           cache: gradle
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+      - name: Verify dependency inventories
+        run: |
+          bash .github/scripts/gradle-step.sh \
+            :app:dependencies \
+            :core-crypto:dependencies \
+            :core-notification:dependencies \
+            :core-protocol:dependencies \
+            :core-transport:dependencies \
+            writeReleaseRuntimeDependencyInventory \
+            --write-locks
+          if [[ -n "$(git status --porcelain -- ':(glob)**/gradle.lockfile')" ]]; then
+            echo 'Gradle dependency inventories are incomplete or stale.' >&2
+            git status --short -- ':(glob)**/gradle.lockfile'
+            exit 1
+          fi
       - name: Verify project license
         run: |
           echo '3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986  LICENSE' | sha256sum --check -

@@ -21,6 +21,39 @@ Repository: <https://github.com/huaxianyan/SevenMirror-Android>
 
 On Windows PowerShell or Command Prompt, use `gradlew.bat`.
 
+## Dependency integrity
+
+All resolvable build, runtime, unit-test, instrumentation-test, and Kotlin
+compiler-plugin configurations use Gradle strict dependency locking. AGP's
+synthetic `*DependenciesMetadata` configurations are excluded because Gradle
+8.13 does not persist lock state for them; they duplicate dependencies already
+covered by the real classpaths.
+
+To update dependency versions intentionally, run:
+
+```sh
+./gradlew \
+  :app:dependencies \
+  :core-crypto:dependencies \
+  :core-notification:dependencies \
+  :core-protocol:dependencies \
+  :core-transport:dependencies \
+  --write-locks
+./gradlew verifyVendoredProtocol test lint assembleDebug \
+  --write-verification-metadata sha256
+./gradlew writeReleaseRuntimeDependencyInventory
+```
+
+Review every lockfile and every new artifact checksum in
+`gradle/verification-metadata.xml` before committing. Do not use lenient
+verification or generate checksums in CI. CI verifies inventory stability and
+rejects artifacts absent from the checked-in SHA-256 metadata. SHA-pinned OSV
+Scanner v2.5.1 blocks known vulnerabilities in the exact release runtime
+inventory. A separate supply-chain audit scans the complete artifact and
+Gradle/plugin inventory in `verification-metadata.xml`; known upstream Android
+build-tool findings remain visible there and are not misrepresented as APK
+runtime dependencies.
+
 ## Signing
 
 Distributable debug and release APKs use the project's fixed Android signing
