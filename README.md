@@ -54,6 +54,15 @@ Gradle/plugin inventory in `verification-metadata.xml`; known upstream Android
 build-tool findings remain visible there and are not misrepresented as APK
 runtime dependencies.
 
+## Sensitive local data
+
+The API 29 instrumentation suite uses real Android Keystore-backed stores and
+canary credentials to reject raw or encoded transport tokens and HPKE private
+scalars in SharedPreferences, databases, app files, cache, own-process logcat,
+and generated errors. Expected endpoint-local protocol state and remaining OS,
+backup, crash, screenshot, and business-content boundaries are documented in
+[`docs/SENSITIVE_DATA.md`](docs/SENSITIVE_DATA.md).
+
 ## Signing
 
 Distributable debug and release APKs use the project's fixed Android signing
