@@ -66,6 +66,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val replay = AndroidReplayLedger(context, name)
         val operations = AndroidOperationLedger(context, name)
         var senderAuthorized = false
+        var operationAllowed = false
         val outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val sender = AuthenticatedHpke.generateKeyPair()
@@ -92,6 +93,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 }
             },
             notificationRecipients = WorkspaceNotificationRecipientDirectory { _, _, _ -> emptyList() },
+            operationAuthorizer = RemoteOperationAuthorizer { _, _ -> operationAllowed },
             replayLedger = replay,
             operationLedger = operations,
             resultOutbox = outbox,
@@ -132,6 +134,37 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 dispatcher.receiveOnce(first, now)
             }
             senderAuthorized = true
+            val blocked = actionFrame(
+                9,
+                0xa1,
+                token,
+                now,
+                workspace,
+                recipientDevice,
+                sender,
+                recipient,
+            )
+            val blockedReceipt = dispatcher.receiveOnce(blocked, now)
+            assertEquals(
+                ActionResultStatus.ACTION_RESULT_STATUS_ACTION_NOT_FOUND,
+                blockedReceipt.result.status,
+            )
+            assertEquals(0, ActionSideEffectReceiver.count.get())
+            dispatcher.receiveAnyOnce(
+                ackFrame(
+                    99,
+                    ByteArray(16) { 0xa1.toByte() },
+                    sha256(blockedReceipt.resultPayload),
+                    now,
+                    workspace,
+                    recipientDevice,
+                    sender,
+                    recipient,
+                ),
+                now,
+            )
+
+            operationAllowed = true
             val firstResult = dispatcher.receiveOnce(first, now)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, firstResult.result.status)
             assertEquals(false, firstResult.recovered)

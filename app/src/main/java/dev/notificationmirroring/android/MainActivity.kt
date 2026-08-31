@@ -21,11 +21,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
@@ -39,9 +41,12 @@ import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -80,6 +85,7 @@ class MainActivity : ComponentActivity() {
     private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
     private var installedApplications by mutableStateOf<List<SelectableApplication>>(emptyList())
     private var applicationsLoaded by mutableStateOf(false)
+    private var remoteOperationSettings by mutableStateOf(RemoteOperationSettings())
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -96,6 +102,7 @@ class MainActivity : ComponentActivity() {
         welcomeCompleted = productPreferences.isWelcomeCompleted()
         applicationSelectionConfirmed = productPreferences.isApplicationSelectionConfirmed()
         selectedPackages = productPreferences.selectedPackages()
+        remoteOperationSettings = productPreferences.remoteOperationSettings()
         refreshNotificationAccess()
         loadApplications()
 
@@ -110,6 +117,7 @@ class MainActivity : ComponentActivity() {
                     applications = installedApplications,
                     applicationsLoaded = applicationsLoaded,
                     selectedPackages = selectedPackages,
+                    remoteOperationSettings = remoteOperationSettings,
                     onCompleteWelcome = {
                         productPreferences.completeWelcome()
                         welcomeCompleted = true
@@ -122,6 +130,14 @@ class MainActivity : ComponentActivity() {
                         productPreferences.saveApplicationSelection(packages)
                         selectedPackages = packages.toSet()
                         applicationSelectionConfirmed = true
+                    },
+                    onSaveGlobalRemoteOperations = { permissions ->
+                        productPreferences.saveGlobalRemoteOperationPermissions(permissions)
+                        remoteOperationSettings = productPreferences.remoteOperationSettings()
+                    },
+                    onSaveApplicationOperationOverride = { packageName, override ->
+                        productPreferences.saveApplicationOperationOverride(packageName, override)
+                        remoteOperationSettings = productPreferences.remoteOperationSettings()
                     },
                     onPostDebugNotification =
                     if (ProductDebugActions.available) ::postDebugNotification else null,
@@ -190,10 +206,13 @@ private fun SevenMirrorApp(
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
     selectedPackages: Set<String>,
+    remoteOperationSettings: RemoteOperationSettings,
     onCompleteWelcome: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onRefreshNotificationAccess: () -> Unit,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
+    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     val transportState by transportCoordinator.state.collectAsState()
@@ -225,7 +244,10 @@ private fun SevenMirrorApp(
                 applicationsLoaded = applicationsLoaded,
                 initialSelection = selectedPackages,
                 onboarding = true,
+                remoteOperationSettings = remoteOperationSettings,
                 onSave = onSaveApplicationSelection,
+                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
             )
             OnboardingStage.COMPLETE -> MainScreen(
                 transportState = transportState,
@@ -235,7 +257,10 @@ private fun SevenMirrorApp(
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
                 selectedPackages = selectedPackages,
+                remoteOperationSettings = remoteOperationSettings,
                 onSaveApplicationSelection = onSaveApplicationSelection,
+                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                 onOpenNotificationAccess = onOpenNotificationAccess,
                 onReconnect = transportCoordinator::connect,
                 onPostDebugNotification = onPostDebugNotification,
@@ -421,10 +446,14 @@ private fun ApplicationSelectionScreen(
     applicationsLoaded: Boolean,
     initialSelection: Set<String>,
     onboarding: Boolean,
+    remoteOperationSettings: RemoteOperationSettings,
     onSave: (Set<String>) -> Unit,
+    onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
+    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
 ) {
     var selection by remember(initialSelection) { mutableStateOf(initialSelection.toSet()) }
     var query by rememberSaveable { mutableStateOf("") }
+    var configuringPackage by rememberSaveable { mutableStateOf<String?>(null) }
     var filter by rememberSaveable { mutableStateOf(ApplicationFilter.ORDINARY) }
     val visibleApplications = remember(applications, filter, query) {
         filterApplications(applications, filter, query)
@@ -450,6 +479,14 @@ private fun ApplicationSelectionScreen(
                 pluralStringResource(R.plurals.selected_apps_count, selection.size, selection.size),
                 style = MaterialTheme.typography.titleMedium,
             )
+        }
+        if (!onboarding) {
+            item {
+                GlobalRemoteOperationsCard(
+                    permissions = remoteOperationSettings.globalDefaults,
+                    onSave = onSaveGlobalRemoteOperations,
+                )
+            }
         }
         item {
             OutlinedTextField(
@@ -516,13 +553,22 @@ private fun ApplicationSelectionScreen(
                         checked = app.packageName in selection,
                         onCheckedChange = { selection = selection.toggled(app.packageName) },
                     )
-                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                    Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
                         Text(app.label, style = MaterialTheme.typography.bodyLarge)
                         if (app.isSystemApplication) {
                             Text(
                                 stringResource(R.string.system_application),
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                        }
+                        if (!onboarding && app.packageName in selection) {
+                            TextButton(onClick = { configuringPackage = app.packageName }) {
+                                Text(
+                                    applicationOperationModeLabel(
+                                        remoteOperationSettings.applicationOverrides[app.packageName]?.mode,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -541,6 +587,166 @@ private fun ApplicationSelectionScreen(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    configuringPackage?.let { packageName ->
+        applications.firstOrNull { it.packageName == packageName }?.let { application ->
+            ApplicationOperationDialog(
+                applicationName = application.label,
+                globalDefaults = remoteOperationSettings.globalDefaults,
+                currentOverride = remoteOperationSettings.applicationOverrides[packageName],
+                onDismiss = { configuringPackage = null },
+                onSave = { override ->
+                    onSaveApplicationOperationOverride(packageName, override)
+                    configuringPackage = null
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun GlobalRemoteOperationsCard(
+    permissions: RemoteOperationPermissions,
+    onSave: (RemoteOperationPermissions) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(stringResource(R.string.remote_operations), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.remote_operations_body), style = MaterialTheme.typography.bodySmall)
+            PermissionSwitchRow(
+                label = stringResource(R.string.allow_actions),
+                checked = permissions.actions,
+                onCheckedChange = { onSave(permissions.copy(actions = it)) },
+            )
+            PermissionSwitchRow(
+                label = stringResource(R.string.allow_replies),
+                checked = permissions.replies,
+                onCheckedChange = { onSave(permissions.copy(replies = it)) },
+            )
+            PermissionSwitchRow(
+                label = stringResource(R.string.allow_clearing),
+                checked = permissions.clearing,
+                onCheckedChange = { onSave(permissions.copy(clearing = it)) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun PermissionSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun applicationOperationModeLabel(mode: ApplicationOperationMode?): String =
+    stringResource(
+        when (mode) {
+            null, ApplicationOperationMode.GLOBAL_DEFAULTS -> R.string.use_global_defaults
+            ApplicationOperationMode.ALLOW_ALL -> R.string.allow_all_operations
+            ApplicationOperationMode.VIEW_ONLY -> R.string.view_only
+            ApplicationOperationMode.CUSTOM -> R.string.custom_permissions
+        },
+    )
+
+@Composable
+private fun ApplicationOperationDialog(
+    applicationName: String,
+    globalDefaults: RemoteOperationPermissions,
+    currentOverride: ApplicationOperationOverride?,
+    onDismiss: () -> Unit,
+    onSave: (ApplicationOperationOverride?) -> Unit,
+) {
+    var mode by remember(currentOverride) {
+        mutableStateOf(currentOverride?.mode ?: ApplicationOperationMode.GLOBAL_DEFAULTS)
+    }
+    var customPermissions by remember(currentOverride, globalDefaults) {
+        mutableStateOf(
+            currentOverride?.customPermissions
+                ?.takeIf { currentOverride.mode == ApplicationOperationMode.CUSTOM }
+                ?: globalDefaults,
+        )
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.app_operation_permissions, applicationName)) },
+        text = {
+            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                ApplicationOperationMode.entries.forEach { option ->
+                    item(option.name) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable { mode = option }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = mode == option,
+                                onClick = { mode = option },
+                            )
+                            Text(applicationOperationModeLabel(option))
+                        }
+                    }
+                }
+                if (mode == ApplicationOperationMode.CUSTOM) {
+                    item {
+                        PermissionSwitchRow(
+                            label = stringResource(R.string.allow_actions),
+                            checked = customPermissions.actions,
+                            onCheckedChange = {
+                                customPermissions = customPermissions.copy(actions = it)
+                            },
+                        )
+                    }
+                    item {
+                        PermissionSwitchRow(
+                            label = stringResource(R.string.allow_replies),
+                            checked = customPermissions.replies,
+                            onCheckedChange = {
+                                customPermissions = customPermissions.copy(replies = it)
+                            },
+                        )
+                    }
+                    item {
+                        PermissionSwitchRow(
+                            label = stringResource(R.string.allow_clearing),
+                            checked = customPermissions.clearing,
+                            onCheckedChange = {
+                                customPermissions = customPermissions.copy(clearing = it)
+                            },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    onSave(
+                        if (mode == ApplicationOperationMode.GLOBAL_DEFAULTS) {
+                            null
+                        } else {
+                            ApplicationOperationOverride(mode, customPermissions)
+                        },
+                    )
+                },
+            ) { Text(stringResource(R.string.save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 private fun Set<String>.toggled(value: String): Set<String> =
@@ -558,7 +764,10 @@ private fun MainScreen(
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
     selectedPackages: Set<String>,
+    remoteOperationSettings: RemoteOperationSettings,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
+    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onReconnect: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
@@ -611,7 +820,10 @@ private fun MainScreen(
                             applicationsLoaded,
                             selectedPackages,
                             onboarding = false,
+                            remoteOperationSettings = remoteOperationSettings,
                             onSave = onSaveApplicationSelection,
+                            onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                            onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                         )
                         MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
                         MainDestination.SETTINGS -> SettingsScreen(

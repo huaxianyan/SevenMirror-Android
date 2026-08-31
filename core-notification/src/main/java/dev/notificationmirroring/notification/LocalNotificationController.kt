@@ -34,6 +34,7 @@ object LocalNotificationController {
     )
 
     private data class RegisteredNotification(
+        val packageName: String,
         val revision: Long,
         val actions: List<RegisteredAction>,
         val mirrorEligible: Boolean,
@@ -80,6 +81,7 @@ object LocalNotificationController {
         )
         val mirrorEligible = sbn.packageName == context.packageName
         registered[sbn.key] = RegisteredNotification(
+            packageName = sbn.packageName,
             revision = revision,
             actions = actions,
             mirrorEligible = mirrorEligible,
@@ -130,6 +132,7 @@ object LocalNotificationController {
     fun dismiss(
         notificationKey: String,
         notificationRevision: Long,
+        operationAuthorizer: RemoteOperationAuthorizer,
     ): ActionExecutionResult {
         val notification = registered[notificationKey]
             ?: return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
@@ -138,6 +141,9 @@ object LocalNotificationController {
         }
         if (notification.revision != notificationRevision) {
             return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
+        }
+        if (!operationAuthorizer.isAllowed(notification.packageName, RemoteOperationType.CLEAR)) {
+            return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
         }
         if (!notification.isClearable) {
             return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_NOT_CLEARABLE")
@@ -157,6 +163,7 @@ object LocalNotificationController {
         context: Context,
         token: NotificationActionToken,
         replyText: String? = null,
+        operationAuthorizer: RemoteOperationAuthorizer,
     ): ActionExecutionResult {
         val notification = registered[token.notificationKey]
             ?: return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
@@ -167,6 +174,14 @@ object LocalNotificationController {
             .firstOrNull { it.id == token.actionId }
             ?.action
             ?: return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
+        val operationType = if (replyText == null) {
+            RemoteOperationType.ACTION
+        } else {
+            RemoteOperationType.REPLY
+        }
+        if (!operationAuthorizer.isAllowed(notification.packageName, operationType)) {
+            return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
+        }
         val remoteInputs = action.remoteInputs.orEmpty()
 
         return try {

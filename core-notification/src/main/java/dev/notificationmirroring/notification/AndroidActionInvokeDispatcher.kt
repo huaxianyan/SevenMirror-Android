@@ -44,6 +44,7 @@ class AndroidActionInvokeDispatcher(
     recipientIdentity: AuthenticatedHpke.KeyPair,
     private val actionPeers: WorkspaceActionPeerResolver,
     private val notificationRecipients: WorkspaceNotificationRecipientDirectory,
+    private val operationAuthorizer: RemoteOperationAuthorizer,
     private val replayLedger: AndroidReplayLedger,
     private val operationLedger: AndroidOperationLedger,
     private val resultOutbox: AndroidActionResultOutbox,
@@ -145,6 +146,7 @@ class AndroidActionInvokeDispatcher(
                         payload = payload,
                         operationLedger = operationLedger,
                         resultOutbox = resultOutbox,
+                        operationAuthorizer = operationAuthorizer,
                         nowUnixMs = nowUnixMs,
                     ),
                 )

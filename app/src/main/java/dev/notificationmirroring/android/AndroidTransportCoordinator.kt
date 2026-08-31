@@ -22,6 +22,7 @@ import dev.notificationmirroring.notification.NotificationActionDescriptor
 import dev.notificationmirroring.notification.NotificationMedia
 import dev.notificationmirroring.notification.NotificationMediaMimeType
 import dev.notificationmirroring.notification.NotificationSnapshot
+import dev.notificationmirroring.notification.RemoteOperationAuthorizer
 import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor as ProtocolNotificationActionDescriptor
 import dev.notificationmirroring.protocol.generated.v1.NotificationMedia as ProtocolNotificationMedia
@@ -109,6 +110,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val replayLedger = AndroidReplayLedger(applicationContext)
     private val operationLedger = AndroidOperationLedger(applicationContext)
     private val resultOutbox = AndroidActionResultOutbox(applicationContext)
+    private val productPreferences = AndroidProductPreferences(applicationContext)
     private val httpClient = OkHttpClient()
     private val rotationClient = TransportCredentialRotationClient(httpClient, credentialStore)
     private val membershipClient = WorkspaceMembershipClient(
@@ -357,6 +359,9 @@ class AndroidTransportCoordinator(context: Context) {
                     recipientIdentity = identity,
                     actionPeers = workspaceMembershipStore,
                     notificationRecipients = workspaceMembershipStore,
+                    operationAuthorizer = RemoteOperationAuthorizer(
+                        productPreferences::isRemoteOperationAllowed,
+                    ),
                     replayLedger = replayLedger,
                     operationLedger = operationLedger,
                     resultOutbox = resultOutbox,

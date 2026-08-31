@@ -20,6 +20,7 @@ object AuthenticatedNotificationActionHandler {
         recipientContext: EnvelopeRecipientContext,
         replayLedger: AndroidReplayLedger,
         operationLedger: AndroidOperationLedger,
+        operationAuthorizer: RemoteOperationAuthorizer,
         nowUnixMs: Long,
     ): ActionReceipt = AuthenticatedActionReceiver.receiveOnce(
         frameBytes,
@@ -27,7 +28,7 @@ object AuthenticatedNotificationActionHandler {
         replayLedger,
         operationLedger,
         nowUnixMs,
-    ) { request -> execute(androidContext, request) }
+    ) { request -> execute(androidContext, request, operationAuthorizer) }
 
     /** Production boundary that reserves and completes durable result delivery around execution. */
     fun receiveAndQueueOnce(
@@ -37,6 +38,7 @@ object AuthenticatedNotificationActionHandler {
         replayLedger: AndroidReplayLedger,
         operationLedger: AndroidOperationLedger,
         resultOutbox: AndroidActionResultOutbox,
+        operationAuthorizer: RemoteOperationAuthorizer,
         nowUnixMs: Long,
     ): ActionReceipt = AuthenticatedActionReceiver.receiveAndQueueOnce(
         frameBytes,
@@ -45,7 +47,7 @@ object AuthenticatedNotificationActionHandler {
         operationLedger,
         resultOutbox,
         nowUnixMs,
-    ) { request -> execute(androidContext, request) }
+    ) { request -> execute(androidContext, request, operationAuthorizer) }
 
     /** Continues production dispatch after the shared authenticated envelope boundary. */
     fun receiveDecodedAndQueue(
@@ -54,6 +56,7 @@ object AuthenticatedNotificationActionHandler {
         payload: EncryptedPayload,
         operationLedger: AndroidOperationLedger,
         resultOutbox: AndroidActionResultOutbox,
+        operationAuthorizer: RemoteOperationAuthorizer,
         nowUnixMs: Long,
     ): ActionReceipt = AuthenticatedActionReceiver.receiveDecodedAndQueue(
         opened,
@@ -61,16 +64,18 @@ object AuthenticatedNotificationActionHandler {
         operationLedger,
         resultOutbox,
         nowUnixMs,
-    ) { request -> execute(androidContext, request) }
+    ) { request -> execute(androidContext, request, operationAuthorizer) }
 
     private fun execute(
         androidContext: Context,
         request: dev.notificationmirroring.protocol.generated.v1.ActionInvoke,
+        operationAuthorizer: RemoteOperationAuthorizer,
     ): ActionResult {
         val localResult = if (request.dismissNotification) {
             LocalNotificationController.dismiss(
                 notificationKey = request.notificationId,
                 notificationRevision = request.notificationRevision,
+                operationAuthorizer = operationAuthorizer,
             )
         } else {
             LocalNotificationController.invoke(
@@ -81,6 +86,7 @@ object AuthenticatedNotificationActionHandler {
                     actionId = NotificationActionId.fromBytes(request.actionId.toByteArray()),
                 ),
                 replyText = request.replyText.takeIf { request.hasReplyText() },
+                operationAuthorizer = operationAuthorizer,
             )
         }
         return ActionResult.newBuilder()

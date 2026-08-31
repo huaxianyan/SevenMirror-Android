@@ -1,9 +1,35 @@
 package dev.notificationmirroring.android
 
+import dev.notificationmirroring.notification.RemoteOperationType
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AndroidProductPreferencesTest {
+    @Test
+    fun `application operation mode overrides global defaults`() {
+        val settings = RemoteOperationSettings(
+            globalDefaults = RemoteOperationPermissions(actions = true),
+            applicationOverrides = mapOf(
+                "com.example.allowed" to ApplicationOperationOverride(
+                    ApplicationOperationMode.ALLOW_ALL,
+                ),
+                "com.example.blocked" to ApplicationOperationOverride(
+                    ApplicationOperationMode.VIEW_ONLY,
+                ),
+                "com.example.custom" to ApplicationOperationOverride(
+                    ApplicationOperationMode.CUSTOM,
+                    RemoteOperationPermissions(replies = true),
+                ),
+            ),
+        )
+
+        assertEquals(true, settings.permissionsFor("com.example.default").allows(RemoteOperationType.ACTION))
+        assertEquals(true, settings.permissionsFor("com.example.allowed").allows(RemoteOperationType.CLEAR))
+        assertEquals(false, settings.permissionsFor("com.example.blocked").allows(RemoteOperationType.ACTION))
+        assertEquals(true, settings.permissionsFor("com.example.custom").allows(RemoteOperationType.REPLY))
+        assertEquals(false, settings.permissionsFor("com.example.custom").allows(RemoteOperationType.CLEAR))
+    }
+
     @Test
     fun `search and category show only matching applications`() {
         val applications = listOf(
