@@ -12,7 +12,7 @@ class NotificationMirroringApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        DebugActionState.restore(this)
+        ProductDebugActions.restore(this)
         transportCoordinator = AndroidTransportCoordinator(this)
         LocalNotificationController.installSyntheticMirrorSink(
             object : SyntheticNotificationMirrorSink {

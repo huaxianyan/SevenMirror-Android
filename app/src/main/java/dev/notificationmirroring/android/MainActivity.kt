@@ -1,8 +1,6 @@
 package dev.notificationmirroring.android
 
 import android.Manifest
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -10,62 +8,144 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import dev.notificationmirroring.notification.ActionExecutionStatus
-import dev.notificationmirroring.notification.LocalNotificationController
-import dev.notificationmirroring.notification.NotificationActionDescriptor
-import dev.notificationmirroring.notification.NotificationSnapshot
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
+    private lateinit var productPreferences: AndroidProductPreferences
+    private val applicationLoader = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "installed-application-loader").apply { isDaemon = true }
+    }
+
+    private var notificationAccessGranted by mutableStateOf(false)
+    private var welcomeCompleted by mutableStateOf(false)
+    private var applicationSelectionConfirmed by mutableStateOf(false)
+    private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
+    private var installedApplications by mutableStateOf<List<SelectableApplication>>(emptyList())
+    private var applicationsLoaded by mutableStateOf(false)
+
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted) {
-            DebugNotificationPublisher.post(this)
+        if (granted && ProductDebugActions.available) {
+            ProductDebugActions.postNotification(this)
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        productPreferences = AndroidProductPreferences(this)
+        welcomeCompleted = productPreferences.isWelcomeCompleted()
+        applicationSelectionConfirmed = productPreferences.isApplicationSelectionConfirmed()
+        selectedPackages = productPreferences.selectedPackages()
+        refreshNotificationAccess()
+        loadApplications()
+
         setContent {
-            MaterialTheme {
-                NotificationCapabilityScreen(
+            SevenMirrorTheme {
+                SevenMirrorApp(
                     transportCoordinator =
                     (application as NotificationMirroringApplication).transportCoordinator,
+                    welcomeCompleted = welcomeCompleted,
+                    notificationAccessGranted = notificationAccessGranted,
+                    applicationSelectionConfirmed = applicationSelectionConfirmed,
+                    applications = installedApplications,
+                    applicationsLoaded = applicationsLoaded,
+                    selectedPackages = selectedPackages,
+                    onCompleteWelcome = {
+                        productPreferences.completeWelcome()
+                        welcomeCompleted = true
+                    },
                     onOpenNotificationAccess = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
-                    onPostDebugNotification = ::postDebugNotification,
+                    onRefreshNotificationAccess = ::refreshNotificationAccess,
+                    onSaveApplicationSelection = { packages ->
+                        productPreferences.saveApplicationSelection(packages)
+                        selectedPackages = packages.toSet()
+                        applicationSelectionConfirmed = true
+                    },
+                    onPostDebugNotification =
+                    if (ProductDebugActions.available) ::postDebugNotification else null,
                 )
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::productPreferences.isInitialized) refreshNotificationAccess()
+    }
+
+    override fun onDestroy() {
+        applicationLoader.shutdownNow()
+        super.onDestroy()
+    }
+
+    private fun refreshNotificationAccess() {
+        notificationAccessGranted =
+            NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+    }
+
+    private fun loadApplications() {
+        applicationLoader.execute {
+            val loaded = runCatching { InstalledApplicationCatalog.load(this) }.getOrDefault(emptyList())
+            runOnUiThread {
+                installedApplications = loaded
+                applicationsLoaded = true
             }
         }
     }
@@ -78,333 +158,534 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            DebugNotificationPublisher.post(this)
+            ProductDebugActions.postNotification(this)
         }
     }
 }
 
 @Composable
-private fun NotificationCapabilityScreen(
+private fun SevenMirrorTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
+    val colors = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme -> dynamicDarkColorScheme(context)
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
+        darkTheme -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    MaterialTheme(colorScheme = colors, content = content)
+}
+
+@Composable
+private fun SevenMirrorApp(
     transportCoordinator: AndroidTransportCoordinator,
+    welcomeCompleted: Boolean,
+    notificationAccessGranted: Boolean,
+    applicationSelectionConfirmed: Boolean,
+    applications: List<SelectableApplication>,
+    applicationsLoaded: Boolean,
+    selectedPackages: Set<String>,
+    onCompleteWelcome: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
-    onPostDebugNotification: () -> Unit,
+    onRefreshNotificationAccess: () -> Unit,
+    onSaveApplicationSelection: (Set<String>) -> Unit,
+    onPostDebugNotification: (() -> Unit)?,
 ) {
-    val notifications by LocalNotificationController.notifications.collectAsState()
-    val debugActionResult by DebugActionState.lastResult.collectAsState()
-    val regularActionCount by DebugActionState.regularActionCount.collectAsState()
     val transportState by transportCoordinator.state.collectAsState()
-    var serverOrigin by remember { mutableStateOf("") }
-    var pairingCode by remember { mutableStateOf("") }
-    var deviceName by remember { mutableStateOf("Android") }
-    var rotationCode by remember { mutableStateOf("") }
-    var registrationMessage by remember { mutableStateOf<String?>(null) }
-    val credentialRotationStarted = stringResource(R.string.credential_rotation_started)
-    val credentialRotationAccepted = stringResource(R.string.credential_rotation_accepted)
-    val credentialRotationUnconfirmed = stringResource(R.string.credential_rotation_unconfirmed)
-    val registrationStarted = stringResource(R.string.registration_started)
-    val registrationSucceeded = stringResource(R.string.registration_succeeded)
-    val registrationFailed = stringResource(R.string.registration_failed)
+    val enrollmentPending by transportCoordinator.enrollmentPending.collectAsState()
+    val stage = onboardingStage(
+        welcomeCompleted = welcomeCompleted,
+        transportState = transportState,
+        enrollmentPending = enrollmentPending,
+        notificationAccessGranted = notificationAccessGranted,
+        applicationSelectionConfirmed = applicationSelectionConfirmed,
+    )
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
-        }
-        item {
-            Text(
-                stringResource(R.string.transport_boundary),
-                style = MaterialTheme.typography.bodySmall,
+    Surface(modifier = Modifier.fillMaxSize()) {
+        when (stage) {
+            OnboardingStage.WELCOME -> WelcomeScreen(onContinue = onCompleteWelcome)
+            OnboardingStage.LOADING -> LoadingScreen()
+            OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
+            OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
+                onRetry = transportCoordinator::connect,
             )
-        }
-        item {
-            TransportRegistrationCard(
-                state = transportState,
-                serverOrigin = serverOrigin,
-                onServerOriginChanged = { serverOrigin = it },
-                pairingCode = pairingCode,
-                onPairingCodeChanged = { pairingCode = it.take(32) },
-                deviceName = deviceName,
-                onDeviceNameChanged = { deviceName = it.take(100) },
-                rotationCode = rotationCode,
-                onRotationCodeChanged = { rotationCode = it.take(32) },
-                message = registrationMessage,
-                onReconnect = transportCoordinator::connect,
-                onRotate = {
-                    val oneTimeCode = rotationCode
-                    rotationCode = ""
-                    registrationMessage = credentialRotationStarted
-                    transportCoordinator.rotateCredential(oneTimeCode) { requestConfirmed ->
-                        registrationMessage = if (requestConfirmed) {
-                            credentialRotationAccepted
-                        } else {
-                            credentialRotationUnconfirmed
-                        }
-                    }
-                },
-                onRegister = {
-                    val oneTimeCode = pairingCode
-                    pairingCode = ""
-                    registrationMessage = registrationStarted
-                    transportCoordinator.register(
-                        serverOrigin = serverOrigin,
-                        pairingCode = oneTimeCode,
-                        deviceName = deviceName,
-                    ) { succeeded ->
-                        registrationMessage = if (succeeded) {
-                            registrationSucceeded
-                        } else {
-                            registrationFailed
-                        }
-                    }
-                },
+            OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
+                onOpenSettings = onOpenNotificationAccess,
+                onCheckAgain = onRefreshNotificationAccess,
             )
+            OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
+                applications = applications,
+                applicationsLoaded = applicationsLoaded,
+                initialSelection = selectedPackages,
+                onboarding = true,
+                onSave = onSaveApplicationSelection,
+            )
+            OnboardingStage.COMPLETE -> MainScreen(
+                transportState = transportState,
+                notificationAccessGranted = notificationAccessGranted,
+                applications = applications,
+                applicationsLoaded = applicationsLoaded,
+                selectedPackages = selectedPackages,
+                onSaveApplicationSelection = onSaveApplicationSelection,
+                onOpenNotificationAccess = onOpenNotificationAccess,
+                onPostDebugNotification = onPostDebugNotification,
+            )
+            OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen()
         }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOpenNotificationAccess) {
-                    Text(stringResource(R.string.open_notification_access))
-                }
-                Button(onClick = onPostDebugNotification) {
-                    Text(stringResource(R.string.post_test_notification))
+    }
+}
+
+@Composable
+private fun Page(content: @Composable (Modifier) -> Unit) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val horizontalPadding = if (maxWidth >= 600.dp) 32.dp else 20.dp
+        Box(
+            modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding),
+            contentAlignment = Alignment.Center,
+        ) {
+            content(Modifier.fillMaxWidth().widthIn(max = 720.dp))
+        }
+    }
+}
+
+@Composable
+private fun LoadingScreen() {
+    Page { modifier ->
+        Column(
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            CircularProgressIndicator()
+            Text(stringResource(R.string.loading_saved_setup))
+        }
+    }
+}
+
+@Composable
+private fun WelcomeScreen(onContinue: () -> Unit) {
+    Page { modifier ->
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text(stringResource(R.string.welcome_title), style = MaterialTheme.typography.headlineLarge)
+            Text(stringResource(R.string.welcome_body), style = MaterialTheme.typography.bodyLarge)
+            Card {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(stringResource(R.string.e2ee_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.e2ee_body))
                 }
             }
-        }
-        item {
-            Text(
-                stringResource(R.string.debug_receiver, debugActionResult),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
-                stringResource(R.string.synthetic_side_effect_count, regularActionCount),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Button(
-                onClick = {
-                    val snapshot = transportCoordinator.syntheticResultOutboxSnapshot()
-                    DebugActionState.update(
-                        "Result outbox: reservations=${snapshot.reservations}, " +
-                            "completed=${snapshot.completedResults}, due=${snapshot.dueResults}, " +
-                            "dormant=${snapshot.dormantResults}, " +
-                            "acknowledged=${snapshot.acknowledgedResults}, " +
-                            "accepted sends=${snapshot.acceptedSendAttempts}",
-                    )
-                },
-            ) {
-                Text(stringResource(R.string.refresh_outbox_status))
-            }
-        }
-        item { Text(stringResource(R.string.active_notifications, notifications.size)) }
-        if (notifications.isEmpty()) {
-            item { Text(stringResource(R.string.notification_test_empty)) }
-        } else {
-            items(notifications, key = { it.key }) { snapshot ->
-                NotificationCard(snapshot)
+            Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.continue_action))
             }
         }
     }
 }
 
 @Composable
-private fun TransportRegistrationCard(
-    state: AndroidTransportState,
-    serverOrigin: String,
-    onServerOriginChanged: (String) -> Unit,
-    pairingCode: String,
-    onPairingCodeChanged: (String) -> Unit,
-    deviceName: String,
-    onDeviceNameChanged: (String) -> Unit,
-    rotationCode: String,
-    onRotationCodeChanged: (String) -> Unit,
-    message: String?,
-    onReconnect: () -> Unit,
-    onRotate: () -> Unit,
-    onRegister: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+private fun ServerSetupScreen(transportCoordinator: AndroidTransportCoordinator) {
+    var serverOrigin by rememberSaveable { mutableStateOf("") }
+    var pairingCode by rememberSaveable { mutableStateOf("") }
+    var deviceName by rememberSaveable { mutableStateOf(Build.MODEL.take(100)) }
+    var message by remember { mutableStateOf<Int?>(null) }
+    val transportState by transportCoordinator.state.collectAsState()
+
+    Page { modifier ->
+        LazyColumn(
+            modifier = modifier,
+            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(stringResource(R.string.private_server), style = MaterialTheme.typography.titleMedium)
-            Text(
-                stringResource(R.string.transport_status, transportStateLabel(state)),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            if (state == AndroidTransportState.NOT_CONFIGURED) {
+            item {
+                Text(stringResource(R.string.connect_server_title), style = MaterialTheme.typography.headlineMedium)
+                Spacer(Modifier.height(8.dp))
+                Text(stringResource(R.string.connect_server_body))
+            }
+            item {
                 OutlinedTextField(
                     value = serverOrigin,
-                    onValueChange = onServerOriginChanged,
+                    onValueChange = { serverOrigin = it.trim().take(2048) },
                     label = { Text(stringResource(R.string.server_origin)) },
                     placeholder = { Text(stringResource(R.string.server_origin_placeholder)) },
+                    supportingText = { Text(stringResource(R.string.server_origin_help)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            item {
                 OutlinedTextField(
                     value = pairingCode,
-                    onValueChange = onPairingCodeChanged,
+                    onValueChange = { pairingCode = it.filterNot(Char::isWhitespace).take(32) },
                     label = { Text(stringResource(R.string.one_time_pairing_code)) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            item {
                 OutlinedTextField(
                     value = deviceName,
-                    onValueChange = onDeviceNameChanged,
+                    onValueChange = { deviceName = it.take(100) },
                     label = { Text(stringResource(R.string.device_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            item {
                 Button(
-                    onClick = onRegister,
+                    onClick = {
+                        val oneTimeCode = pairingCode
+                        pairingCode = ""
+                        message = R.string.registration_started
+                        transportCoordinator.register(
+                            serverOrigin = serverOrigin,
+                            pairingCode = oneTimeCode,
+                            deviceName = deviceName.trim(),
+                        ) { succeeded ->
+                            message = if (succeeded) {
+                                R.string.registration_succeeded
+                            } else {
+                                R.string.registration_failed
+                            }
+                        }
+                    },
                     enabled = serverOrigin.isNotBlank() && pairingCode.length == 32 &&
-                        deviceName.isNotBlank(),
-                ) {
-                    Text(stringResource(R.string.register_android_device))
-                }
-            }
-            if (state != AndroidTransportState.NOT_CONFIGURED &&
-                state != AndroidTransportState.REGISTERING
-            ) {
-                Text(
-                    stringResource(R.string.credential_rotation_boundary),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedTextField(
-                    value = rotationCode,
-                    onValueChange = onRotationCodeChanged,
-                    label = { Text(stringResource(R.string.one_time_rotation_code)) },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        deviceName.isNotBlank() &&
+                        transportState != AndroidTransportState.SUBMITTING_REGISTRATION,
                     modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = onRotate,
-                    enabled = rotationCode.length == 32 && state != AndroidTransportState.ROTATING,
                 ) {
-                    Text(stringResource(R.string.start_credential_rotation))
+                    Text(stringResource(R.string.submit_join_request))
                 }
             }
-            if (state == AndroidTransportState.OFFLINE) {
-                Button(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
-            }
-            if (state == AndroidTransportState.SECURITY_ERROR) {
-                Text(
-                    stringResource(R.string.stored_state_security_error),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            message?.let { resource -> item { Text(stringResource(resource)) } }
         }
     }
 }
 
 @Composable
-private fun transportStateLabel(state: AndroidTransportState): String = when (state) {
-    AndroidTransportState.NOT_CONFIGURED -> stringResource(R.string.transport_not_configured)
-    AndroidTransportState.REGISTERING -> stringResource(R.string.transport_registering)
-    AndroidTransportState.ROTATING -> stringResource(R.string.transport_rotating)
-    AndroidTransportState.CONNECTING -> stringResource(R.string.transport_connecting)
-    AndroidTransportState.ONLINE -> stringResource(R.string.transport_online)
-    AndroidTransportState.OFFLINE -> stringResource(R.string.transport_offline)
-    AndroidTransportState.SECURITY_ERROR -> stringResource(R.string.transport_security_error)
-}
-
-@Composable
-private fun NotificationCard(snapshot: NotificationSnapshot) {
-    val context = LocalContext.current
-    Card(modifier = Modifier.fillMaxWidth()) {
+private fun ApprovalScreen(onRetry: () -> Unit) {
+    Page { modifier ->
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = modifier,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text(snapshot.appName, style = MaterialTheme.typography.titleMedium)
-            Text(snapshot.title ?: "(no title)")
-            snapshot.expandedText.orEmpty().ifBlank { snapshot.text.orEmpty() }
-                .takeIf(String::isNotBlank)
-                ?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-            Text(
-                "${snapshot.packageName} · revision ${snapshot.revision}" +
-                    if (snapshot.isOngoing) " · ongoing" else "",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            snapshot.actions.forEach { action ->
-                if (snapshot.packageName == context.packageName && !action.requiresTextInput) {
-                    SyntheticRelayActionControl(snapshot, action)
-                }
-                ActionControl(action)
+            CircularProgressIndicator()
+            Text(stringResource(R.string.waiting_approval_title), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.waiting_approval_body))
+            OutlinedButton(onClick = onRetry) { Text(stringResource(R.string.check_status)) }
+        }
+    }
+}
+
+@Composable
+private fun NotificationAccessScreen(
+    onOpenSettings: () -> Unit,
+    onCheckAgain: () -> Unit,
+) {
+    Page { modifier ->
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
+            Text(stringResource(R.string.notification_access_title), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.notification_access_body))
+            Card {
+                Text(
+                    text = stringResource(R.string.notification_access_privacy),
+                    modifier = Modifier.padding(20.dp),
+                )
+            }
+            Button(onClick = onOpenSettings, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.open_notification_access))
+            }
+            OutlinedButton(onClick = onCheckAgain, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.permission_granted_check_again))
             }
         }
     }
 }
 
 @Composable
-private fun SyntheticRelayActionControl(
-    snapshot: NotificationSnapshot,
-    action: NotificationActionDescriptor,
+private fun ApplicationSelectionScreen(
+    applications: List<SelectableApplication>,
+    applicationsLoaded: Boolean,
+    initialSelection: Set<String>,
+    onboarding: Boolean,
+    onSave: (Set<String>) -> Unit,
 ) {
-    val context = LocalContext.current
-    var message by remember(snapshot.revision, action.token.actionId.hex) { mutableStateOf<String?>(null) }
-    Button(
-        onClick = {
-            try {
-                val target = SyntheticActionTargetExporter.export(context, snapshot, action)
-                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(
-                    ClipData.newPlainText("Synthetic relay action target", target),
-                )
-                message = "Synthetic target copied for Chrome Options"
-            } catch (_: Throwable) {
-                message = "Synthetic target unavailable; verify registration"
+    var selection by remember(initialSelection) { mutableStateOf(initialSelection.toSet()) }
+    val ordinaryPackages = remember(applications) {
+        applications.filterNot(SelectableApplication::isSystemApplication).mapTo(mutableSetOf()) {
+            it.packageName
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item { Spacer(Modifier.height(20.dp)) }
+        item {
+            Text(
+                stringResource(if (onboarding) R.string.choose_apps_title else R.string.apps_title),
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.choose_apps_body))
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                OutlinedButton(
+                    onClick = { selection = selection + ordinaryPackages },
+                    enabled = ordinaryPackages.isNotEmpty(),
+                ) {
+                    Text(stringResource(R.string.select_all_ordinary_apps))
+                }
+                OutlinedButton(
+                    onClick = { selection = emptySet() },
+                    enabled = selection.isNotEmpty(),
+                ) {
+                    Text(stringResource(R.string.clear_selection))
+                }
+            }
+        }
+        if (!applicationsLoaded) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) { CircularProgressIndicator() }
+            }
+        } else if (applications.isEmpty()) {
+            item { Text(stringResource(R.string.no_selectable_apps)) }
+        } else {
+            items(applications, key = SelectableApplication::packageName) { app ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        selection = selection.toggled(app.packageName)
+                    }.padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Checkbox(
+                        checked = app.packageName in selection,
+                        onCheckedChange = { selection = selection.toggled(app.packageName) },
+                    )
+                    Column(modifier = Modifier.padding(start = 8.dp)) {
+                        Text(app.label, style = MaterialTheme.typography.bodyLarge)
+                        if (app.isSystemApplication) {
+                            Text(
+                                stringResource(R.string.system_application),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        item {
+            Text(stringResource(R.string.alpha_app_selection_notice), style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = { onSave(selection) },
+                enabled = applicationsLoaded,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.save_app_selection, selection.size))
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+private fun Set<String>.toggled(value: String): Set<String> =
+    if (value in this) this - value else this + value
+
+private enum class MainDestination { HOME, APPLICATIONS, DEVICES, SETTINGS }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MainScreen(
+    transportState: AndroidTransportState,
+    notificationAccessGranted: Boolean,
+    applications: List<SelectableApplication>,
+    applicationsLoaded: Boolean,
+    selectedPackages: Set<String>,
+    onSaveApplicationSelection: (Set<String>) -> Unit,
+    onOpenNotificationAccess: () -> Unit,
+    onPostDebugNotification: (() -> Unit)?,
+) {
+    var destination by rememberSaveable { mutableStateOf(MainDestination.HOME) }
+    Scaffold(
+        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+        bottomBar = {
+            NavigationBar {
+                MainDestination.entries.forEach { item ->
+                    NavigationBarItem(
+                        selected = destination == item,
+                        onClick = { destination = item },
+                        icon = {},
+                        label = { Text(destinationLabel(item)) },
+                    )
+                }
             }
         },
-    ) {
-        Text("Copy synthetic relay target")
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when (destination) {
+                MainDestination.HOME -> HomeScreen(
+                    transportState,
+                    notificationAccessGranted,
+                    selectedPackages.size,
+                )
+                MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
+                    applications,
+                    applicationsLoaded,
+                    selectedPackages,
+                    onboarding = false,
+                    onSave = onSaveApplicationSelection,
+                )
+                MainDestination.DEVICES -> DevicesScreen()
+                MainDestination.SETTINGS -> SettingsScreen(
+                    notificationAccessGranted,
+                    onOpenNotificationAccess,
+                    onPostDebugNotification,
+                )
+            }
+        }
     }
-    message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable
-private fun ActionControl(action: NotificationActionDescriptor) {
-    val context = LocalContext.current
-    val replies = remember { mutableStateMapOf<String, String>() }
-    val results = remember { mutableStateMapOf<String, ActionExecutionStatus>() }
-    val key = "${action.token.notificationKey}:${action.token.notificationRevision}:${action.token.actionId.hex}"
-    val reply = replies[key].orEmpty()
+private fun destinationLabel(destination: MainDestination): String = when (destination) {
+    MainDestination.HOME -> stringResource(R.string.home)
+    MainDestination.APPLICATIONS -> stringResource(R.string.applications)
+    MainDestination.DEVICES -> stringResource(R.string.devices)
+    MainDestination.SETTINGS -> stringResource(R.string.settings)
+}
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (action.requiresTextInput) {
-            OutlinedTextField(
-                value = reply,
-                onValueChange = { replies[key] = it.take(4_000) },
-                label = { Text(action.title) },
-                singleLine = false,
-                modifier = Modifier.fillMaxWidth(),
+@Composable
+private fun HomeScreen(
+    transportState: AndroidTransportState,
+    notificationAccessGranted: Boolean,
+    selectedApplicationCount: Int,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.home_title), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.home_subtitle))
+        }
+        item {
+            StatusCard(
+                title = stringResource(R.string.connection),
+                value = connectionLabel(transportState),
             )
         }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Button(
-                enabled = !action.requiresTextInput || reply.isNotBlank(),
-                onClick = {
-                    val result = LocalNotificationController.invoke(
-                        context = context,
-                        token = action.token,
-                        replyText = reply.takeIf { action.requiresTextInput },
+        item {
+            StatusCard(
+                title = stringResource(R.string.notification_access_title),
+                value = stringResource(
+                    if (notificationAccessGranted) R.string.enabled else R.string.needs_attention,
+                ),
+            )
+        }
+        item {
+            StatusCard(
+                title = stringResource(R.string.selected_apps),
+                value = pluralStringResource(
+                    R.plurals.selected_apps_count,
+                    selectedApplicationCount,
+                    selectedApplicationCount,
+                ),
+            )
+        }
+        item {
+            Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun StatusCard(title: String, value: String) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(value, style = MaterialTheme.typography.bodyLarge)
+        }
+    }
+}
+
+@Composable
+private fun connectionLabel(state: AndroidTransportState): String = when (state) {
+    AndroidTransportState.ONLINE -> stringResource(R.string.connected)
+    AndroidTransportState.INITIALIZING,
+    AndroidTransportState.CONNECTING,
+    AndroidTransportState.SUBMITTING_REGISTRATION,
+    AndroidTransportState.REGISTERING,
+    AndroidTransportState.ROTATING,
+    -> stringResource(R.string.connecting)
+    AndroidTransportState.OFFLINE -> stringResource(R.string.connection_interrupted)
+    AndroidTransportState.NOT_CONFIGURED -> stringResource(R.string.not_configured)
+    AndroidTransportState.SECURITY_ERROR -> stringResource(R.string.needs_attention)
+}
+
+@Composable
+private fun DevicesScreen() {
+    Page { modifier ->
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(stringResource(R.string.devices), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.devices_body))
+            Card { Text(stringResource(R.string.devices_admin_boundary), Modifier.padding(20.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    notificationAccessGranted: Boolean,
+    onOpenNotificationAccess: () -> Unit,
+    onPostDebugNotification: (() -> Unit)?,
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item { Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium) }
+        item {
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(stringResource(R.string.notification_access_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(if (notificationAccessGranted) R.string.enabled else R.string.needs_attention),
                     )
-                    results[key] = result.status
-                    if (result.status == ActionExecutionStatus.SUCCEEDED) {
-                        replies.remove(key)
+                    OutlinedButton(onClick = onOpenNotificationAccess) {
+                        Text(stringResource(R.string.open_notification_access))
                     }
-                },
-            ) {
-                Text(if (action.requiresTextInput) "Send" else action.title)
+                }
             }
-            results[key]?.let { Text(it.name, style = MaterialTheme.typography.bodySmall) }
+        }
+        onPostDebugNotification?.let { post ->
+            item {
+                OutlinedButton(onClick = post) { Text(stringResource(R.string.debug_post_test_notification)) }
+            }
+        }
+        item { Text(stringResource(R.string.settings_more_later), style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun SecurityErrorScreen() {
+    Page { modifier ->
+        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(stringResource(R.string.security_error_title), style = MaterialTheme.typography.headlineMedium)
+            Text(stringResource(R.string.stored_state_security_error))
+            Card { Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp)) }
         }
     }
 }

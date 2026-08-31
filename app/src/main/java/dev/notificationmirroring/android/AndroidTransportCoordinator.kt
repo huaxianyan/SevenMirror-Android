@@ -86,7 +86,9 @@ private fun NotificationMedia.toProtocol(): ProtocolNotificationMedia =
         .build()
 
 enum class AndroidTransportState {
+    INITIALIZING,
     NOT_CONFIGURED,
+    SUBMITTING_REGISTRATION,
     REGISTERING,
     ROTATING,
     CONNECTING,
@@ -125,7 +127,8 @@ class AndroidTransportCoordinator(context: Context) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
     private val reconnectBackoff = BoundedReconnectBackoff()
-    private val mutableState = MutableStateFlow(AndroidTransportState.NOT_CONFIGURED)
+    private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
+    private val mutableEnrollmentPending = MutableStateFlow(false)
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -135,6 +138,7 @@ class AndroidTransportCoordinator(context: Context) {
     private var preferCurrentFallback = false
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
+    val enrollmentPending: StateFlow<Boolean> = mutableEnrollmentPending.asStateFlow()
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
@@ -199,7 +203,7 @@ class AndroidTransportCoordinator(context: Context) {
         completed: (Boolean) -> Unit,
     ) {
         val requestedGeneration = generation.incrementAndGet()
-        mutableState.value = AndroidTransportState.REGISTERING
+        mutableState.value = AndroidTransportState.SUBMITTING_REGISTRATION
         executor.execute {
             cancelReconnect()
             reconnectBackoff.reset()
@@ -809,7 +813,12 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun recoverPendingMembership(): Boolean {
-        val observed = pendingMembershipStore.load() ?: return true
+        val observed = pendingMembershipStore.load()
+        if (observed == null) {
+            mutableEnrollmentPending.value = false
+            return true
+        }
+        mutableEnrollmentPending.value = true
         observed.pending.authToken.fill(0)
         observed.canonicalProof?.fill(0)
         val identity = checkNotNull(identityStore.loadExisting()) {
@@ -822,6 +831,7 @@ class AndroidTransportCoordinator(context: Context) {
                 "Approved local device is not active in the durable workspace roster"
             }
             membershipPromotionCoordinator.promoteApproved().authToken.fill(0)
+            mutableEnrollmentPending.value = false
             return true
         } finally {
             identity.publicKey.fill(0)

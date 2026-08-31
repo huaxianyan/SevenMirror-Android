@@ -4,7 +4,7 @@ Android source device for private, end-to-end encrypted notification mirroring. 
 
 Repository: <https://github.com/huaxianyan/SevenMirror-Android>
 
-> Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, recoverable Keystore-wrapped transport credential rotation, and authenticated WebSocket transport are validated. The app exposes synthetic-only registration/rotation, process-start restoration, network-change recovery, and bounded reconnect; real notification synchronization remains disabled.
+> Status: local notification actions, authenticated HPKE, replay/idempotency recovery, strict registration, recoverable Keystore-wrapped transport credential rotation, and authenticated WebSocket transport are validated. The app now provides the first Material 3 product onboarding and home slice, while transport remains synthetic-only and real third-party notification synchronization remains disabled.
 
 ## Requirements
 
@@ -78,7 +78,7 @@ the pinned release Actions are reviewed in
 
 ## Modules
 
-- `app`: Compose application, permission guidance, synthetic-only registration UI, and process-lifetime authenticated transport/action coordinator
+- `app`: Material 3 Compose onboarding, persisted explicit application selection, home/apps/devices/settings foundation, debug-only synthetic fixture entry, and process-lifetime authenticated transport/action coordinator
 - `core-notification`: `NotificationListenerService` integration and approved-sender action dispatcher
 - `core-protocol`: protocol models and generated code location
 - `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
