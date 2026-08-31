@@ -12,6 +12,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -34,6 +37,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -62,8 +66,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -300,8 +310,15 @@ private fun LoadingScreen() {
 @Composable
 private fun WelcomeScreen(onContinue: () -> Unit) {
     Page { modifier ->
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text(stringResource(R.string.welcome_title), style = MaterialTheme.typography.headlineLarge)
+        Column(
+            modifier = modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(
+                stringResource(R.string.welcome_title),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineLarge,
+            )
             Text(stringResource(R.string.welcome_body), style = MaterialTheme.typography.bodyLarge)
             Card {
                 Column(
@@ -333,7 +350,11 @@ private fun ServerSetupScreen(transportCoordinator: AndroidTransportCoordinator)
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
-                Text(stringResource(R.string.connect_server_title), style = MaterialTheme.typography.headlineMedium)
+                Text(
+                    stringResource(R.string.connect_server_title),
+                    modifier = Modifier.semantics { heading() },
+                    style = MaterialTheme.typography.headlineMedium,
+                )
                 Spacer(Modifier.height(8.dp))
                 Text(stringResource(R.string.connect_server_body))
             }
@@ -394,7 +415,14 @@ private fun ServerSetupScreen(transportCoordinator: AndroidTransportCoordinator)
                     Text(stringResource(R.string.submit_join_request))
                 }
             }
-            message?.let { resource -> item { Text(stringResource(resource)) } }
+            message?.let { resource ->
+                item {
+                    Text(
+                        stringResource(resource),
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
+            }
         }
     }
 }
@@ -403,12 +431,16 @@ private fun ServerSetupScreen(transportCoordinator: AndroidTransportCoordinator)
 private fun ApprovalScreen(onRetry: () -> Unit) {
     Page { modifier ->
         Column(
-            modifier = modifier,
+            modifier = modifier.verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             CircularProgressIndicator()
-            Text(stringResource(R.string.waiting_approval_title), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                stringResource(R.string.waiting_approval_title),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             Text(stringResource(R.string.waiting_approval_body))
             OutlinedButton(onClick = onRetry) { Text(stringResource(R.string.check_status)) }
         }
@@ -421,8 +453,15 @@ private fun NotificationAccessScreen(
     onCheckAgain: () -> Unit,
 ) {
     Page { modifier ->
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            Text(stringResource(R.string.notification_access_title), style = MaterialTheme.typography.headlineMedium)
+        Column(
+            modifier = modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text(
+                stringResource(R.string.notification_access_title),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             Text(stringResource(R.string.notification_access_body))
             Card {
                 Text(
@@ -470,6 +509,7 @@ private fun ApplicationSelectionScreen(
         item {
             Text(
                 stringResource(if (onboarding) R.string.choose_apps_title else R.string.apps_title),
+                modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineMedium,
             )
             Spacer(Modifier.height(8.dp))
@@ -498,33 +538,34 @@ private fun ApplicationSelectionScreen(
             )
         }
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(
                     selected = filter == ApplicationFilter.ORDINARY,
                     onClick = { filter = ApplicationFilter.ORDINARY },
                     label = { Text(stringResource(R.string.ordinary_apps)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 FilterChip(
                     selected = filter == ApplicationFilter.SYSTEM,
                     onClick = { filter = ApplicationFilter.SYSTEM },
                     label = { Text(stringResource(R.string.system_apps)) },
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 OutlinedButton(
                     onClick = { selection = selection + visiblePackages },
                     enabled = visiblePackages.any { it !in selection },
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.select_shown_apps))
                 }
                 OutlinedButton(
                     onClick = { selection = emptySet() },
                     enabled = selection.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(stringResource(R.string.clear_selection))
                 }
@@ -642,11 +683,17 @@ private fun PermissionSwitchRow(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .toggleable(
+                value = checked,
+                role = Role.Switch,
+                onValueChange = onCheckedChange,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, onCheckedChange = null)
     }
 }
 
@@ -784,7 +831,12 @@ private fun MainScreen(
                             NavigationBarItem(
                                 selected = destination == item,
                                 onClick = { destination = item },
-                                icon = {},
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(destinationIcon(item)),
+                                        contentDescription = null,
+                                    )
+                                },
                                 label = { Text(destinationLabel(item)) },
                             )
                         }
@@ -799,47 +851,65 @@ private fun MainScreen(
                             NavigationRailItem(
                                 selected = destination == item,
                                 onClick = { destination = item },
-                                icon = {},
+                                icon = {
+                                    Icon(
+                                        painter = painterResource(destinationIcon(item)),
+                                        contentDescription = null,
+                                    )
+                                },
                                 label = { Text(destinationLabel(item)) },
                                 alwaysShowLabel = true,
                             )
                         }
                     }
                 }
-                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
-                    when (destination) {
-                        MainDestination.HOME -> HomeScreen(
-                            transportState,
-                            workspaceDevices,
-                            notificationAccessGranted,
-                            selectedPackages.size,
-                            onReconnect,
-                        )
-                        MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
-                            applications,
-                            applicationsLoaded,
-                            selectedPackages,
-                            onboarding = false,
-                            remoteOperationSettings = remoteOperationSettings,
-                            onSave = onSaveApplicationSelection,
-                            onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                            onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
-                        )
-                        MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
-                        MainDestination.SETTINGS -> SettingsScreen(
-                            serverOrigin = serverOrigin,
-                            currentDeviceName = workspaceDevices
-                                .firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)
-                                ?.displayName,
-                            notificationAccessGranted = notificationAccessGranted,
-                            onOpenNotificationAccess = onOpenNotificationAccess,
-                            onPostDebugNotification = onPostDebugNotification,
-                        )
+                Box(
+                    modifier = Modifier.fillMaxSize().weight(1f),
+                    contentAlignment = Alignment.TopCenter,
+                ) {
+                    Box(modifier = Modifier.fillMaxSize().widthIn(max = 960.dp)) {
+                        when (destination) {
+                            MainDestination.HOME -> HomeScreen(
+                                transportState,
+                                workspaceDevices,
+                                notificationAccessGranted,
+                                selectedPackages.size,
+                                onReconnect,
+                            )
+                            MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
+                                applications,
+                                applicationsLoaded,
+                                selectedPackages,
+                                onboarding = false,
+                                remoteOperationSettings = remoteOperationSettings,
+                                onSave = onSaveApplicationSelection,
+                                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                                onSaveApplicationOperationOverride =
+                                    onSaveApplicationOperationOverride,
+                            )
+                            MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
+                            MainDestination.SETTINGS -> SettingsScreen(
+                                serverOrigin = serverOrigin,
+                                currentDeviceName = workspaceDevices
+                                    .firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)
+                                    ?.displayName,
+                                notificationAccessGranted = notificationAccessGranted,
+                                onOpenNotificationAccess = onOpenNotificationAccess,
+                                onPostDebugNotification = onPostDebugNotification,
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+private fun destinationIcon(destination: MainDestination): Int = when (destination) {
+    MainDestination.HOME -> R.drawable.ic_home
+    MainDestination.APPLICATIONS -> R.drawable.ic_apps
+    MainDestination.DEVICES -> R.drawable.ic_devices
+    MainDestination.SETTINGS -> R.drawable.ic_settings
 }
 
 @Composable
@@ -864,7 +934,11 @@ private fun HomeScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.home_title), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                stringResource(R.string.home_title),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             Text(stringResource(R.string.home_subtitle))
         }
         workspaceDevices.firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)?.let { current ->
@@ -962,7 +1036,11 @@ private fun DevicesScreen(devices: List<WorkspaceDeviceSummary>) {
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.devices), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                stringResource(R.string.devices),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             Text(stringResource(R.string.devices_body))
         }
         item {
@@ -979,11 +1057,7 @@ private fun DevicesScreen(devices: List<WorkspaceDeviceSummary>) {
                         modifier = Modifier.padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(device.displayName, style = MaterialTheme.typography.titleMedium)
                             if (device.isCurrentDevice) {
                                 Text(
@@ -1032,7 +1106,11 @@ private fun SettingsScreen(
     ) {
         item {
             Spacer(Modifier.height(12.dp))
-            Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium)
+            Text(
+                stringResource(R.string.settings),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
         }
         item {
             SettingsCard(stringResource(R.string.private_service)) {
@@ -1099,8 +1177,15 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun SecurityErrorScreen() {
     Page { modifier ->
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(stringResource(R.string.security_error_title), style = MaterialTheme.typography.headlineMedium)
+        Column(
+            modifier = modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                stringResource(R.string.security_error_title),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
             Text(stringResource(R.string.stored_state_security_error))
             Card { Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp)) }
         }
