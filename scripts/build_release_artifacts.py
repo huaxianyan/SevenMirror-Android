@@ -96,13 +96,15 @@ def inspect_apk(
         str(apksigner), "verify", "--verbose", "--print-certs", str(apk),
     ])
     certificate_matches = re.findall(
-        r"Signer #(\d+) certificate SHA-256 digest: ([0-9a-fA-F]{64})",
+        r"Signer\s+#(\d+)\s+certificate\s+SHA-256\s+digest:\s*([0-9a-f]{64})",
         signer_output,
+        flags=re.IGNORECASE,
     )
-    if certificate_matches != [("1", identity["signingCertificateSha256"])]:
-        normalized = [(number, digest.lower()) for number, digest in certificate_matches]
-        if normalized != [("1", identity["signingCertificateSha256"])]:
-            raise RuntimeError("APK signer certificate identity is invalid")
+    normalized = [(number, digest.lower()) for number, digest in certificate_matches]
+    expected_signer = [("1", identity["signingCertificateSha256"])]
+    if normalized != expected_signer:
+        raise RuntimeError(
+            f"APK signer certificate identity is invalid; observed public digests: {normalized}")
 
     def manifest_value(command: str) -> str:
         return run_tool([str(apkanalyzer), "manifest", command, str(apk)]).strip()
