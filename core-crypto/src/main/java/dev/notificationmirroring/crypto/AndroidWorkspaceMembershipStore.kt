@@ -29,6 +29,23 @@ data class WorkspaceActionPeer(
     val identityPublicKey: ByteArray,
 )
 
+enum class WorkspaceDeviceType { ANDROID, CHROME }
+
+data class WorkspaceDeviceSummary(
+    val displayName: String,
+    val deviceType: WorkspaceDeviceType,
+    val isCurrentDevice: Boolean,
+    val accessCurrent: Boolean,
+)
+
+fun interface WorkspaceDeviceDirectory {
+    fun listAuthorizedDevices(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        nowUnixMs: Long,
+    ): List<WorkspaceDeviceSummary>
+}
+
 fun interface WorkspaceActionPeerResolver {
     fun resolveActionPeer(
         workspaceId: ByteArray,
@@ -49,7 +66,7 @@ interface WorkspaceMembershipTrustStore {
 class AndroidWorkspaceMembershipStore(
     context: Context,
     storeName: String = "default",
-) : WorkspaceMembershipTrustStore, WorkspaceNotificationRecipientDirectory, WorkspaceActionPeerResolver, AutoCloseable {
+) : WorkspaceMembershipTrustStore, WorkspaceNotificationRecipientDirectory, WorkspaceDeviceDirectory, WorkspaceActionPeerResolver, AutoCloseable {
     enum class PinResult { PINNED, ALREADY_PINNED }
     enum class ReconcileResult { APPLIED, ALREADY_APPLIED }
 
@@ -286,6 +303,40 @@ class AndroidWorkspaceMembershipStore(
                 certificate.identityPublicKey.toByteArray(),
             )
         }
+    }
+
+    override fun listAuthorizedDevices(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        nowUnixMs: Long,
+    ): List<WorkspaceDeviceSummary> {
+        require(nowUnixMs > 0) { "Current time is invalid" }
+        val state = load(workspaceId, localDeviceId) ?: return emptyList()
+        if (!state.localDeviceActive) return emptyList()
+        val roster = WorkspaceMembershipV1.decodeRoster(
+            checkNotNull(state.signedRoster),
+            state.authorityPublicKey,
+        ).roster
+        return roster.activeCertificatesList.map { signed ->
+            val certificate = signed.certificate
+            WorkspaceDeviceSummary(
+                displayName = certificate.displayName,
+                deviceType = when (certificate.deviceType) {
+                    DeviceType.DEVICE_TYPE_ANDROID -> WorkspaceDeviceType.ANDROID
+                    DeviceType.DEVICE_TYPE_CHROME -> WorkspaceDeviceType.CHROME
+                    else -> error("Authorized roster contains an unsupported device type")
+                },
+                isCurrentDevice = MessageDigest.isEqual(
+                    certificate.deviceId.toByteArray(),
+                    localDeviceId,
+                ),
+                accessCurrent = certificateIsCurrent(certificate, nowUnixMs),
+            )
+        }.sortedWith(
+            compareByDescending<WorkspaceDeviceSummary> { it.isCurrentDevice }
+                .thenBy(WorkspaceDeviceSummary::deviceType)
+                .thenBy(String.CASE_INSENSITIVE_ORDER, WorkspaceDeviceSummary::displayName),
+        )
     }
 
     override fun resolveActionPeer(

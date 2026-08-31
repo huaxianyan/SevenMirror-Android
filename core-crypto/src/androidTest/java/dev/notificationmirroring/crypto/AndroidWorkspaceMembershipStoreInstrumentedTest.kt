@@ -67,6 +67,21 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
             assertTrue(initial.localDeviceActive)
             assertArrayEquals(vector.authorityPublicKey, initial.authorityPublicKey)
             assertArrayEquals(vector.certificate, initial.signedCertificate)
+            assertEquals(
+                listOf(
+                    WorkspaceDeviceSummary(
+                        displayName = "Chrome-Test",
+                        deviceType = WorkspaceDeviceType.CHROME,
+                        isCurrentDevice = true,
+                        accessCurrent = true,
+                    ),
+                ),
+                recovered.listAuthorizedDevices(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    1_800_000_000_000,
+                ),
+            )
             assertTrue(
                 recovered.listNotificationRecipients(
                     vector.workspaceId,
@@ -86,6 +101,13 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
             val revoked = checkNotNull(recovered.load(vector.workspaceId, vector.deviceId))
             assertEquals(2L, revoked.rosterEpoch)
             assertFalse(revoked.localDeviceActive)
+            assertTrue(
+                recovered.listAuthorizedDevices(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    1_800_000_000_000,
+                ).isEmpty(),
+            )
             assertThrows(IllegalStateException::class.java) {
                 recovered.reconcileApproved(
                     vector.workspaceId,

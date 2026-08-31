@@ -38,6 +38,7 @@
     <string name="settings">设置</string>
     <string name="home_title">这台设备</string>
     <string name="home_subtitle">查看 SevenMirror 所需的连接和权限状态。</string>
+    <string name="current_device">当前设备</string>
     <string name="connection">连接</string>
     <string name="connected">已连接</string>
     <string name="connecting">正在连接……</string>
@@ -45,13 +46,24 @@
     <string name="not_configured">尚未配置</string>
     <string name="enabled">已启用</string>
     <string name="needs_attention">需要处理</string>
+    <string name="authorized_devices">已授权设备</string>
+    <plurals name="authorized_devices_count">
+        <item quantity="other">%1$d 台设备</item>
+    </plurals>
     <string name="selected_apps">已选应用</string>
     <plurals name="selected_apps_count">
         <item quantity="other">已选择 %1$d 个</item>
     </plurals>
     <string name="alpha_synthetic_boundary">Alpha 安全边界：目前只有 SevenMirror 自身创建的通知可以离开这台设备。</string>
-    <string name="devices_body">已授权的工作区设备将在后续产品切片中显示在这里。</string>
-    <string name="devices_admin_boundary">设备批准、拒绝和移除只能在服务器管理页面中完成。</string>
+    <string name="devices_body">已获准使用这个 SevenMirror 工作区的设备。</string>
+    <string name="device_type_counts">Android：%1$d · Chrome：%2$d</string>
+    <string name="devices_empty">已保存的工作区状态中没有可显示的授权设备。</string>
+    <string name="this_device">本机</string>
+    <string name="android_device">Android</string>
+    <string name="chrome_device">Chrome</string>
+    <string name="device_authorized">已授权</string>
+    <string name="device_access_expired">需要更新访问权限</string>
+    <string name="devices_admin_boundary">批准、拒绝或移除设备，请前往服务器管理页面。</string>
     <string name="settings_more_later">连接恢复、远程操作权限、隐私控制、语言和“关于”将在后续 Android 产品切片中加入。</string>
     <string name="debug_post_test_notification">开发：发布测试通知</string>
     <string name="security_error_title">保存的安全状态需要处理</string>

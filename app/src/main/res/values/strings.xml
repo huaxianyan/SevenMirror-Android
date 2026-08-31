@@ -40,6 +40,7 @@
     <string name="settings">Settings</string>
     <string name="home_title">This device</string>
     <string name="home_subtitle">Review the connection and permissions needed by SevenMirror.</string>
+    <string name="current_device">Current device</string>
     <string name="connection">Connection</string>
     <string name="connected">Connected</string>
     <string name="connecting">Connecting…</string>
@@ -47,14 +48,26 @@
     <string name="not_configured">Not configured</string>
     <string name="enabled">Enabled</string>
     <string name="needs_attention">Needs attention</string>
+    <string name="authorized_devices">Authorized devices</string>
+    <plurals name="authorized_devices_count">
+        <item quantity="one">%1$d device</item>
+        <item quantity="other">%1$d devices</item>
+    </plurals>
     <string name="selected_apps">Selected apps</string>
     <plurals name="selected_apps_count">
         <item quantity="one">%1$d selected</item>
         <item quantity="other">%1$d selected</item>
     </plurals>
     <string name="alpha_synthetic_boundary">Alpha safety boundary: only notifications created by SevenMirror itself can currently leave this device.</string>
-    <string name="devices_body">Authorized workspace devices will appear here in a later product slice.</string>
-    <string name="devices_admin_boundary">Device approval, rejection, and removal are available only in the server admin page.</string>
+    <string name="devices_body">Devices authorized to use this SevenMirror workspace.</string>
+    <string name="device_type_counts">Android: %1$d · Chrome: %2$d</string>
+    <string name="devices_empty">No authorized devices are available from the saved workspace state.</string>
+    <string name="this_device">This device</string>
+    <string name="android_device">Android</string>
+    <string name="chrome_device">Chrome</string>
+    <string name="device_authorized">Authorized</string>
+    <string name="device_access_expired">Access needs updating</string>
+    <string name="devices_admin_boundary">Approve, reject, or remove devices in the server admin page.</string>
     <string name="settings_more_later">Connection recovery, remote-action permissions, privacy controls, language, and About will be added in the next Android product slices.</string>
     <string name="debug_post_test_notification">Developer: post test notification</string>
     <string name="security_error_title">Saved security state needs attention</string>

@@ -13,6 +13,7 @@ import dev.notificationmirroring.crypto.AndroidWorkspaceMembershipStore
 import dev.notificationmirroring.crypto.ActionResultOutboxDrainer
 import dev.notificationmirroring.crypto.AuthenticatedHpke
 import dev.notificationmirroring.crypto.NotificationEnvelopeSender
+import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
 import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.AndroidActionInvokeDispatcher
 import dev.notificationmirroring.notification.AuthenticatedInboundReceipt
@@ -129,6 +130,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val reconnectBackoff = BoundedReconnectBackoff()
     private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
     private val mutableEnrollmentPending = MutableStateFlow(false)
+    private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -139,6 +141,8 @@ class AndroidTransportCoordinator(context: Context) {
 
     val state: StateFlow<AndroidTransportState> = mutableState.asStateFlow()
     val enrollmentPending: StateFlow<Boolean> = mutableEnrollmentPending.asStateFlow()
+    val workspaceDevices: StateFlow<List<WorkspaceDeviceSummary>> =
+        mutableWorkspaceDevices.asStateFlow()
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
@@ -310,16 +314,19 @@ class AndroidTransportCoordinator(context: Context) {
         }
         if (candidate == null) {
             reconnectBackoff.reset()
+            mutableWorkspaceDevices.value = emptyList()
             mutableState.value = AndroidTransportState.NOT_CONFIGURED
             return
         }
         val credential = candidate.credential
         val credentialSource = candidate.source
         try {
+            publishWorkspaceDevices(credential.workspaceId, credential.deviceId)
             val refreshed = membershipClient.refreshActive(credential)
             check(refreshed == null ||
                 refreshed.serverState == "approved" && refreshed.transportEligible
             ) { "Local device is not active in the durable workspace roster" }
+            publishWorkspaceDevices(credential.workspaceId, credential.deviceId)
         } catch (_: IOException) {
             credential.authToken.fill(0)
             mutableState.value = AndroidTransportState.OFFLINE
@@ -788,6 +795,7 @@ class AndroidTransportCoordinator(context: Context) {
                     check(refreshed.serverState == "approved" && refreshed.transportEligible) {
                         "Local device is not active in the durable workspace roster"
                     }
+                    publishWorkspaceDevices(credential.workspaceId, credential.deviceId)
                 } catch (_: IOException) {
                     scheduleMembershipRefresh(requestedGeneration, socket)
                     return@schedule
@@ -810,6 +818,14 @@ class AndroidTransportCoordinator(context: Context) {
     private fun cancelMembershipRefresh() {
         membershipRefreshFuture?.cancel(false)
         membershipRefreshFuture = null
+    }
+
+    private fun publishWorkspaceDevices(workspaceId: ByteArray, localDeviceId: ByteArray) {
+        mutableWorkspaceDevices.value = workspaceMembershipStore.listAuthorizedDevices(
+            workspaceId,
+            localDeviceId,
+            System.currentTimeMillis(),
+        )
     }
 
     private fun recoverPendingMembership(): Boolean {

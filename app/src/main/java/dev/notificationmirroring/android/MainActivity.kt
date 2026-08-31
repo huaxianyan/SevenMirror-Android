@@ -61,6 +61,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
+import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
+import dev.notificationmirroring.crypto.WorkspaceDeviceType
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
@@ -193,6 +195,7 @@ private fun SevenMirrorApp(
 ) {
     val transportState by transportCoordinator.state.collectAsState()
     val enrollmentPending by transportCoordinator.enrollmentPending.collectAsState()
+    val workspaceDevices by transportCoordinator.workspaceDevices.collectAsState()
     val stage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
@@ -222,6 +225,7 @@ private fun SevenMirrorApp(
             )
             OnboardingStage.COMPLETE -> MainScreen(
                 transportState = transportState,
+                workspaceDevices = workspaceDevices,
                 notificationAccessGranted = notificationAccessGranted,
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
@@ -509,6 +513,7 @@ private enum class MainDestination { HOME, APPLICATIONS, DEVICES, SETTINGS }
 @Composable
 private fun MainScreen(
     transportState: AndroidTransportState,
+    workspaceDevices: List<WorkspaceDeviceSummary>,
     notificationAccessGranted: Boolean,
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
@@ -537,6 +542,7 @@ private fun MainScreen(
             when (destination) {
                 MainDestination.HOME -> HomeScreen(
                     transportState,
+                    workspaceDevices,
                     notificationAccessGranted,
                     selectedPackages.size,
                 )
@@ -547,7 +553,7 @@ private fun MainScreen(
                     onboarding = false,
                     onSave = onSaveApplicationSelection,
                 )
-                MainDestination.DEVICES -> DevicesScreen()
+                MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
                 MainDestination.SETTINGS -> SettingsScreen(
                     notificationAccessGranted,
                     onOpenNotificationAccess,
@@ -569,6 +575,7 @@ private fun destinationLabel(destination: MainDestination): String = when (desti
 @Composable
 private fun HomeScreen(
     transportState: AndroidTransportState,
+    workspaceDevices: List<WorkspaceDeviceSummary>,
     notificationAccessGranted: Boolean,
     selectedApplicationCount: Int,
 ) {
@@ -581,10 +588,28 @@ private fun HomeScreen(
             Text(stringResource(R.string.home_title), style = MaterialTheme.typography.headlineMedium)
             Text(stringResource(R.string.home_subtitle))
         }
+        workspaceDevices.firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)?.let { current ->
+            item {
+                StatusCard(
+                    title = stringResource(R.string.current_device),
+                    value = current.displayName,
+                )
+            }
+        }
         item {
             StatusCard(
                 title = stringResource(R.string.connection),
                 value = connectionLabel(transportState),
+            )
+        }
+        item {
+            StatusCard(
+                title = stringResource(R.string.authorized_devices),
+                value = pluralStringResource(
+                    R.plurals.authorized_devices_count,
+                    workspaceDevices.size,
+                    workspaceDevices.size,
+                ),
             )
         }
         item {
@@ -636,12 +661,65 @@ private fun connectionLabel(state: AndroidTransportState): String = when (state)
 }
 
 @Composable
-private fun DevicesScreen() {
-    Page { modifier ->
-        Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+private fun DevicesScreen(devices: List<WorkspaceDeviceSummary>) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        item {
+            Spacer(Modifier.height(12.dp))
             Text(stringResource(R.string.devices), style = MaterialTheme.typography.headlineMedium)
             Text(stringResource(R.string.devices_body))
+        }
+        item {
+            val androidCount = devices.count { it.deviceType == WorkspaceDeviceType.ANDROID }
+            val chromeCount = devices.count { it.deviceType == WorkspaceDeviceType.CHROME }
+            Text(stringResource(R.string.device_type_counts, androidCount, chromeCount))
+        }
+        if (devices.isEmpty()) {
+            item { Text(stringResource(R.string.devices_empty)) }
+        } else {
+            items(devices) { device ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(device.displayName, style = MaterialTheme.typography.titleMedium)
+                            if (device.isCurrentDevice) {
+                                Text(
+                                    stringResource(R.string.this_device),
+                                    style = MaterialTheme.typography.labelLarge,
+                                )
+                            }
+                        }
+                        Text(
+                            stringResource(
+                                when (device.deviceType) {
+                                    WorkspaceDeviceType.ANDROID -> R.string.android_device
+                                    WorkspaceDeviceType.CHROME -> R.string.chrome_device
+                                },
+                            ),
+                        )
+                        Text(
+                            stringResource(
+                                if (device.accessCurrent) R.string.device_authorized
+                                else R.string.device_access_expired,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+        item {
             Card { Text(stringResource(R.string.devices_admin_boundary), Modifier.padding(20.dp)) }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }

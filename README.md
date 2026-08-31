@@ -78,10 +78,10 @@ the pinned release Actions are reviewed in
 
 ## Modules
 
-- `app`: Material 3 Compose onboarding, persisted explicit application selection, home/apps/devices/settings foundation, debug-only synthetic fixture entry, and process-lifetime authenticated transport/action coordinator
+- `app`: Material 3 Compose onboarding, persisted explicit application selection, authority-verified read-only device presentation, home/apps/devices/settings foundation, debug-only synthetic fixture entry, and process-lifetime authenticated transport/action coordinator
 - `core-notification`: `NotificationListenerService` integration and approved-sender action dispatcher
 - `core-protocol`: protocol models and generated code location
-- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
+- `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification, authority-signed read-only device directory and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
 - `core-transport`: strict code-gated registration, provisional ADR-005 membership register/prove/state HTTP client, Keystore-wrapped pending enrollment journal and transport credentials, recoverable proof/rotation state, authority-verified recoverable membership-to-transport promotion, process-start enrollment recovery before transport credential loading, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
 
 ## Protocol
