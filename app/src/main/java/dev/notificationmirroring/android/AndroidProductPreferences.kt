@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import java.util.Locale
 
 internal enum class NavigationLayout { COMPACT, EXPANDED }
 
@@ -50,6 +51,22 @@ internal data class SelectableApplication(
     val label: String,
     val isSystemApplication: Boolean,
 )
+
+internal enum class ApplicationFilter { ORDINARY, SYSTEM }
+
+internal fun filterApplications(
+    applications: List<SelectableApplication>,
+    filter: ApplicationFilter,
+    query: String,
+): List<SelectableApplication> {
+    val normalizedQuery = query.trim().lowercase(Locale.ROOT)
+    return applications.filter { application ->
+        application.isSystemApplication == (filter == ApplicationFilter.SYSTEM) &&
+            (normalizedQuery.isEmpty() ||
+                application.label.lowercase(Locale.ROOT).contains(normalizedQuery) ||
+                application.packageName.lowercase(Locale.ROOT).contains(normalizedQuery))
+    }
+}
 
 internal class AndroidProductPreferences(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(

@@ -31,6 +31,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -423,10 +424,13 @@ private fun ApplicationSelectionScreen(
     onSave: (Set<String>) -> Unit,
 ) {
     var selection by remember(initialSelection) { mutableStateOf(initialSelection.toSet()) }
-    val ordinaryPackages = remember(applications) {
-        applications.filterNot(SelectableApplication::isSystemApplication).mapTo(mutableSetOf()) {
-            it.packageName
-        }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(ApplicationFilter.ORDINARY) }
+    val visibleApplications = remember(applications, filter, query) {
+        filterApplications(applications, filter, query)
+    }
+    val visiblePackages = remember(visibleApplications) {
+        visibleApplications.mapTo(mutableSetOf(), SelectableApplication::packageName)
     }
 
     LazyColumn(
@@ -441,6 +445,34 @@ private fun ApplicationSelectionScreen(
             )
             Spacer(Modifier.height(8.dp))
             Text(stringResource(R.string.choose_apps_body))
+            Spacer(Modifier.height(8.dp))
+            Text(
+                pluralStringResource(R.plurals.selected_apps_count, selection.size, selection.size),
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        item {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.search_apps)) },
+                singleLine = true,
+            )
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = filter == ApplicationFilter.ORDINARY,
+                    onClick = { filter = ApplicationFilter.ORDINARY },
+                    label = { Text(stringResource(R.string.ordinary_apps)) },
+                )
+                FilterChip(
+                    selected = filter == ApplicationFilter.SYSTEM,
+                    onClick = { filter = ApplicationFilter.SYSTEM },
+                    label = { Text(stringResource(R.string.system_apps)) },
+                )
+            }
         }
         item {
             Row(
@@ -448,10 +480,10 @@ private fun ApplicationSelectionScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 OutlinedButton(
-                    onClick = { selection = selection + ordinaryPackages },
-                    enabled = ordinaryPackages.isNotEmpty(),
+                    onClick = { selection = selection + visiblePackages },
+                    enabled = visiblePackages.any { it !in selection },
                 ) {
-                    Text(stringResource(R.string.select_all_ordinary_apps))
+                    Text(stringResource(R.string.select_shown_apps))
                 }
                 OutlinedButton(
                     onClick = { selection = emptySet() },
@@ -470,8 +502,10 @@ private fun ApplicationSelectionScreen(
             }
         } else if (applications.isEmpty()) {
             item { Text(stringResource(R.string.no_selectable_apps)) }
+        } else if (visibleApplications.isEmpty()) {
+            item { Text(stringResource(R.string.no_apps_match_filters)) }
         } else {
-            items(applications, key = SelectableApplication::packageName) { app ->
+            items(visibleApplications, key = SelectableApplication::packageName) { app ->
                 Row(
                     modifier = Modifier.fillMaxWidth().clickable {
                         selection = selection.toggled(app.packageName)

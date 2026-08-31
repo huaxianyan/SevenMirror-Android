@@ -5,6 +5,26 @@ import org.junit.Test
 
 class AndroidProductPreferencesTest {
     @Test
+    fun `search and category show only matching applications`() {
+        val applications = listOf(
+            SelectableApplication("com.example.calendar", "Calendar", false),
+            SelectableApplication("com.example.camera", "Camera", true),
+            SelectableApplication("org.example.notes", "Notes", false),
+        )
+
+        assertEquals(
+            listOf("com.example.calendar"),
+            filterApplications(applications, ApplicationFilter.ORDINARY, " CAL ")
+                .map(SelectableApplication::packageName),
+        )
+        assertEquals(
+            listOf("com.example.camera"),
+            filterApplications(applications, ApplicationFilter.SYSTEM, "example.camera")
+                .map(SelectableApplication::packageName),
+        )
+    }
+
+    @Test
     fun `expanded windows use a navigation rail`() {
         assertEquals(NavigationLayout.COMPACT, navigationLayout(839f))
         assertEquals(NavigationLayout.EXPANDED, navigationLayout(840f))
