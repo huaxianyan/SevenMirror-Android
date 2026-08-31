@@ -43,6 +43,7 @@
     <string name="connected">已连接</string>
     <string name="connecting">正在连接……</string>
     <string name="connection_interrupted">连接已中断</string>
+    <string name="retry_connection">重新连接</string>
     <string name="not_configured">尚未配置</string>
     <string name="enabled">已启用</string>
     <string name="needs_attention">需要处理</string>
@@ -64,7 +65,17 @@
     <string name="device_authorized">已授权</string>
     <string name="device_access_expired">需要更新访问权限</string>
     <string name="devices_admin_boundary">批准、拒绝或移除设备，请前往服务器管理页面。</string>
-    <string name="settings_more_later">连接恢复、远程操作权限、隐私控制、语言和“关于”将在后续 Android 产品切片中加入。</string>
+    <string name="private_service">私有服务</string>
+    <string name="server_address_label">服务器地址</string>
+    <string name="not_available">暂无信息</string>
+    <string name="server_change_help">如需更换服务器，请先在当前服务器管理页面移除本设备，然后重新安装 SevenMirror 并加入新服务器。</string>
+    <string name="data_and_privacy">数据与隐私</string>
+    <string name="data_and_privacy_body">应用选择保存在这台 Android 设备上。通知内容只会以端到端加密形式发送给已授权的接收设备，中继服务器无法读取。</string>
+    <string name="access_recovery">访问恢复</string>
+    <string name="access_recovery_body">如果本设备失去访问权限，或保存的设置无法继续使用，请让服务器管理员先移除旧设备，再重新安装 SevenMirror，并使用新的一次性加入码加入。</string>
+    <string name="about">关于</string>
+    <string name="version_value">版本 %1$s</string>
+    <string name="license_value">采用 GNU GPLv3 许可证。</string>
     <string name="debug_post_test_notification">开发：发布测试通知</string>
     <string name="security_error_title">保存的安全状态需要处理</string>
     <string name="stored_state_security_error">保存的身份或凭据未通过安全校验，SevenMirror 未创建替代状态。</string>

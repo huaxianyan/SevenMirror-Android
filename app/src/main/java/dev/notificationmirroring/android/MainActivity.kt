@@ -34,6 +34,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -196,6 +198,7 @@ private fun SevenMirrorApp(
     val transportState by transportCoordinator.state.collectAsState()
     val enrollmentPending by transportCoordinator.enrollmentPending.collectAsState()
     val workspaceDevices by transportCoordinator.workspaceDevices.collectAsState()
+    val serverOrigin by transportCoordinator.serverOrigin.collectAsState()
     val stage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
@@ -226,12 +229,14 @@ private fun SevenMirrorApp(
             OnboardingStage.COMPLETE -> MainScreen(
                 transportState = transportState,
                 workspaceDevices = workspaceDevices,
+                serverOrigin = serverOrigin,
                 notificationAccessGranted = notificationAccessGranted,
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
                 selectedPackages = selectedPackages,
                 onSaveApplicationSelection = onSaveApplicationSelection,
                 onOpenNotificationAccess = onOpenNotificationAccess,
+                onReconnect = transportCoordinator::connect,
                 onPostDebugNotification = onPostDebugNotification,
             )
             OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen()
@@ -514,51 +519,78 @@ private enum class MainDestination { HOME, APPLICATIONS, DEVICES, SETTINGS }
 private fun MainScreen(
     transportState: AndroidTransportState,
     workspaceDevices: List<WorkspaceDeviceSummary>,
+    serverOrigin: String?,
     notificationAccessGranted: Boolean,
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
     selectedPackages: Set<String>,
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onOpenNotificationAccess: () -> Unit,
+    onReconnect: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     var destination by rememberSaveable { mutableStateOf(MainDestination.HOME) }
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
-        bottomBar = {
-            NavigationBar {
-                MainDestination.entries.forEach { item ->
-                    NavigationBarItem(
-                        selected = destination == item,
-                        onClick = { destination = item },
-                        icon = {},
-                        label = { Text(destinationLabel(item)) },
-                    )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val layout = navigationLayout(maxWidth.value)
+        Scaffold(
+            topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
+            bottomBar = {
+                if (layout == NavigationLayout.COMPACT) {
+                    NavigationBar {
+                        MainDestination.entries.forEach { item ->
+                            NavigationBarItem(
+                                selected = destination == item,
+                                onClick = { destination = item },
+                                icon = {},
+                                label = { Text(destinationLabel(item)) },
+                            )
+                        }
+                    }
                 }
-            }
-        },
-    ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            when (destination) {
-                MainDestination.HOME -> HomeScreen(
-                    transportState,
-                    workspaceDevices,
-                    notificationAccessGranted,
-                    selectedPackages.size,
-                )
-                MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
-                    applications,
-                    applicationsLoaded,
-                    selectedPackages,
-                    onboarding = false,
-                    onSave = onSaveApplicationSelection,
-                )
-                MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
-                MainDestination.SETTINGS -> SettingsScreen(
-                    notificationAccessGranted,
-                    onOpenNotificationAccess,
-                    onPostDebugNotification,
-                )
+            },
+        ) { padding ->
+            Row(modifier = Modifier.fillMaxSize().padding(padding)) {
+                if (layout == NavigationLayout.EXPANDED) {
+                    NavigationRail {
+                        MainDestination.entries.forEach { item ->
+                            NavigationRailItem(
+                                selected = destination == item,
+                                onClick = { destination = item },
+                                icon = {},
+                                label = { Text(destinationLabel(item)) },
+                                alwaysShowLabel = true,
+                            )
+                        }
+                    }
+                }
+                Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                    when (destination) {
+                        MainDestination.HOME -> HomeScreen(
+                            transportState,
+                            workspaceDevices,
+                            notificationAccessGranted,
+                            selectedPackages.size,
+                            onReconnect,
+                        )
+                        MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
+                            applications,
+                            applicationsLoaded,
+                            selectedPackages,
+                            onboarding = false,
+                            onSave = onSaveApplicationSelection,
+                        )
+                        MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
+                        MainDestination.SETTINGS -> SettingsScreen(
+                            serverOrigin = serverOrigin,
+                            currentDeviceName = workspaceDevices
+                                .firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)
+                                ?.displayName,
+                            notificationAccessGranted = notificationAccessGranted,
+                            onOpenNotificationAccess = onOpenNotificationAccess,
+                            onPostDebugNotification = onPostDebugNotification,
+                        )
+                    }
+                }
             }
         }
     }
@@ -578,6 +610,7 @@ private fun HomeScreen(
     workspaceDevices: List<WorkspaceDeviceSummary>,
     notificationAccessGranted: Boolean,
     selectedApplicationCount: Int,
+    onReconnect: () -> Unit,
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
@@ -597,9 +630,9 @@ private fun HomeScreen(
             }
         }
         item {
-            StatusCard(
-                title = stringResource(R.string.connection),
-                value = connectionLabel(transportState),
+            ConnectionCard(
+                state = transportState,
+                onReconnect = onReconnect,
             )
         }
         item {
@@ -632,6 +665,21 @@ private fun HomeScreen(
         }
         item {
             Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun ConnectionCard(state: AndroidTransportState, onReconnect: () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.connection), style = MaterialTheme.typography.titleMedium)
+            Text(connectionLabel(state), style = MaterialTheme.typography.bodyLarge)
+            if (state == AndroidTransportState.OFFLINE) {
+                OutlinedButton(onClick = onReconnect) {
+                    Text(stringResource(R.string.retry_connection))
+                }
+            }
         }
     }
 }
@@ -726,34 +774,79 @@ private fun DevicesScreen(devices: List<WorkspaceDeviceSummary>) {
 
 @Composable
 private fun SettingsScreen(
+    serverOrigin: String?,
+    currentDeviceName: String?,
     notificationAccessGranted: Boolean,
     onOpenNotificationAccess: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(20.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item { Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium) }
         item {
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(stringResource(R.string.notification_access_title), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(if (notificationAccessGranted) R.string.enabled else R.string.needs_attention),
-                    )
-                    OutlinedButton(onClick = onOpenNotificationAccess) {
-                        Text(stringResource(R.string.open_notification_access))
-                    }
+            Spacer(Modifier.height(12.dp))
+            Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineMedium)
+        }
+        item {
+            SettingsCard(stringResource(R.string.private_service)) {
+                Text(stringResource(R.string.server_address_label), style = MaterialTheme.typography.labelLarge)
+                Text(serverOrigin ?: stringResource(R.string.not_available))
+                Text(stringResource(R.string.current_device), style = MaterialTheme.typography.labelLarge)
+                Text(currentDeviceName ?: stringResource(R.string.not_available))
+                Text(stringResource(R.string.server_change_help), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            SettingsCard(stringResource(R.string.notification_access_title)) {
+                Text(
+                    stringResource(
+                        if (notificationAccessGranted) R.string.enabled else R.string.needs_attention,
+                    ),
+                )
+                OutlinedButton(onClick = onOpenNotificationAccess) {
+                    Text(stringResource(R.string.open_notification_access))
                 }
+            }
+        }
+        item {
+            SettingsCard(stringResource(R.string.data_and_privacy)) {
+                Text(stringResource(R.string.data_and_privacy_body))
+                Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            SettingsCard(stringResource(R.string.access_recovery)) {
+                Text(stringResource(R.string.access_recovery_body))
+            }
+        }
+        item {
+            SettingsCard(stringResource(R.string.about)) {
+                Text(stringResource(R.string.version_value, BuildConfig.VERSION_NAME))
+                Text(stringResource(R.string.license_value))
             }
         }
         onPostDebugNotification?.let { post ->
             item {
-                OutlinedButton(onClick = post) { Text(stringResource(R.string.debug_post_test_notification)) }
+                OutlinedButton(onClick = post) {
+                    Text(stringResource(R.string.debug_post_test_notification))
+                }
             }
         }
-        item { Text(stringResource(R.string.settings_more_later), style = MaterialTheme.typography.bodySmall) }
+        item { Spacer(Modifier.height(20.dp)) }
+    }
+}
+
+@Composable
+private fun SettingsCard(title: String, content: @Composable () -> Unit) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            content()
+        }
     }
 }
 

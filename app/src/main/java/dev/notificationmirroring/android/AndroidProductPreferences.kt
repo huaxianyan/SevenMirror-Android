@@ -6,6 +6,13 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 
+internal enum class NavigationLayout { COMPACT, EXPANDED }
+
+internal fun navigationLayout(widthDp: Float): NavigationLayout {
+    require(widthDp >= 0f) { "Window width must not be negative" }
+    return if (widthDp >= 840f) NavigationLayout.EXPANDED else NavigationLayout.COMPACT
+}
+
 internal enum class OnboardingStage {
     WELCOME,
     LOADING,

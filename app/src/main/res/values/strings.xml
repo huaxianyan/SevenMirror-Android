@@ -45,6 +45,7 @@
     <string name="connected">Connected</string>
     <string name="connecting">Connecting…</string>
     <string name="connection_interrupted">Connection interrupted</string>
+    <string name="retry_connection">Reconnect</string>
     <string name="not_configured">Not configured</string>
     <string name="enabled">Enabled</string>
     <string name="needs_attention">Needs attention</string>
@@ -68,7 +69,17 @@
     <string name="device_authorized">Authorized</string>
     <string name="device_access_expired">Access needs updating</string>
     <string name="devices_admin_boundary">Approve, reject, or remove devices in the server admin page.</string>
-    <string name="settings_more_later">Connection recovery, remote-action permissions, privacy controls, language, and About will be added in the next Android product slices.</string>
+    <string name="private_service">Private service</string>
+    <string name="server_address_label">Server address</string>
+    <string name="not_available">Not available</string>
+    <string name="server_change_help">To change servers, first remove this device in the current server admin page, then reinstall SevenMirror and join the new server.</string>
+    <string name="data_and_privacy">Data and privacy</string>
+    <string name="data_and_privacy_body">Your app selection stays on this Android device. Notification content is end-to-end encrypted for authorized recipient devices, so the relay server cannot read it.</string>
+    <string name="access_recovery">Access recovery</string>
+    <string name="access_recovery_body">If this device loses access or its saved setup cannot be used, ask the server administrator to remove the old device. Then reinstall SevenMirror and join with a new one-time code.</string>
+    <string name="about">About</string>
+    <string name="version_value">Version %1$s</string>
+    <string name="license_value">Licensed under GNU GPLv3.</string>
     <string name="debug_post_test_notification">Developer: post test notification</string>
     <string name="security_error_title">Saved security state needs attention</string>
     <string name="stored_state_security_error">The saved identity or credential did not pass security validation. SevenMirror did not create a replacement.</string>

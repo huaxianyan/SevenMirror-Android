@@ -131,6 +131,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
     private val mutableEnrollmentPending = MutableStateFlow(false)
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
+    private val mutableServerOrigin = MutableStateFlow<String?>(null)
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -143,6 +144,7 @@ class AndroidTransportCoordinator(context: Context) {
     val enrollmentPending: StateFlow<Boolean> = mutableEnrollmentPending.asStateFlow()
     val workspaceDevices: StateFlow<List<WorkspaceDeviceSummary>> =
         mutableWorkspaceDevices.asStateFlow()
+    val serverOrigin: StateFlow<String?> = mutableServerOrigin.asStateFlow()
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
@@ -315,11 +317,13 @@ class AndroidTransportCoordinator(context: Context) {
         if (candidate == null) {
             reconnectBackoff.reset()
             mutableWorkspaceDevices.value = emptyList()
+            mutableServerOrigin.value = null
             mutableState.value = AndroidTransportState.NOT_CONFIGURED
             return
         }
         val credential = candidate.credential
         val credentialSource = candidate.source
+        mutableServerOrigin.value = credential.serverOrigin
         try {
             publishWorkspaceDevices(credential.workspaceId, credential.deviceId)
             val refreshed = membershipClient.refreshActive(credential)

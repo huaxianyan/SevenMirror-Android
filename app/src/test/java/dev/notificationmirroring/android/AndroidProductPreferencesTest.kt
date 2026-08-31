@@ -5,6 +5,12 @@ import org.junit.Test
 
 class AndroidProductPreferencesTest {
     @Test
+    fun `expanded windows use a navigation rail`() {
+        assertEquals(NavigationLayout.COMPACT, navigationLayout(839f))
+        assertEquals(NavigationLayout.EXPANDED, navigationLayout(840f))
+    }
+
+    @Test
     fun `welcome is always the first normal step`() {
         assertEquals(
             OnboardingStage.WELCOME,
