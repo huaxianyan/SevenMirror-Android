@@ -108,17 +108,19 @@ jobs:
             echo 'Fixed signing secrets are required for push builds.' >&2
             exit 1
           fi
-      - name: Verify fixed signing certificate
-        env:
-          EXPECTED_CERT_SHA256: 3e422af3d30a5a4083b48f7ca5b1311be2af8fcf6187fd02a8541d3052f28f70
+      - name: Build and verify release artifact manifest
         run: |
           RELEASE_APK=app/build/outputs/apk/release/app-release.apk
           if [[ -f "$RELEASE_APK" ]]; then
             APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
-            "$APKSIGNER" verify --verbose --print-certs "$RELEASE_APK" \
-              | tee "$RUNNER_TEMP/apksigner-output.txt"
-            grep -qi "certificate SHA-256 digest: $EXPECTED_CERT_SHA256" \
-              "$RUNNER_TEMP/apksigner-output.txt"
+            APKANALYZER=$(find "$ANDROID_HOME/cmdline-tools" -name apkanalyzer -type f | sort | tail -1)
+            python3 scripts/test_build_release_artifacts.py
+            python3 scripts/build_release_artifacts.py \
+              --apk "$RELEASE_APK" \
+              --output "$RUNNER_TEMP/sevenmirror-android-release" \
+              --revision "$GITHUB_SHA" \
+              --apksigner "$APKSIGNER" \
+              --apkanalyzer "$APKANALYZER"
           fi
       - name: Upload APKs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -129,6 +131,9 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+      - name: Remove reconstructed signing material
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/syncnotifications-signing"
 
   api29-secure-runtime:
     runs-on: ubuntu-latest

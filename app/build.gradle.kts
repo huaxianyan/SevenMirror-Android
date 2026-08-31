@@ -7,6 +7,14 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val releaseIdentity = Properties().apply {
+    rootProject.file("release/release-identity.properties").inputStream().use(::load)
+}
+val releaseApplicationId = requireNotNull(releaseIdentity.getProperty("applicationId"))
+val releaseVersionCode = requireNotNull(releaseIdentity.getProperty("versionCode")).toInt()
+val releaseVersionName = requireNotNull(releaseIdentity.getProperty("versionName"))
+require(releaseVersionCode > 0) { "Android release versionCode must be positive" }
+
 val localSigningProperties = Properties().apply {
     val propertiesFile = rootProject.file(".signing/signing.properties")
     if (propertiesFile.isFile) {
@@ -38,11 +46,11 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.notificationmirroring.android"
+        applicationId = releaseApplicationId
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0-dev"
+        versionCode = releaseVersionCode
+        versionName = releaseVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

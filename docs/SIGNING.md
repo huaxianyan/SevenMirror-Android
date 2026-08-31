@@ -7,16 +7,14 @@ updates, so the keystore and passwords must never be committed or logged.
 
 ## Certificate identity
 
-- Key alias: `syncnotifications-android`
-- Key algorithm: RSA 4096
-- Signature algorithm: SHA256withRSA
-- Certificate SHA-1:
-  `CC:23:AF:81:71:05:B8:FE:F4:63:83:D7:5D:99:0A:3B:6D:32:88:B3`
-- Certificate SHA-256:
-  `3E:42:2A:F3:D3:0A:5A:40:83:B4:8F:7C:A5:B1:31:1B:E2:AF:8F:CF:61:87:FD:02:A8:54:1D:30:52:F2:8F:70`
+The key alias remains `syncnotifications-android`; the current key is RSA 4096
+with a SHA256withRSA certificate. Canonical application/version values and
+certificate SHA-1／SHA-256 fingerprints are defined once in
+[`release/release-identity.properties`](../release/release-identity.properties).
+Gradle and the release verifier both consume that file.
 
-These certificate fingerprints and the alias are public metadata. Passwords and
-the keystore are secrets.
+The certificate fingerprints and alias are public metadata. Passwords and the
+keystore are secrets.
 
 ## Local storage
 
@@ -52,8 +50,10 @@ The `SyncNotifications-Android` repository uses these Actions secrets:
 Push builds fail closed if the secrets are unavailable. Pull requests that
 cannot access repository secrets may build a temporary debug-key APK for tests,
 but that APK is not a distributable project build. CI verifies the release APK
-against the expected SHA-256 certificate fingerprint and uploads both APKs as a
-short-lived workflow artifact.
+against the canonical certificate and embedded application/version identity,
+then uploads both APKs as a short-lived workflow artifact. The separate release
+workflow attests only the fixed-signed release APK and its public manifest; see
+[`release-provenance.md`](release-provenance.md).
 
 ## Existing debug-key installations
 
@@ -69,3 +69,8 @@ Do not generate a replacement key when loading fails. Stop the release and
 restore the keystore and credentials from the encrypted backup. Signing-key
 rotation requires a separately reviewed Android-supported upgrade procedure;
 it must never happen silently in CI or local builds.
+
+The current secondary copy is still on the same physical disk and is not an
+independently durable backup. `SR-009` remains open until an encrypted copy on
+separate durable media is retrieved and its public certificate is verified
+without exposing passwords or private-key material.

@@ -69,8 +69,12 @@ Distributable debug and release APKs use the project's fixed Android signing
 identity so later builds remain update-compatible. Local secret files are
 ignored by Git, and GitHub Actions reconstructs the keystore from repository
 secrets and verifies the certificate fingerprint. See
-[`docs/SIGNING.md`](docs/SIGNING.md) for fingerprints, backup locations, CI
-secret names, and recovery rules.
+[`docs/SIGNING.md`](docs/SIGNING.md) for the canonical identity, backup
+boundary, CI secret names, and recovery rules. Signed-APK provenance, offline
+verification, distribution-channel trust and monotonic `versionCode` rollback
+are documented in [`docs/release-provenance.md`](docs/release-provenance.md);
+the pinned release Actions are reviewed in
+[`docs/release-actions.md`](docs/release-actions.md).
 
 ## Modules
 
