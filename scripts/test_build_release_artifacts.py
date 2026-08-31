@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,13 +10,15 @@ from unittest.mock import patch
 from build_release_artifacts import build, verify
 
 
-CERTIFICATE = "ab" * 32
+CERTIFICATE_DER = b"independent certificate fixture"
+CERTIFICATE = hashlib.sha256(CERTIFICATE_DER).hexdigest()
 REVISION = "3" * 40
 
 
 def fake_tool(arguments: list[str]) -> str:
     if "apksigner" in Path(arguments[0]).name:
-        return f"Signer #1 certificate SHA-256 digest: {CERTIFICATE}\n"
+        encoded = base64.b64encode(CERTIFICATE_DER).decode("ascii")
+        return f"-----BEGIN CERTIFICATE-----\n{encoded}\n-----END CERTIFICATE-----\n"
     command = arguments[2]
     return {
         "application-id": "example.fixture.app\n",

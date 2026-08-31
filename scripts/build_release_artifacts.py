@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -93,18 +94,25 @@ def inspect_apk(
     if not apk.is_file() or apk.is_symlink():
         raise RuntimeError("release APK must be a regular file")
     signer_output = run_tool([
-        str(apksigner), "verify", "--verbose", "--print-certs", str(apk),
+        str(apksigner), "verify", "--verbose", "--print-certs-pem", str(apk),
     ])
-    certificate_matches = re.findall(
-        r"Signer\s+#(\d+)\s+certificate\s+SHA-256\s+digest:\s*([0-9a-f]{64})",
+    pem_certificates = re.findall(
+        r"-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+?)\s*"
+        r"-----END CERTIFICATE-----",
         signer_output,
-        flags=re.IGNORECASE,
     )
-    normalized = [(number, digest.lower()) for number, digest in certificate_matches]
-    expected_signer = [("1", identity["signingCertificateSha256"])]
-    if normalized != expected_signer:
+    try:
+        certificate_digests = [
+            hashlib.sha256(base64.b64decode("".join(pem.split()), validate=True)).hexdigest()
+            for pem in pem_certificates
+        ]
+    except ValueError as error:
+        raise RuntimeError("APK signer certificate PEM is invalid") from error
+    if certificate_digests != [identity["signingCertificateSha256"]]:
         raise RuntimeError(
-            f"APK signer certificate identity is invalid; observed public digests: {normalized}")
+            "APK signer certificate identity is invalid; observed public digests: "
+            f"{certificate_digests}"
+        )
 
     def manifest_value(command: str) -> str:
         return run_tool([str(apkanalyzer), "manifest", command, str(apk)]).strip()
