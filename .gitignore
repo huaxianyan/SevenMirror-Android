@@ -1,6 +1,9 @@
 *.iml
 .gradle/
+.kotlin/
 /local.properties
+/.signing/
+/.tools-signing-*.tmp
 /.idea/
 /build/
 **/build/

@@ -6,18 +6,21 @@ import android.service.notification.NotificationListenerService.Ranking
 import android.service.notification.StatusBarNotification
 
 /**
- * SPIKE-001 listener. Notification data remains process-local and is never
- * logged, persisted, or transmitted while mandatory E2EE is unavailable.
+ * Notification listener with an explicit app-package gate for the encrypted
+ * synthetic alpha slice. Third-party notification content remains local.
  */
 class MirroringNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
+        LocalNotificationController.installDismissSink(::cancelNotification)
         activeNotifications.orEmpty().forEach {
             LocalNotificationController.onPosted(this, it, isSilent(it.key))
         }
+        LocalNotificationController.onActiveSetReady(this)
     }
 
     override fun onListenerDisconnected() {
+        LocalNotificationController.installDismissSink(null)
         LocalNotificationController.clear()
         super.onListenerDisconnected()
     }
@@ -27,7 +30,12 @@ class MirroringNotificationListenerService : NotificationListenerService() {
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
-        sbn?.key?.let(LocalNotificationController::onRemoved)
+        sbn?.key?.let { LocalNotificationController.onRemoved(this, it) }
+    }
+
+    override fun onDestroy() {
+        LocalNotificationController.installDismissSink(null)
+        super.onDestroy()
     }
 
     private fun isSilent(notificationKey: String): Boolean {

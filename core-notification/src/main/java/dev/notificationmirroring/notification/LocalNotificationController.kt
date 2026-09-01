@@ -7,26 +7,60 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
-import java.util.concurrent.atomic.AtomicLong
+import java.security.SecureRandom
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+data class ActiveNotificationSnapshot(
+    val highWaterRevision: Long,
+    val notifications: List<NotificationSnapshot>,
+)
+
+interface SyntheticNotificationMirrorSink {
+    fun onUpsert(snapshot: NotificationSnapshot)
+    fun onRemoved(notificationId: String, revision: Long)
+    fun onSnapshot(snapshot: ActiveNotificationSnapshot)
+}
+
 /**
- * Process-local registry used only by SPIKE-001. It never logs, persists, or
- * transmits notification content or PendingIntents.
+ * Process-local notification-content and PendingIntent registry. Only the opaque global
+ * notification revision high-water mark is persisted across process recreation.
  */
 object LocalNotificationController {
-    private data class RegisteredNotification(
-        val revision: Long,
-        val actions: List<Notification.Action>,
+    private data class RegisteredAction(
+        val id: NotificationActionId,
+        val action: Notification.Action,
     )
 
-    private val nextRevision = AtomicLong(0)
+    private data class RegisteredNotification(
+        val packageName: String,
+        val revision: Long,
+        val actions: List<RegisteredAction>,
+        val mirrorEligible: Boolean,
+        val isClearable: Boolean,
+    )
+
+    private val secureRandom = SecureRandom()
+    @Volatile
+    private var revisionStore: AndroidNotificationRevisionStore? = null
     private val registered = mutableMapOf<String, RegisteredNotification>()
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
+    @Volatile
+    private var syntheticMirrorSink: SyntheticNotificationMirrorSink? = null
+    @Volatile
+    private var dismissSink: ((String) -> Unit)? = null
+    private var activeSetReady = false
 
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
+
+    fun installSyntheticMirrorSink(sink: SyntheticNotificationMirrorSink) {
+        syntheticMirrorSink = sink
+    }
+
+    fun installDismissSink(sink: ((String) -> Unit)?) {
+        dismissSink = sink
+    }
 
     @Synchronized
     fun onPosted(
@@ -34,26 +68,94 @@ object LocalNotificationController {
         sbn: StatusBarNotification,
         isSilent: Boolean,
     ) {
-        val revision = nextRevision.incrementAndGet()
-        val snapshot = NotificationExtractor.extract(context, sbn, revision, isSilent)
-        registered[sbn.key] = RegisteredNotification(
+        val revision = revisionStore(context).allocate()
+        val actions = sbn.notification.actions.orEmpty().map { action ->
+            RegisteredAction(randomActionId(), action)
+        }
+        val snapshot = NotificationExtractor.extract(
+            context,
+            sbn,
             revision,
-            sbn.notification.actions.orEmpty().toList(),
+            isSilent,
+            actions.map(RegisteredAction::id),
+        )
+        val mirrorEligible = sbn.packageName == context.packageName
+        registered[sbn.key] = RegisteredNotification(
+            packageName = sbn.packageName,
+            revision = revision,
+            actions = actions,
+            mirrorEligible = mirrorEligible,
+            isClearable = snapshot.isClearable,
         )
         mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
             .sortedByDescending(NotificationSnapshot::postedAtMillis)
+        if (mirrorEligible) syntheticMirrorSink?.onUpsert(snapshot)
     }
 
     @Synchronized
-    fun onRemoved(key: String) {
-        registered.remove(key)
+    fun onActiveSetReady(context: Context) {
+        // Reserve a fresh barrier even when the active set is empty, so a notification removed
+        // while the listener was disconnected can be closed below this snapshot high-water mark.
+        revisionStore(context).allocate()
+        activeSetReady = true
+        syntheticMirrorSink?.onSnapshot(requireNotNull(currentActiveSnapshot(context)))
+    }
+
+    @Synchronized
+    fun currentActiveSnapshot(context: Context): ActiveNotificationSnapshot? {
+        if (!activeSetReady) return null
+        return ActiveNotificationSnapshot(
+            highWaterRevision = revisionStore(context).current(),
+            notifications = mutableNotifications.value.filter { snapshot ->
+                registered[snapshot.key]?.mirrorEligible == true
+            },
+        )
+    }
+
+    @Synchronized
+    fun onRemoved(context: Context, key: String) {
+        val removed = registered.remove(key)
         mutableNotifications.value = mutableNotifications.value.filterNot { it.key == key }
+        if (removed?.mirrorEligible == true) {
+            syntheticMirrorSink?.onRemoved(key, revisionStore(context).allocate())
+        }
     }
 
     @Synchronized
     fun clear() {
+        activeSetReady = false
         registered.clear()
         mutableNotifications.value = emptyList()
+    }
+
+    @Synchronized
+    fun dismiss(
+        notificationKey: String,
+        notificationRevision: Long,
+        operationAuthorizer: RemoteOperationAuthorizer,
+    ): ActionExecutionResult {
+        val notification = registered[notificationKey]
+            ?: return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
+        if (!notification.mirrorEligible) {
+            return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
+        }
+        if (notification.revision != notificationRevision) {
+            return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
+        }
+        if (!operationAuthorizer.isAllowed(notification.packageName, RemoteOperationType.CLEAR)) {
+            return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
+        }
+        if (!notification.isClearable) {
+            return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_NOT_CLEARABLE")
+        }
+        val sink = dismissSink
+            ?: return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "LISTENER_NOT_CONNECTED")
+        return try {
+            sink(notificationKey)
+            ActionExecutionResult(ActionExecutionStatus.SUCCEEDED)
+        } catch (error: RuntimeException) {
+            ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, error::class.java.simpleName)
+        }
     }
 
     @Synchronized
@@ -61,14 +163,25 @@ object LocalNotificationController {
         context: Context,
         token: NotificationActionToken,
         replyText: String? = null,
+        operationAuthorizer: RemoteOperationAuthorizer,
     ): ActionExecutionResult {
         val notification = registered[token.notificationKey]
             ?: return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
         if (notification.revision != token.notificationRevision) {
             return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
         }
-        val action = notification.actions.getOrNull(token.actionIndex)
+        val action = notification.actions
+            .firstOrNull { it.id == token.actionId }
+            ?.action
             ?: return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
+        val operationType = if (replyText == null) {
+            RemoteOperationType.ACTION
+        } else {
+            RemoteOperationType.REPLY
+        }
+        if (!operationAuthorizer.isAllowed(notification.packageName, operationType)) {
+            return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
+        }
         val remoteInputs = action.remoteInputs.orEmpty()
 
         return try {
@@ -108,4 +221,13 @@ object LocalNotificationController {
             )
         }
     }
+
+    private fun revisionStore(context: Context): AndroidNotificationRevisionStore =
+        revisionStore ?: synchronized(this) {
+            revisionStore ?: AndroidNotificationRevisionStore(context).also { revisionStore = it }
+        }
+
+    private fun randomActionId(): NotificationActionId = ByteArray(16)
+        .also(secureRandom::nextBytes)
+        .let(NotificationActionId::fromBytes)
 }

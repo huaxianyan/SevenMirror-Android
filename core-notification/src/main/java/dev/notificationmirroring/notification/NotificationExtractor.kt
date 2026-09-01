@@ -10,12 +10,28 @@ internal object NotificationExtractor {
         sbn: StatusBarNotification,
         revision: Long,
         isSilent: Boolean,
+        actionIds: List<NotificationActionId>,
     ): NotificationSnapshot {
         val notification = sbn.notification
-        val actions = notification.actions.orEmpty().mapIndexed { index, action ->
+        val media = NotificationMediaExtractor.extract(context, sbn.packageName, notification)
+        val text = notification.extras.text(Notification.EXTRA_TEXT)
+        val expandedText = notification.extras.text(Notification.EXTRA_BIG_TEXT)
+        val normalizedText = if (media.containsContentImage && expandedText == null) {
+            text.withContentImagePlaceholder()
+        } else {
+            text
+        }
+        val normalizedExpandedText = if (media.containsContentImage && expandedText != null) {
+            expandedText.withContentImagePlaceholder()
+        } else {
+            expandedText
+        }
+        val platformActions = notification.actions.orEmpty()
+        require(platformActions.size == actionIds.size) { "action ID count mismatch" }
+        val actions = platformActions.mapIndexed { index, action ->
             val remoteInputs = action.remoteInputs.orEmpty()
             NotificationActionDescriptor(
-                token = NotificationActionToken(sbn.key, revision, index),
+                token = NotificationActionToken(sbn.key, revision, actionIds[index]),
                 title = action.title?.toString()?.takeIf(String::isNotBlank) ?: "Action ${index + 1}",
                 semanticAction = action.semanticAction,
                 requiresTextInput = remoteInputs.isNotEmpty(),
@@ -29,8 +45,11 @@ internal object NotificationExtractor {
             packageName = sbn.packageName,
             appName = applicationLabel(context, sbn.packageName),
             title = notification.extras.text(Notification.EXTRA_TITLE),
-            text = notification.extras.text(Notification.EXTRA_TEXT),
-            expandedText = notification.extras.text(Notification.EXTRA_BIG_TEXT),
+            text = normalizedText,
+            expandedText = normalizedExpandedText,
+            appIcon = media.appIcon,
+            avatar = media.avatar,
+            containsContentImage = media.containsContentImage,
             postedAtMillis = sbn.postTime,
             isClearable = sbn.isClearable,
             isOngoing = sbn.isOngoing,
@@ -49,4 +68,12 @@ internal object NotificationExtractor {
 
     private fun android.os.Bundle.text(key: String): String? =
         getCharSequence(key)?.toString()?.takeIf(String::isNotBlank)
+
+    private fun String?.withContentImagePlaceholder(): String = when {
+        this == null -> CONTENT_IMAGE_PLACEHOLDER
+        lineSequence().any { it.trim() == CONTENT_IMAGE_PLACEHOLDER } -> this
+        else -> "$this\n$CONTENT_IMAGE_PLACEHOLDER"
+    }
+
+    private const val CONTENT_IMAGE_PLACEHOLDER = "[图片]"
 }
