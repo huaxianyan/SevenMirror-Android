@@ -68,6 +68,8 @@
         <item quantity="other">%1$d 台设备</item>
     </plurals>
     <string name="selected_apps">已选应用</string>
+    <string name="accessibility_selected">已选中</string>
+    <string name="accessibility_not_selected">未选中</string>
     <plurals name="selected_apps_count">
         <item quantity="other">已选择 %1$d 个</item>
     </plurals>

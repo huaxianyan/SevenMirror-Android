@@ -74,6 +74,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -585,11 +586,17 @@ private fun ApplicationSelectionScreen(
         } else {
             items(visibleApplications, key = SelectableApplication::packageName) { app ->
                 val selected = app.packageName in selection
+                val selectionState = stringResource(
+                    if (selected) R.string.accessibility_selected else R.string.accessibility_not_selected,
+                )
                 Column {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .semantics(mergeDescendants = true) {}
+                            .semantics(mergeDescendants = true) {
+                                stateDescription = selectionState
+                                liveRegion = LiveRegionMode.Polite
+                            }
                             .toggleable(
                                 value = selected,
                                 role = Role.Checkbox,
