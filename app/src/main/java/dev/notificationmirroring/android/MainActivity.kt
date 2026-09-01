@@ -584,32 +584,42 @@ private fun ApplicationSelectionScreen(
             item { Text(stringResource(R.string.no_apps_match_filters)) }
         } else {
             items(visibleApplications, key = SelectableApplication::packageName) { app ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        selection = selection.toggled(app.packageName)
-                    }.padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(
-                        checked = app.packageName in selection,
-                        onCheckedChange = { selection = selection.toggled(app.packageName) },
-                    )
-                    Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
-                        Text(app.label, style = MaterialTheme.typography.bodyLarge)
-                        if (app.isSystemApplication) {
-                            Text(
-                                stringResource(R.string.system_application),
-                                style = MaterialTheme.typography.bodySmall,
+                val selected = app.packageName in selection
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics(mergeDescendants = true) {}
+                            .toggleable(
+                                value = selected,
+                                role = Role.Checkbox,
+                                onValueChange = { selection = selection.toggled(app.packageName) },
                             )
-                        }
-                        if (!onboarding && app.packageName in selection) {
-                            TextButton(onClick = { configuringPackage = app.packageName }) {
+                            .heightIn(min = 48.dp)
+                            .padding(vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = null,
+                        )
+                        Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
+                            Text(app.label, style = MaterialTheme.typography.bodyLarge)
+                            if (app.isSystemApplication) {
                                 Text(
-                                    applicationOperationModeLabel(
-                                        remoteOperationSettings.applicationOverrides[app.packageName]?.mode,
-                                    ),
+                                    stringResource(R.string.system_application),
+                                    style = MaterialTheme.typography.bodySmall,
                                 )
                             }
+                        }
+                    }
+                    if (!onboarding && selected) {
+                        TextButton(onClick = { configuringPackage = app.packageName }) {
+                            Text(
+                                applicationOperationModeLabel(
+                                    remoteOperationSettings.applicationOverrides[app.packageName]?.mode,
+                                ),
+                            )
                         }
                     }
                 }
