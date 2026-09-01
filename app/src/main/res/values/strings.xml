@@ -99,7 +99,13 @@
     <string name="version_value">Version %1$s</string>
     <string name="license_value">Licensed under GNU GPLv3.</string>
     <string name="debug_post_test_notification">Developer: post test notification</string>
-    <string name="security_error_title">Saved security state needs attention</string>
-    <string name="stored_state_security_error">The saved identity or credential did not pass security validation. SevenMirror did not create a replacement.</string>
-    <string name="security_error_recovery">Do not clear app data as a workaround. Ask the server administrator to revoke this device before registering a new identity.</string>
+    <string name="security_error_title">Restore access on this device</string>
+    <string name="stored_state_security_error">SevenMirror cannot continue using the access information saved on this device.</string>
+    <string name="security_error_recovery">Ask the server administrator to remove this device from the workspace, then reopen SevenMirror.</string>
+    <string name="device_removed_title">This device has been removed</string>
+    <string name="device_removed_body">The server administrator removed this device. Register it again and obtain approval to continue using SevenMirror.</string>
+    <string name="re_enroll_device">Register this device again</string>
+    <string name="re_enroll_confirmation_title">Register this device again?</string>
+    <string name="re_enroll_confirmation_body">SevenMirror will remove the workspace access information saved on this device. Your application selection and remote operation settings will remain. You will need a new joining code and administrator approval.</string>
+    <string name="re_enroll_confirm">Continue registration</string>
 </resources>

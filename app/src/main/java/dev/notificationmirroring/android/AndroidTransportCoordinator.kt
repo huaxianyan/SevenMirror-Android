@@ -99,6 +99,19 @@ enum class AndroidTransportState {
     SECURITY_ERROR,
 }
 
+enum class AndroidSecurityRecovery {
+    NONE,
+    CERTIFIED_DEVICE_REMOVAL,
+}
+
+internal fun securityRecoveryForLocalMembership(
+    localDeviceActive: Boolean?,
+): AndroidSecurityRecovery = if (localDeviceActive == false) {
+    AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL
+} else {
+    AndroidSecurityRecovery.NONE
+}
+
 /** Process-lifetime transport owner with serialized, fail-closed encrypted action dispatch. */
 class AndroidTransportCoordinator(context: Context) {
     private val applicationContext = context.applicationContext
@@ -134,6 +147,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableEnrollmentPending = MutableStateFlow(false)
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
+    private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -147,6 +161,8 @@ class AndroidTransportCoordinator(context: Context) {
     val workspaceDevices: StateFlow<List<WorkspaceDeviceSummary>> =
         mutableWorkspaceDevices.asStateFlow()
     val serverOrigin: StateFlow<String?> = mutableServerOrigin.asStateFlow()
+    val securityRecovery: StateFlow<AndroidSecurityRecovery> =
+        mutableSecurityRecovery.asStateFlow()
 
     fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
@@ -254,6 +270,27 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
+    fun reEnrollAfterCertifiedRemoval() {
+        val requestedGeneration = generation.incrementAndGet()
+        mutableState.value = AndroidTransportState.INITIALIZING
+        executor.execute {
+            cancelReconnect()
+            cancelMembershipRefresh()
+            webSocket?.close(1000, "device re-enrollment")
+            webSocket = null
+            try {
+                check(mutableSecurityRecovery.value == AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL) {
+                    "Re-enrollment requires a certified device removal"
+                }
+                productPreferences.beginCertifiedReEnrollmentReset()
+                completeCertifiedReEnrollmentReset()
+                connectInternal(requestedGeneration)
+            } catch (_: Throwable) {
+                mutableState.value = AndroidTransportState.SECURITY_ERROR
+            }
+        }
+    }
+
     fun rotateCredential(rotationCode: String, completed: (Boolean) -> Unit) {
         val requestedGeneration = generation.incrementAndGet()
         mutableState.value = AndroidTransportState.ROTATING
@@ -291,6 +328,15 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun connectInternal(requestedGeneration: Long) {
         if (generation.get() != requestedGeneration) return
+        if (productPreferences.isCertifiedReEnrollmentResetPending()) {
+            try {
+                completeCertifiedReEnrollmentReset()
+            } catch (_: Throwable) {
+                mutableState.value = AndroidTransportState.SECURITY_ERROR
+                return
+            }
+        }
+        mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
         terminalGeneration = Long.MIN_VALUE
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
@@ -339,6 +385,10 @@ class AndroidTransportCoordinator(context: Context) {
             scheduleReconnect(requestedGeneration)
             return
         } catch (_: Throwable) {
+            mutableSecurityRecovery.value = certifiedRemovalRecovery(
+                credential.workspaceId,
+                credential.deviceId,
+            )
             credential.authToken.fill(0)
             mutableState.value = AndroidTransportState.SECURITY_ERROR
             return
@@ -811,6 +861,10 @@ class AndroidTransportCoordinator(context: Context) {
                 } catch (_: Throwable) {
                     terminalGeneration = requestedGeneration
                     if (webSocket === socket) webSocket = null
+                    mutableSecurityRecovery.value = certifiedRemovalRecovery(
+                        credential.workspaceId,
+                        credential.deviceId,
+                    )
                     mutableState.value = AndroidTransportState.SECURITY_ERROR
                     socket.close(1008, "membership trust refresh failed")
                     return@schedule
@@ -835,6 +889,31 @@ class AndroidTransportCoordinator(context: Context) {
             localDeviceId,
             System.currentTimeMillis(),
         )
+    }
+
+    private fun certifiedRemovalRecovery(
+        workspaceId: ByteArray,
+        deviceId: ByteArray,
+    ): AndroidSecurityRecovery = runCatching {
+        securityRecoveryForLocalMembership(
+            workspaceMembershipStore.load(workspaceId, deviceId)?.localDeviceActive,
+        )
+    }.getOrDefault(AndroidSecurityRecovery.NONE)
+
+    private fun completeCertifiedReEnrollmentReset() {
+        resultOutbox.clear()
+        operationLedger.clear()
+        replayLedger.clear()
+        relayDeliveryCursorStore.clear()
+        pendingMembershipStore.clear()
+        credentialStore.clear()
+        identityStore.clear()
+        workspaceMembershipStore.clear()
+        productPreferences.finishCertifiedReEnrollmentReset()
+        mutableEnrollmentPending.value = false
+        mutableWorkspaceDevices.value = emptyList()
+        mutableServerOrigin.value = null
+        mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
     }
 
     private fun recoverPendingMembership(): Boolean {

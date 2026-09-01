@@ -123,6 +123,27 @@ internal class AndroidProductPreferences(context: Context) {
 
     fun isWelcomeCompleted(): Boolean = preferences.getBoolean(KEY_WELCOME_COMPLETED, false)
 
+    fun isCertifiedReEnrollmentResetPending(): Boolean =
+        preferences.getBoolean(KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING, false)
+
+    @SuppressLint("UseKtx")
+    fun beginCertifiedReEnrollmentReset() {
+        check(
+            preferences.edit()
+                .putBoolean(KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING, true)
+                .commit(),
+        ) { "Unable to persist re-enrollment reset intent" }
+    }
+
+    @SuppressLint("UseKtx")
+    fun finishCertifiedReEnrollmentReset() {
+        check(
+            preferences.edit()
+                .remove(KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING)
+                .commit(),
+        ) { "Unable to finish re-enrollment reset" }
+    }
+
     @SuppressLint("UseKtx")
     fun completeWelcome() {
         check(preferences.edit().putBoolean(KEY_WELCOME_COMPLETED, true).commit()) {
@@ -213,6 +234,8 @@ internal class AndroidProductPreferences(context: Context) {
     companion object {
         private const val PREFERENCES_NAME = "syncnotifications.product-preferences.v1"
         private const val KEY_WELCOME_COMPLETED = "welcome-completed"
+        private const val KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING =
+            "certified-re-enrollment-reset-pending"
         private const val KEY_APPLICATION_SELECTION_CONFIRMED = "application-selection-confirmed"
         private const val KEY_SELECTED_PACKAGES = "selected-packages"
         private const val KEY_GLOBAL_ACTIONS = "remote-operations.global.actions"

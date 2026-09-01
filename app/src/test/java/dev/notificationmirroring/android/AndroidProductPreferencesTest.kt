@@ -123,6 +123,16 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
+    fun `only certified device removal offers re-enrollment`() {
+        assertEquals(
+            AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL,
+            securityRecoveryForLocalMembership(false),
+        )
+        assertEquals(AndroidSecurityRecovery.NONE, securityRecoveryForLocalMembership(true))
+        assertEquals(AndroidSecurityRecovery.NONE, securityRecoveryForLocalMembership(null))
+    }
+
+    @Test
     fun `security error overrides normal onboarding`() {
         assertEquals(
             OnboardingStage.SECURITY_ERROR,

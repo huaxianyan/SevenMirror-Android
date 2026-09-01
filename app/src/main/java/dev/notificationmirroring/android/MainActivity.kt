@@ -230,6 +230,7 @@ private fun SevenMirrorApp(
     val enrollmentPending by transportCoordinator.enrollmentPending.collectAsState()
     val workspaceDevices by transportCoordinator.workspaceDevices.collectAsState()
     val serverOrigin by transportCoordinator.serverOrigin.collectAsState()
+    val securityRecovery by transportCoordinator.securityRecovery.collectAsState()
     val stage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
@@ -276,7 +277,10 @@ private fun SevenMirrorApp(
                 onReconnect = transportCoordinator::connect,
                 onPostDebugNotification = onPostDebugNotification,
             )
-            OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen()
+            OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
+                recovery = securityRecovery,
+                onReEnroll = transportCoordinator::reEnrollAfterCertifiedRemoval,
+            )
         }
     }
 }
@@ -1192,19 +1196,64 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun SecurityErrorScreen() {
+private fun SecurityErrorScreen(
+    recovery: AndroidSecurityRecovery,
+    onReEnroll: () -> Unit,
+) {
+    var showReEnrollmentConfirmation by rememberSaveable { mutableStateOf(false) }
+    val certifiedRemoval = recovery == AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL
+
     Page { modifier ->
         Column(
             modifier = modifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                stringResource(R.string.security_error_title),
+                stringResource(
+                    if (certifiedRemoval) R.string.device_removed_title
+                    else R.string.security_error_title,
+                ),
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineMedium,
             )
-            Text(stringResource(R.string.stored_state_security_error))
-            Card { Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp)) }
+            Text(
+                stringResource(
+                    if (certifiedRemoval) R.string.device_removed_body
+                    else R.string.stored_state_security_error,
+                ),
+            )
+            if (certifiedRemoval) {
+                Button(onClick = { showReEnrollmentConfirmation = true }) {
+                    Text(stringResource(R.string.re_enroll_device))
+                }
+            } else {
+                Card {
+                    Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp))
+                }
+            }
         }
+    }
+
+    if (showReEnrollmentConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showReEnrollmentConfirmation = false },
+            title = { Text(stringResource(R.string.re_enroll_confirmation_title)) },
+            text = { Text(stringResource(R.string.re_enroll_confirmation_body)) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showReEnrollmentConfirmation = false
+                        onReEnroll()
+                    },
+                ) {
+                    Text(stringResource(R.string.re_enroll_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReEnrollmentConfirmation = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }

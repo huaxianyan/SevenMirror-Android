@@ -78,7 +78,7 @@ class AndroidRelayDeliveryCursorStore(
     }
 
     @Synchronized
-    fun clearForTests() {
+    fun clear() {
         check(preferences.edit().clear().commit()) { "Failed to clear relay cursor state" }
     }
 

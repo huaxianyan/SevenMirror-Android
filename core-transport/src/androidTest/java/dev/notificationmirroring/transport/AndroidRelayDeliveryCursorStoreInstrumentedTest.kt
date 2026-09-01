@@ -35,7 +35,7 @@ class AndroidRelayDeliveryCursorStoreInstrumentedTest {
                 reconstructed.commitDelivery(workspaceId, deviceId, 2)
             }
         } finally {
-            first.clearForTests()
+            first.clear()
         }
     }
 
@@ -49,7 +49,7 @@ class AndroidRelayDeliveryCursorStoreInstrumentedTest {
                 store.load(workspaceId, deviceId.copyOf().also { it[15]++ }),
             )
         } finally {
-            store.clearForTests()
+            store.clear()
         }
     }
 }

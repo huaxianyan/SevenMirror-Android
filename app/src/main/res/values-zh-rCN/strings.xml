@@ -95,7 +95,13 @@
     <string name="version_value">版本 %1$s</string>
     <string name="license_value">采用 GNU GPLv3 许可证。</string>
     <string name="debug_post_test_notification">开发：发布测试通知</string>
-    <string name="security_error_title">保存的安全状态需要处理</string>
-    <string name="stored_state_security_error">保存的身份或凭据未通过安全校验，SevenMirror 未创建替代状态。</string>
-    <string name="security_error_recovery">不要通过清除应用数据绕过问题。请先让服务器管理员撤销这台设备，再注册新身份。</string>
+    <string name="security_error_title">这台设备需要恢复访问</string>
+    <string name="stored_state_security_error">SevenMirror 无法继续使用这台设备保存的访问资料。</string>
+    <string name="security_error_recovery">请让服务器管理员先从工作区移除这台设备，然后重新打开 SevenMirror。</string>
+    <string name="device_removed_title">这台设备已被移除</string>
+    <string name="device_removed_body">服务器管理员已移除这台设备。再次使用 SevenMirror 需要重新注册并获得批准。</string>
+    <string name="re_enroll_device">重新注册此设备</string>
+    <string name="re_enroll_confirmation_title">重新注册此设备？</string>
+    <string name="re_enroll_confirmation_body">SevenMirror 将移除这台设备保存的工作区访问资料。应用选择和远程操作设置会保留。接下来需要新的加入码和管理员批准。</string>
+    <string name="re_enroll_confirm">继续重新注册</string>
 </resources>
