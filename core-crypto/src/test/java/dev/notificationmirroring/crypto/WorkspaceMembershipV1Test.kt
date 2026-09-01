@@ -2,6 +2,7 @@ package dev.notificationmirroring.crypto
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -36,6 +37,33 @@ class WorkspaceMembershipV1Test {
         assertEquals(1L, initial.roster.rosterEpoch)
         assertEquals(2L, revoked.roster.rosterEpoch)
 
+        val renamed = WorkspaceMembershipV1.decodeCertificate(
+            vector.renamedCertificateEncoded,
+            vector.authorityPublicKey,
+        )
+        val renameRoster = WorkspaceMembershipV1.decodeRoster(
+            vector.renameRosterEncoded,
+            vector.authorityPublicKey,
+        )
+        assertEquals("Chrome-Renamed", renamed.certificate.displayName)
+        WorkspaceMembershipV1.validateRosterCertificateTransitions(initial, renameRoster)
+        val transition = renameRoster.roster.certificateTransitionsList.single()
+        WorkspaceMembershipV1.validateDisplayNameCertificateTransition(
+            certificate,
+            renamed,
+            transition,
+        )
+        val changedType = renamed.toBuilder().setCertificate(
+            renamed.certificate.toBuilder().setDeviceType(DeviceType.DEVICE_TYPE_ANDROID),
+        ).build()
+        assertThrows(IllegalArgumentException::class.java) {
+            WorkspaceMembershipV1.validateDisplayNameCertificateTransition(
+                certificate,
+                changedType,
+                transition,
+            )
+        }
+
         val tampered = vector.certificateEncoded.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
         assertThrows(IllegalArgumentException::class.java) {
             WorkspaceMembershipV1.decodeCertificate(tampered, vector.authorityPublicKey)
@@ -61,6 +89,8 @@ class WorkspaceMembershipV1Test {
         val certificateId: ByteArray,
         val initialRosterEncoded: ByteArray,
         val revokedRosterEncoded: ByteArray,
+        val renamedCertificateEncoded: ByteArray,
+        val renameRosterEncoded: ByteArray,
     ) {
         companion object {
             fun load(): Vector {
@@ -77,6 +107,7 @@ class WorkspaceMembershipV1Test {
                     hex("possessionHpkeEncapsulatedKeyHex"), hex("possessionHpkeCiphertextHex"),
                     hex("certificateEncodedHex"), hex("certificateIdHex"),
                     hex("initialRosterEncodedHex"), hex("revokedRosterEncodedHex"),
+                    hex("renamedCertificateEncodedHex"), hex("renameRosterEncodedHex"),
                 )
             }
         }

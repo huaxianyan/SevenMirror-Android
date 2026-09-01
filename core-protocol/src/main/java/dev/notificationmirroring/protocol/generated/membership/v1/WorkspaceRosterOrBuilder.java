@@ -60,4 +60,18 @@ public interface WorkspaceRosterOrBuilder extends
    * <code>repeated .notification.mirroring.membership.v1.RevokedCertificate revocations = 6 [json_name = "revocations"];</code>
    */
   int getRevocationsCount();
+
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  java.util.List<dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition>
+      getCertificateTransitionsList();
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition getCertificateTransitions(int index);
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  int getCertificateTransitionsCount();
 }

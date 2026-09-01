@@ -4,6 +4,8 @@ import com.google.protobuf.ByteString
 import com.google.protobuf.CodedInputStream
 import dev.notificationmirroring.protocol.generated.membership.v1.AuthorityKeyTransition
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition
+import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransitionReason
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
 import dev.notificationmirroring.protocol.generated.membership.v1.IdentityPossessionChallenge
@@ -29,6 +31,7 @@ object WorkspaceMembershipV1 {
     private const val MAX_MESSAGE_SIZE = 1 shl 20
     private const val MAX_NAME_BYTES = 100
     private const val MAX_ACTIVE = 256
+    private const val MAX_TRANSITIONS = 256
     private const val MAX_REVOCATIONS = 4096
     private const val MAX_CHALLENGE_MS = 600_000L
     private const val HPKE_INFO_DOMAIN = "SyncNotifications-membership-possession-hpke-info-v1\u0000"
@@ -255,6 +258,74 @@ object WorkspaceMembershipV1 {
         require(value.issuedAtUnixMs > 0 && (value.expiresAtUnixMs == 0L || value.expiresAtUnixMs > value.issuedAtUnixMs) && value.membershipEpoch > 0) { "Certificate time or epoch is invalid" }
     }
 
+    fun validateDisplayNameCertificateTransition(
+        previous: SignedDeviceCertificate,
+        current: SignedDeviceCertificate,
+        transition: DeviceCertificateTransition,
+    ) {
+        val oldCertificate = previous.certificate
+        val newCertificate = current.certificate
+        require(
+            transition.workspaceId == oldCertificate.workspaceId &&
+                transition.deviceId == oldCertificate.deviceId &&
+                oldCertificate.workspaceId == newCertificate.workspaceId &&
+                oldCertificate.deviceId == newCertificate.deviceId &&
+                transition.previousCertificateId == previous.certificateId &&
+                transition.newCertificateId == current.certificateId &&
+                transition.reason == DeviceCertificateTransitionReason.DEVICE_CERTIFICATE_TRANSITION_REASON_DISPLAY_NAME &&
+                oldCertificate.displayName != newCertificate.displayName &&
+                newCertificate.membershipEpoch == transition.activationRosterEpoch &&
+                newCertificate.issuedAtUnixMs == transition.issuedAtUnixMs &&
+                oldCertificate.protocolVersion == newCertificate.protocolVersion &&
+                oldCertificate.deviceType == newCertificate.deviceType &&
+                oldCertificate.expiresAtUnixMs == newCertificate.expiresAtUnixMs &&
+                oldCertificate.identityPublicKey == newCertificate.identityPublicKey &&
+                oldCertificate.identityKeyId == newCertificate.identityKeyId &&
+                oldCertificate.rolesValueList == newCertificate.rolesValueList,
+        ) { "Device display-name transition binding is invalid" }
+    }
+
+    fun validateRosterCertificateTransitions(
+        previous: SignedWorkspaceRoster,
+        current: SignedWorkspaceRoster,
+    ) {
+        require(
+            current.roster.rosterEpoch == Math.addExact(previous.roster.rosterEpoch, 1L) &&
+                MessageDigest.isEqual(
+                    current.roster.previousRosterDigest.toByteArray(),
+                    previous.rosterDigest.toByteArray(),
+                ),
+        ) { "Certificate transition requires contiguous workspace rosters" }
+        val oldByDevice = previous.roster.activeCertificatesList.associateBy {
+            it.certificate.deviceId.toByteArray().toHex()
+        }
+        val currentByDevice = current.roster.activeCertificatesList.associateBy {
+            it.certificate.deviceId.toByteArray().toHex()
+        }
+        val transitions = current.roster.certificateTransitionsList.associateBy {
+            it.deviceId.toByteArray().toHex()
+        }
+        for ((device, oldCertificate) in oldByDevice) {
+            val currentCertificate = currentByDevice[device] ?: continue
+            if (!MessageDigest.isEqual(
+                    oldCertificate.certificateId.toByteArray(),
+                    currentCertificate.certificateId.toByteArray(),
+                )
+            ) {
+                val transition = transitions[device]
+                    ?: error("Device certificate replacement requires an exact transition")
+                validateDisplayNameCertificateTransition(oldCertificate, currentCertificate, transition)
+            }
+        }
+        for ((device, transition) in transitions) {
+            val oldCertificate = oldByDevice[device]
+                ?: error("Certificate transition does not replace an active device certificate")
+            val currentCertificate = currentByDevice[device]
+                ?: error("Certificate transition does not replace an active device certificate")
+            validateDisplayNameCertificateTransition(oldCertificate, currentCertificate, transition)
+        }
+    }
+
     private fun validateSignedRoster(value: SignedWorkspaceRoster, authorityPublicKey: ByteArray) {
         require(value.hasRoster()) { "Roster is required" }
         validateRoster(value.roster, authorityPublicKey)
@@ -267,7 +338,12 @@ object WorkspaceMembershipV1 {
         require(value.protocolVersion == VERSION && value.workspaceId.size() == ID_SIZE && value.workspaceId.any { it.toInt() != 0 } && value.rosterEpoch > 0) { "Roster version, workspace, or epoch is invalid" }
         val previousDigest = value.previousRosterDigest.toByteArray()
         require(previousDigest.size == DIGEST_SIZE && if (value.rosterEpoch == 1L) previousDigest.all { it == 0.toByte() } else previousDigest.any { it != 0.toByte() }) { "Previous roster digest is invalid" }
-        require(value.activeCertificatesCount <= MAX_ACTIVE && value.revocationsCount <= MAX_REVOCATIONS) { "Roster entry limit exceeded" }
+        require(
+            value.activeCertificatesCount <= MAX_ACTIVE &&
+                value.certificateTransitionsCount <= MAX_TRANSITIONS &&
+                value.revocationsCount <= MAX_REVOCATIONS &&
+                (value.rosterEpoch != 1L || value.certificateTransitionsCount == 0),
+        ) { "Roster entry limit or certificate transition epoch is invalid" }
         var previousDevice: ByteArray? = null
         val activeIds = mutableSetOf<String>()
         for (signed in value.activeCertificatesList) {
@@ -277,6 +353,30 @@ object WorkspaceMembershipV1 {
             require(certificate.workspaceId == value.workspaceId && certificate.membershipEpoch <= value.rosterEpoch && (previousDevice == null || compareUnsigned(previousDevice, device) < 0)) { "Active certificate roster binding or order is invalid" }
             previousDevice = device
             activeIds += signed.certificateId.toByteArray().toHex()
+        }
+        var previousTransitionDevice: ByteArray? = null
+        for (transition in value.certificateTransitionsList) {
+            val device = transition.deviceId.toByteArray()
+            val active = value.activeCertificatesList.singleOrNull {
+                MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), device)
+            }
+            require(
+                transition.protocolVersion == VERSION &&
+                    transition.workspaceId == value.workspaceId &&
+                    device.size == ID_SIZE && device.any { it != 0.toByte() } &&
+                    transition.previousCertificateId.size() == DIGEST_SIZE &&
+                    transition.previousCertificateId.any { it.toInt() != 0 } &&
+                    transition.newCertificateId.size() == DIGEST_SIZE &&
+                    transition.newCertificateId.any { it.toInt() != 0 } &&
+                    transition.previousCertificateId != transition.newCertificateId &&
+                    transition.activationRosterEpoch == value.rosterEpoch &&
+                    transition.previousRosterDigest == value.previousRosterDigest &&
+                    transition.reason == DeviceCertificateTransitionReason.DEVICE_CERTIFICATE_TRANSITION_REASON_DISPLAY_NAME &&
+                    transition.issuedAtUnixMs > 0 &&
+                    (previousTransitionDevice == null || compareUnsigned(previousTransitionDevice, device) < 0) &&
+                    active != null && active.certificateId == transition.newCertificateId,
+            ) { "Roster certificate transition is invalid" }
+            previousTransitionDevice = device
         }
         var previousCertificate: ByteArray? = null
         for (revoked in value.revocationsList) {
@@ -308,23 +408,28 @@ object WorkspaceMembershipV1 {
     private fun compareUnsigned(left: ByteArray, right: ByteArray): Int { for (index in 0 until minOf(left.size, right.size)) { val result = (left[index].toInt() and 255) - (right[index].toInt() and 255); if (result != 0) return result }; return left.size - right.size }
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
-    private enum class Wire { CHALLENGE, PROOF, CERTIFICATE, SIGNED_CERTIFICATE, REVOCATION, ROSTER, SIGNED_ROSTER, AUTHORITY_TRANSITION, SIGNED_AUTHORITY_TRANSITION }
+    private enum class Wire { CHALLENGE, PROOF, CERTIFICATE, SIGNED_CERTIFICATE, REVOCATION, CERTIFICATE_TRANSITION, ROSTER, SIGNED_ROSTER, AUTHORITY_TRANSITION, SIGNED_AUTHORITY_TRANSITION }
 
     private fun validateWire(encoded: ByteArray, wire: Wire) {
         val input = CodedInputStream.newInstance(encoded)
         val seen = mutableSetOf<Int>()
         while (!input.isAtEnd) {
             val tag = input.readTag()
-            val repeated = wire == Wire.ROSTER && (tag == 42 || tag == 50)
+            val repeated = wire == Wire.ROSTER && (tag == 42 || tag == 50 || tag == 58)
             require(repeated || seen.add(tag)) { "Membership message contains duplicate fields" }
             when (wire to tag) {
-                Wire.CHALLENGE to 8, Wire.PROOF to 8, Wire.CERTIFICATE to 8, Wire.ROSTER to 8, Wire.AUTHORITY_TRANSITION to 8 -> input.readUInt32()
+                Wire.CHALLENGE to 8, Wire.PROOF to 8, Wire.CERTIFICATE to 8,
+                Wire.CERTIFICATE_TRANSITION to 8, Wire.ROSTER to 8,
+                Wire.AUTHORITY_TRANSITION to 8 -> input.readUInt32()
                 Wire.CHALLENGE to 18, Wire.CHALLENGE to 26, Wire.CHALLENGE to 34, Wire.CHALLENGE to 42,
                 Wire.PROOF to 18, Wire.PROOF to 26, Wire.PROOF to 34, Wire.PROOF to 42, Wire.PROOF to 50,
                 Wire.CERTIFICATE to 18, Wire.CERTIFICATE to 26, Wire.CERTIFICATE to 42, Wire.CERTIFICATE to 50, Wire.CERTIFICATE to 58, Wire.CERTIFICATE to 66,
                 Wire.SIGNED_CERTIFICATE to 18, Wire.SIGNED_CERTIFICATE to 26,
                 Wire.REVOCATION to 10, Wire.REVOCATION to 18,
                 Wire.ROSTER to 18, Wire.ROSTER to 34,
+                Wire.CERTIFICATE_TRANSITION to 18, Wire.CERTIFICATE_TRANSITION to 26,
+                Wire.CERTIFICATE_TRANSITION to 34, Wire.CERTIFICATE_TRANSITION to 42,
+                Wire.CERTIFICATE_TRANSITION to 58,
                 Wire.SIGNED_ROSTER to 18, Wire.SIGNED_ROSTER to 26,
                 Wire.AUTHORITY_TRANSITION to 18, Wire.AUTHORITY_TRANSITION to 34, Wire.AUTHORITY_TRANSITION to 42,
                 Wire.AUTHORITY_TRANSITION to 50, Wire.AUTHORITY_TRANSITION to 66,
@@ -332,12 +437,14 @@ object WorkspaceMembershipV1 {
                 Wire.SIGNED_AUTHORITY_TRANSITION to 34 -> input.readByteArray()
                 Wire.CHALLENGE to 48, Wire.CHALLENGE to 56, Wire.CERTIFICATE to 72, Wire.CERTIFICATE to 80, Wire.CERTIFICATE to 88,
                 Wire.REVOCATION to 24, Wire.ROSTER to 24,
+                Wire.CERTIFICATE_TRANSITION to 48, Wire.CERTIFICATE_TRANSITION to 72,
                 Wire.AUTHORITY_TRANSITION to 24, Wire.AUTHORITY_TRANSITION to 56,
                 Wire.AUTHORITY_TRANSITION to 72 -> input.readUInt64()
-                Wire.CERTIFICATE to 32 -> input.readEnum()
+                Wire.CERTIFICATE to 32, Wire.CERTIFICATE_TRANSITION to 64 -> input.readEnum()
                 Wire.SIGNED_CERTIFICATE to 10 -> validateWire(input.readByteArray(), Wire.CERTIFICATE)
                 Wire.ROSTER to 42 -> validateWire(input.readByteArray(), Wire.SIGNED_CERTIFICATE)
                 Wire.ROSTER to 50 -> validateWire(input.readByteArray(), Wire.REVOCATION)
+                Wire.ROSTER to 58 -> validateWire(input.readByteArray(), Wire.CERTIFICATE_TRANSITION)
                 Wire.SIGNED_ROSTER to 10 -> validateWire(input.readByteArray(), Wire.ROSTER)
                 Wire.SIGNED_AUTHORITY_TRANSITION to 10 -> validateWire(input.readByteArray(), Wire.AUTHORITY_TRANSITION)
                 else -> throw IllegalArgumentException("Membership message contains unknown fields")

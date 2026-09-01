@@ -18,6 +18,7 @@ public  final class WorkspaceRoster extends
     previousRosterDigest_ = com.google.protobuf.ByteString.EMPTY;
     activeCertificates_ = emptyProtobufList();
     revocations_ = emptyProtobufList();
+    certificateTransitions_ = emptyProtobufList();
   }
   public static final int PROTOCOL_VERSION_FIELD_NUMBER = 1;
   private int protocolVersion_;
@@ -317,6 +318,103 @@ public  final class WorkspaceRoster extends
   private void removeRevocations(int index) {
     ensureRevocationsIsMutable();
     revocations_.remove(index);
+  }
+
+  public static final int CERTIFICATE_TRANSITIONS_FIELD_NUMBER = 7;
+  private com.google.protobuf.Internal.ProtobufList<dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> certificateTransitions_;
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> getCertificateTransitionsList() {
+    return certificateTransitions_;
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  public java.util.List<? extends dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransitionOrBuilder>
+      getCertificateTransitionsOrBuilderList() {
+    return certificateTransitions_;
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.Override
+  public int getCertificateTransitionsCount() {
+    return certificateTransitions_.size();
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.Override
+  public dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition getCertificateTransitions(int index) {
+    return certificateTransitions_.get(index);
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  public dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransitionOrBuilder getCertificateTransitionsOrBuilder(
+      int index) {
+    return certificateTransitions_.get(index);
+  }
+  private void ensureCertificateTransitionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> tmp = certificateTransitions_;
+    if (!tmp.isModifiable()) {
+      certificateTransitions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void setCertificateTransitions(
+      int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+    value.getClass();  // minimal bytecode null check
+    ensureCertificateTransitionsIsMutable();
+    certificateTransitions_.set(index, value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void addCertificateTransitions(dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+    value.getClass();  // minimal bytecode null check
+    ensureCertificateTransitionsIsMutable();
+    certificateTransitions_.add(value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  @java.lang.SuppressWarnings("ReturnValueIgnored")
+  private void addCertificateTransitions(
+      int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+    value.getClass();  // minimal bytecode null check
+    ensureCertificateTransitionsIsMutable();
+    certificateTransitions_.add(index, value);
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  private void addAllCertificateTransitions(
+      java.lang.Iterable<? extends dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> values) {
+    ensureCertificateTransitionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, certificateTransitions_);
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  private void clearCertificateTransitions() {
+    certificateTransitions_ = emptyProtobufList();
+  }
+  /**
+   * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+   */
+  private void removeCertificateTransitions(int index) {
+    ensureCertificateTransitionsIsMutable();
+    certificateTransitions_.remove(index);
   }
 
   public static dev.notificationmirroring.protocol.generated.membership.v1.WorkspaceRoster parseFrom(
@@ -732,6 +830,108 @@ public  final class WorkspaceRoster extends
       return this;
     }
 
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> getCertificateTransitionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getCertificateTransitionsList());
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    @java.lang.Override
+    public int getCertificateTransitionsCount() {
+      return instance.getCertificateTransitionsCount();
+    }/**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    @java.lang.Override
+    public dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition getCertificateTransitions(int index) {
+      return instance.getCertificateTransitions(index);
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder setCertificateTransitions(
+        int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+      copyOnWrite();
+      instance.setCertificateTransitions(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder setCertificateTransitions(
+        int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition.Builder builderForValue) {
+      copyOnWrite();
+      instance.setCertificateTransitions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder addCertificateTransitions(dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+      copyOnWrite();
+      instance.addCertificateTransitions(value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder addCertificateTransitions(
+        int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition value) {
+      copyOnWrite();
+      instance.addCertificateTransitions(index, value);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder addCertificateTransitions(
+        dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition.Builder builderForValue) {
+      copyOnWrite();
+      instance.addCertificateTransitions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder addCertificateTransitions(
+        int index, dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition.Builder builderForValue) {
+      copyOnWrite();
+      instance.addCertificateTransitions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder addAllCertificateTransitions(
+        java.lang.Iterable<? extends dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition> values) {
+      copyOnWrite();
+      instance.addAllCertificateTransitions(values);
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder clearCertificateTransitions() {
+      copyOnWrite();
+      instance.clearCertificateTransitions();
+      return this;
+    }
+    /**
+     * <code>repeated .notification.mirroring.membership.v1.DeviceCertificateTransition certificate_transitions = 7 [json_name = "certificateTransitions"];</code>
+     */
+    public Builder removeCertificateTransitions(int index) {
+      copyOnWrite();
+      instance.removeCertificateTransitions(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:notification.mirroring.membership.v1.WorkspaceRoster)
   }
   @java.lang.Override
@@ -756,10 +956,12 @@ public  final class WorkspaceRoster extends
             dev.notificationmirroring.protocol.generated.membership.v1.SignedDeviceCertificate.class,
             "revocations_",
             dev.notificationmirroring.protocol.generated.membership.v1.RevokedCertificate.class,
+            "certificateTransitions_",
+            dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificateTransition.class,
           };
           java.lang.String info =
-              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0002\u0000\u0001\u000b\u0002\n" +
-              "\u0003\u0003\u0004\n\u0005\u001b\u0006\u001b";
+              "\u0000\u0007\u0000\u0000\u0001\u0007\u0007\u0000\u0003\u0000\u0001\u000b\u0002\n" +
+              "\u0003\u0003\u0004\n\u0005\u001b\u0006\u001b\u0007\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       // fall through

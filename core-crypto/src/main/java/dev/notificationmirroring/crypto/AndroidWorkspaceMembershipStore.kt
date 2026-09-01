@@ -141,21 +141,24 @@ class AndroidWorkspaceMembershipStore(
                 certificate.certificate.workspaceId.toByteArray().contentEquals(workspaceId) &&
                     certificate.certificate.deviceId.toByteArray().contentEquals(deviceId),
             ) { "Device certificate is not bound to this local device" }
-            if (existing.signedCertificate != null) {
-                check(MessageDigest.isEqual(existing.signedCertificate, signedCertificate)) {
-                    "Device certificate replacement requires a higher-level membership transition"
-                }
-            }
             val roster = WorkspaceMembershipV1.decodeRoster(signedRoster, existing.authorityPublicKey)
             check(roster.roster.workspaceId.toByteArray().contentEquals(workspaceId)) {
                 "Workspace roster is not bound to the pinned workspace"
             }
             val epoch = roster.roster.rosterEpoch
             val digest = roster.rosterDigest.toByteArray()
-            val localActive = roster.roster.activeCertificatesList.any {
-                MessageDigest.isEqual(it.certificateId.toByteArray(), certificate.certificateId.toByteArray()) &&
-                    MessageDigest.isEqual(it.toByteArray(), signedCertificate)
+            val localRosterCertificate = roster.roster.activeCertificatesList.singleOrNull {
+                MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), deviceId)
             }
+            if (localRosterCertificate != null) {
+                check(
+                    MessageDigest.isEqual(
+                        localRosterCertificate.certificateId.toByteArray(),
+                        certificate.certificateId.toByteArray(),
+                    ) && MessageDigest.isEqual(localRosterCertificate.toByteArray(), signedCertificate),
+                ) { "Roster local certificate does not match the proposed replacement" }
+            }
+            val localActive = localRosterCertificate != null
             val result = when {
                 existing.rosterEpoch == 0L -> {
                     check(epoch >= certificate.certificate.membershipEpoch && localActive) {
@@ -171,8 +174,24 @@ class AndroidWorkspaceMembershipStore(
                     ReconcileResult.ALREADY_APPLIED
                 }
                 epoch == Math.addExact(existing.rosterEpoch, 1L) -> {
-                    check(MessageDigest.isEqual(existing.rosterDigest, roster.roster.previousRosterDigest.toByteArray())) {
-                        "Roster previous digest does not match the durable rollback floor"
+                    check(
+                        existing.signedRoster != null &&
+                            MessageDigest.isEqual(
+                                existing.rosterDigest,
+                                roster.roster.previousRosterDigest.toByteArray(),
+                            ),
+                    ) { "Roster previous digest does not match the durable rollback floor" }
+                    val previousRoster = WorkspaceMembershipV1.decodeRoster(
+                        existing.signedRoster,
+                        existing.authorityPublicKey,
+                    )
+                    WorkspaceMembershipV1.validateRosterCertificateTransitions(previousRoster, roster)
+                    if (existing.signedCertificate != null &&
+                        !MessageDigest.isEqual(existing.signedCertificate, signedCertificate)
+                    ) {
+                        check(localActive) {
+                            "Local certificate replacement is not active in the new roster"
+                        }
                     }
                     ReconcileResult.APPLIED
                 }

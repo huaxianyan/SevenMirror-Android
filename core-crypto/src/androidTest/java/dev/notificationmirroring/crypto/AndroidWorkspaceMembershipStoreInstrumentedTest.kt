@@ -125,6 +125,57 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
     }
 
     @Test
+    fun certifiedDisplayNameReplacementSurvivesReconstruction() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val vector = Vector.load(context)
+        val name = "test-${UUID.randomUUID()}"
+        val store = AndroidWorkspaceMembershipStore(context, name)
+        var recovered: AndroidWorkspaceMembershipStore? = null
+        try {
+            store.pinAuthority(vector.workspaceId, vector.deviceId, vector.authorityPublicKey)
+            store.reconcileApproved(
+                vector.workspaceId, vector.deviceId, vector.certificate, vector.initialRoster,
+            )
+            assertThrows(IllegalStateException::class.java) {
+                store.reconcileApproved(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    vector.renamedCertificate,
+                    vector.revokedRoster,
+                )
+            }
+            assertEquals(
+                AndroidWorkspaceMembershipStore.ReconcileResult.APPLIED,
+                store.reconcileApproved(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    vector.renamedCertificate,
+                    vector.renameRoster,
+                ),
+            )
+            store.close()
+            recovered = AndroidWorkspaceMembershipStore(context, name)
+            val state = checkNotNull(recovered.load(vector.workspaceId, vector.deviceId))
+            assertEquals(2L, state.rosterEpoch)
+            assertTrue(state.localDeviceActive)
+            assertArrayEquals(vector.renamedCertificate, state.signedCertificate)
+            assertEquals(
+                "Chrome-Renamed",
+                recovered.listAuthorizedDevices(
+                    vector.workspaceId,
+                    vector.deviceId,
+                    1_800_000_060_000,
+                ).single().displayName,
+            )
+        } finally {
+            recovered?.clear()
+            recovered?.close()
+            runCatching { store.clear() }
+            runCatching { store.close() }
+        }
+    }
+
+    @Test
     fun authorityTransitionAdvancesBothRollbackFloorsAtomically() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val vector = Vector.load(context)
@@ -168,6 +219,8 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
         val certificate: ByteArray,
         val initialRoster: ByteArray,
         val revokedRoster: ByteArray,
+        val renamedCertificate: ByteArray,
+        val renameRoster: ByteArray,
         val newAuthorityPublicKey: ByteArray,
         val authorityTransition: ByteArray,
         val authorityActivationRoster: ByteArray,
@@ -190,6 +243,8 @@ class AndroidWorkspaceMembershipStoreInstrumentedTest {
                     hex("certificateEncodedHex"),
                     hex("initialRosterEncodedHex"),
                     hex("revokedRosterEncodedHex"),
+                    hex("renamedCertificateEncodedHex"),
+                    hex("renameRosterEncodedHex"),
                     hex("newAuthorityPublicKeyHex"),
                     hex("authorityTransitionEncodedHex"),
                     hex("authorityActivationRosterEncodedHex"),
