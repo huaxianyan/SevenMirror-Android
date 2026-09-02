@@ -39,10 +39,36 @@ jobs:
           case "$version_name" in
             *-dev) echo 'Development Android versions cannot be released by tag.' >&2; exit 1 ;;
           esac
-      - name: Verify release source
+      - name: Verify release source and dependency inventories
         run: |
           test -z "$(git status --porcelain=v1)"
-          bash .github/scripts/gradle-step.sh verifyVendoredProtocol test lint
+          bash .github/scripts/gradle-step.sh \
+            verifyVendoredProtocol \
+            test \
+            lint \
+            writeReleaseRuntimeDependencyInventory \
+            --write-locks
+          if [[ -n "$(git status --porcelain -- ':(glob)**/gradle.lockfile')" ]]; then
+            echo 'Gradle dependency inventories are incomplete or stale.' >&2
+            git status --short -- ':(glob)**/gradle.lockfile'
+            exit 1
+          fi
+          python3 scripts/test_android_osv_evidence.py
+      - name: Generate verified OSV query evidence
+        run: |
+          config=security/osv-scanner.json
+          scanner_version="$(jq -er '.version' "$config")"
+          scanner_sha256="$(jq -er '.linux_amd64_sha256' "$config")"
+          scanner="$RUNNER_TEMP/osv-scanner"
+          curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+            --output "$scanner" \
+            "https://github.com/google/osv-scanner/releases/download/v${scanner_version}/osv-scanner_linux_amd64"
+          echo "${scanner_sha256}  ${scanner}" | sha256sum --check --strict -
+          chmod 0700 "$scanner"
+          python3 scripts/android_osv_evidence.py \
+            --scanner "$scanner" \
+            --output "$RUNNER_TEMP/sevenmirror-android-osv-evidence" \
+            --revision "$GITHUB_SHA"
       - name: Prepare fixed signing identity
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -77,10 +103,21 @@ jobs:
             --revision "$GITHUB_SHA" \
             --apksigner "$APKSIGNER" \
             --apkanalyzer "$APKANALYZER"
+      - name: Generate signed OSV evidence provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: '${{ runner.temp }}/sevenmirror-android-osv-evidence/*'
       - name: Generate signed GitHub provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: '${{ runner.temp }}/sevenmirror-android-release/*'
+      - name: Upload verified OSV query evidence
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: sevenmirror-android-osv-evidence-${{ github.sha }}
+          path: '${{ runner.temp }}/sevenmirror-android-osv-evidence/'
+          if-no-files-found: error
+          retention-days: 30
       - name: Upload verified release artifact set
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
