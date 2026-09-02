@@ -2,6 +2,35 @@ import java.security.MessageDigest
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.dsl.LockMode
 
+buildscript {
+    val securityVersions = mapOf(
+        "com.google.protobuf:protobuf-java" to "3.25.5",
+        "com.google.protobuf:protobuf-kotlin" to "3.25.5",
+        "io.netty" to "4.1.137.Final",
+        "org.apache.commons:commons-compress" to "1.27.1",
+        "org.apache.commons:commons-lang3" to "3.18.0",
+        "org.apache.httpcomponents:httpclient" to "4.5.14",
+        "org.bitbucket.b_c:jose4j" to "0.9.6",
+        "org.bouncycastle:bcpkix-jdk18on" to "1.85",
+        "org.bouncycastle:bcprov-jdk18on" to "1.85",
+        "org.jdom:jdom2" to "2.0.6.1",
+    )
+    project.extra["dependencySecurityVersions"] = securityVersions
+    configurations.configureEach {
+        resolutionStrategy.eachDependency {
+            val key = if (requested.group == "io.netty") {
+                "io.netty"
+            } else {
+                "${requested.group}:${requested.name}"
+            }
+            securityVersions[key]?.let { secureVersion ->
+                useVersion(secureVersion)
+                because("audited version with fixes for the build-tool inventory")
+            }
+        }
+    }
+}
+
 plugins {
     id("com.android.application") version "8.13.2" apply false
     id("com.android.library") version "8.13.2" apply false
@@ -9,15 +38,32 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20" apply false
 }
 
-subprojects {
-    dependencyLocking {
-        lockAllConfigurations()
-        lockMode.set(LockMode.STRICT)
-    }
+@Suppress("UNCHECKED_CAST")
+val dependencySecurityVersions = extra["dependencySecurityVersions"] as Map<String, String>
+
+allprojects {
     configurations.configureEach {
         if (name.endsWith("DependenciesMetadata")) {
             resolutionStrategy.deactivateDependencyLocking()
         }
+        resolutionStrategy.eachDependency {
+            val key = if (requested.group == "io.netty") {
+                "io.netty"
+            } else {
+                "${requested.group}:${requested.name}"
+            }
+            dependencySecurityVersions[key]?.let { secureVersion ->
+                useVersion(secureVersion)
+                because("audited version with fixes for the build-tool inventory")
+            }
+        }
+    }
+}
+
+subprojects {
+    dependencyLocking {
+        lockAllConfigurations()
+        lockMode.set(LockMode.STRICT)
     }
 }
 
