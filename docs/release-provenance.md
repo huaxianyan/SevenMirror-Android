@@ -73,13 +73,15 @@ metadata—not an assumption that a second build will have the same hash.
 
 Before signing material is reconstructed, the workflow regenerates and verifies
 the 90-package release-runtime inventory, then runs checksum-pinned OSV Scanner
-once against that inventory and the complete 473-package Gradle artifact/plugin
+once against that inventory and the complete 372-package Gradle artifact/plugin
 inventory. Runtime findings stop the release job. Build-tool findings remain
 visible in a separately attested three-file evidence set and require disposition
 before production approval; they are not mislabeled as APK runtime. Audited
-resolution pins have reduced the build-tool baseline from 21 affected packages／
-86 records to 5／7 without scanner ignores. The residual Android Gradle Plugin
-and Kotlin toolchain findings remain explicitly open.
+resolution pins followed by the AGP `9.4.0`／Gradle `9.6.0` built-in Kotlin
+migration have reduced the build-tool baseline from 21 affected packages／86
+records to 2／2 without scanner ignores. Both residual findings are Kotlin Gradle
+Plugin versions whose first OSV fixed version remains beta; build caching is
+disabled as an internal mitigation, not an independent accepted-risk decision.
 
 The evidence binds the exact two input hashes, normalized package inventories,
 scanner build identity, OSV API, source revision, command completion time and

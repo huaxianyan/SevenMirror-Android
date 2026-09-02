@@ -25,9 +25,9 @@ On Windows PowerShell or Command Prompt, use `gradlew.bat`.
 
 All resolvable build, runtime, unit-test, instrumentation-test, and Kotlin
 compiler-plugin configurations use Gradle strict dependency locking. AGP's
-synthetic `*DependenciesMetadata` configurations are excluded because Gradle
-8.13 does not persist lock state for them; they duplicate dependencies already
-covered by the real classpaths.
+synthetic `*DependenciesMetadata` configurations are excluded because AGP
+9.4／Gradle 9.6 do not expose persistable lock state for them; they duplicate
+dependencies already covered by the real classpaths.
 
 To update dependency versions intentionally, run:
 
@@ -38,10 +38,10 @@ To update dependency versions intentionally, run:
   :core-notification:dependencies \
   :core-protocol:dependencies \
   :core-transport:dependencies \
+  writeReleaseRuntimeDependencyInventory \
   --write-locks
 ./gradlew verifyVendoredProtocol test lint assembleDebug \
   --write-verification-metadata sha256
-./gradlew writeReleaseRuntimeDependencyInventory
 ```
 
 Review every lockfile and every new artifact checksum in
