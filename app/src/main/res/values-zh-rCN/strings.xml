@@ -46,7 +46,7 @@
     <string name="custom_permissions">自定义</string>
     <string name="save">保存</string>
     <string name="cancel">取消</string>
-    <string name="alpha_app_selection_notice">此 Alpha 版本会保存你的选择，但在完成安全和设备兼容性门禁前，第三方通知上传仍保持关闭。</string>
+    <string name="alpha_app_selection_notice">只有你选择的应用通知会同步。保存空选择会保持通知同步关闭。</string>
     <string name="save_app_selection">保存选择（%1$d）</string>
     <string name="home">首页</string>
     <string name="applications">应用</string>
@@ -73,7 +73,7 @@
     <plurals name="selected_apps_count">
         <item quantity="other">已选择 %1$d 个</item>
     </plurals>
-    <string name="alpha_synthetic_boundary">Alpha 安全边界：目前只有 SevenMirror 自身创建的通知可以离开这台设备。</string>
+    <string name="alpha_synthetic_boundary">只有已选应用的通知可以离开这台设备。通知内容会以端到端加密形式发送给已授权的接收设备。</string>
     <string name="devices_body">已获准使用这个 SevenMirror 工作区的设备。</string>
     <string name="device_type_counts">Android：%1$d · Chrome：%2$d</string>
     <string name="devices_empty">已保存的工作区状态中没有可显示的授权设备。</string>

@@ -164,12 +164,12 @@ class AndroidTransportCoordinator(context: Context) {
     val securityRecovery: StateFlow<AndroidSecurityRecovery> =
         mutableSecurityRecovery.asStateFlow()
 
-    fun syntheticResultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
+    fun resultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
 
-    fun mirrorSyntheticNotification(snapshot: NotificationSnapshot) {
+    fun mirrorNotification(snapshot: NotificationSnapshot) {
         executor.execute {
-            sendSyntheticNotification { sender, nowUnixMs ->
+            sendNotification { sender, nowUnixMs ->
                 sender.createUpsert(
                     notificationId = snapshot.key,
                     revision = snapshot.revision,
@@ -187,16 +187,16 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
-    fun removeSyntheticNotification(notificationId: String, revision: Long) {
+    fun removeNotification(notificationId: String, revision: Long) {
         executor.execute {
-            sendSyntheticNotification { sender, nowUnixMs ->
+            sendNotification { sender, nowUnixMs ->
                 sender.createRemoved(notificationId, revision, nowUnixMs)
             }
         }
     }
 
-    fun mirrorSyntheticSnapshot(snapshot: ActiveNotificationSnapshot) {
-        executor.execute { sendSyntheticSnapshot(snapshot) }
+    fun mirrorSnapshot(snapshot: ActiveNotificationSnapshot) {
+        executor.execute { sendSnapshot(snapshot) }
     }
 
     init {
@@ -472,7 +472,7 @@ class AndroidTransportCoordinator(context: Context) {
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
                                 LocalNotificationController.currentActiveSnapshot(applicationContext)
-                                    ?.let { snapshot -> sendSyntheticSnapshot(snapshot) }
+                                    ?.let { snapshot -> sendSnapshot(snapshot) }
                             } catch (_: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
@@ -621,16 +621,16 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
-    private fun sendSyntheticNotification(
+    private fun sendNotification(
         createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
-    ) = sendSyntheticNotifications(createFrames = createFrames)
+    ) = sendNotifications(createFrames = createFrames)
 
-    private fun sendSyntheticSnapshot(
+    private fun sendSnapshot(
         snapshot: ActiveNotificationSnapshot,
         recoveryRequestId: ByteArray? = null,
         recipientDeviceId: ByteArray? = null,
         durable: Boolean = true,
-    ): Boolean = sendSyntheticNotifications(durable) { sender, nowUnixMs ->
+    ): Boolean = sendNotifications(durable) { sender, nowUnixMs ->
         val byId = snapshot.notifications.associateBy(NotificationSnapshot::key)
         val frames = mutableListOf<ByteArray>()
         for (id in NotificationEnvelopeSender.canonicalNotificationIds(byId.keys)) {
@@ -651,7 +651,7 @@ class AndroidTransportCoordinator(context: Context) {
             )
             if (notificationFrames == null) {
                 frames.forEach { it.fill(0) }
-                return@sendSyntheticNotifications null
+                return@sendNotifications null
             }
             frames += notificationFrames
         }
@@ -664,7 +664,7 @@ class AndroidTransportCoordinator(context: Context) {
         )
         if (manifestFrames == null) {
             frames.forEach { it.fill(0) }
-            return@sendSyntheticNotifications null
+            return@sendNotifications null
         }
         frames + manifestFrames
     }
@@ -674,7 +674,7 @@ class AndroidTransportCoordinator(context: Context) {
         val snapshot = checkNotNull(LocalNotificationController.currentActiveSnapshot(applicationContext)) {
             "Notification snapshot is not ready"
         }
-        check(sendSyntheticSnapshot(
+        check(sendSnapshot(
             snapshot = snapshot,
             recoveryRequestId = receipt.recoveryRequestId,
             recipientDeviceId = receipt.requesterDeviceId,
@@ -682,7 +682,7 @@ class AndroidTransportCoordinator(context: Context) {
         )) { "Snapshot recovery response was not accepted locally" }
     }
 
-    private fun sendSyntheticNotifications(
+    private fun sendNotifications(
         durable: Boolean = true,
         createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
     ): Boolean {
