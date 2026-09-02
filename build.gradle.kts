@@ -32,9 +32,8 @@ buildscript {
 }
 
 plugins {
-    id("com.android.application") version "8.13.2" apply false
-    id("com.android.library") version "8.13.2" apply false
-    id("org.jetbrains.kotlin.android") version "2.3.20" apply false
+    id("com.android.application") version "9.4.0" apply false
+    id("com.android.library") version "9.4.0" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20" apply false
 }
 
@@ -70,27 +69,48 @@ subprojects {
 val releaseRuntimeInventoryFile = layout.projectDirectory.file(
     "gradle/release-runtime/gradle.lockfile",
 )
+val releaseRuntimeInventoryFragments = subprojects.map { subproject ->
+    val fragmentFile = layout.buildDirectory.file(
+        "release-runtime-inventory/${subproject.name}.txt",
+    )
+    val fragmentTask = subproject.tasks.register("writeReleaseRuntimeDependencyInventoryFragment") {
+        group = "dependency management"
+        description = "Writes this project's release runtime dependency inventory fragment."
+        outputs.file(fragmentFile)
+        outputs.upToDateWhen { false }
+
+        doLast {
+            val coordinates = project.configurations
+                .getByName("releaseRuntimeClasspath")
+                .incoming
+                .resolutionResult
+                .allComponents
+                .mapNotNull { component ->
+                    (component.id as? ModuleComponentIdentifier)?.let { id ->
+                        "${id.group}:${id.module}:${id.version}=releaseRuntimeClasspath"
+                    }
+                }
+                .toSortedSet()
+            val outputFile = fragmentFile.get().asFile
+            outputFile.parentFile.mkdirs()
+            outputFile.writeText(coordinates.joinToString(separator = "\n", postfix = "\n"))
+        }
+    }
+    fragmentTask to fragmentFile
+}
 
 tasks.register("writeReleaseRuntimeDependencyInventory") {
     group = "dependency management"
     description = "Writes the exact external release runtime dependency inventory for OSV scanning."
+    dependsOn(releaseRuntimeInventoryFragments.map { it.first })
+    inputs.files(releaseRuntimeInventoryFragments.map { it.second })
     outputs.file(releaseRuntimeInventoryFile)
     outputs.upToDateWhen { false }
 
     doLast {
-        val coordinates = subprojects
-            .flatMap { project ->
-                project.configurations
-                    .getByName("releaseRuntimeClasspath")
-                    .incoming
-                    .resolutionResult
-                    .allComponents
-                    .mapNotNull { component ->
-                        (component.id as? ModuleComponentIdentifier)?.let { id ->
-                            "${id.group}:${id.module}:${id.version}=releaseRuntimeClasspath"
-                        }
-                    }
-            }
+        val coordinates = releaseRuntimeInventoryFragments
+            .flatMap { (_, fragmentFile) -> fragmentFile.get().asFile.readLines() }
+            .filter(String::isNotBlank)
             .toSortedSet()
         val outputFile = releaseRuntimeInventoryFile.asFile
         outputFile.parentFile.mkdirs()

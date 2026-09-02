@@ -2,7 +2,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.library")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -17,12 +16,12 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    sourceSets.getByName("test").resources.srcDir(
-        rootProject.file("protocol/test-vectors"),
-    )
-    sourceSets.getByName("androidTest").assets.srcDir(
-        rootProject.file("protocol/test-vectors"),
-    )
+    sourceSets.named<com.android.build.api.dsl.AndroidSourceSet>("test") {
+        resources.directories.add(rootProject.file("protocol/test-vectors").path)
+    }
+    sourceSets.named<com.android.build.api.dsl.AndroidSourceSet>("androidTest") {
+        assets.directories.add(rootProject.file("protocol/test-vectors").path)
+    }
 }
 
 kotlin {
