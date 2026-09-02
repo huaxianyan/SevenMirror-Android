@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.notification.RemoteOperationType
 import java.util.Locale
 
@@ -85,6 +86,50 @@ internal data class ApplicationOperationOverride(
     }
 }
 
+internal data class ApplicationNotificationSettings(
+    val showContent: Boolean = true,
+    val syncOngoing: Boolean = false,
+)
+
+internal data class NotificationSharingSettings(
+    val syncSilent: Boolean = true,
+    val hiddenContentPackages: Set<String> = emptySet(),
+    val ongoingNotificationPackages: Set<String> = emptySet(),
+) {
+    fun settingsFor(packageName: String): ApplicationNotificationSettings =
+        ApplicationNotificationSettings(
+            showContent = packageName !in hiddenContentPackages,
+            syncOngoing = packageName in ongoingNotificationPackages,
+        )
+
+    fun prepare(snapshot: NotificationSnapshot): NotificationSnapshot? {
+        if (snapshot.isSilent && !syncSilent) return null
+        if (snapshot.isOngoing && snapshot.packageName !in ongoingNotificationPackages) return null
+        if (snapshot.packageName !in hiddenContentPackages) return snapshot
+        return snapshot.copy(
+            title = null,
+            text = null,
+            expandedText = null,
+            avatar = null,
+            containsContentImage = false,
+            actions = emptyList(),
+        )
+    }
+}
+
+internal fun prepareNotificationForMirroring(
+    snapshot: NotificationSnapshot,
+    ownPackageName: String,
+    debugFixtureEnabled: Boolean,
+    applicationSelectionConfirmed: Boolean,
+    selectedPackages: Set<String>,
+    sharingSettings: NotificationSharingSettings,
+): NotificationSnapshot? {
+    if (debugFixtureEnabled && snapshot.packageName == ownPackageName) return snapshot
+    if (!applicationSelectionConfirmed || snapshot.packageName !in selectedPackages) return null
+    return sharingSettings.prepare(snapshot)
+}
+
 internal data class RemoteOperationSettings(
     val globalDefaults: RemoteOperationPermissions = RemoteOperationPermissions(),
     val applicationOverrides: Map<String, ApplicationOperationOverride> = emptyMap(),
@@ -157,6 +202,17 @@ internal class AndroidProductPreferences(context: Context) {
     fun selectedPackages(): Set<String> =
         preferences.getStringSet(KEY_SELECTED_PACKAGES, emptySet()).orEmpty().toSet()
 
+    fun notificationSharingSettings(): NotificationSharingSettings = NotificationSharingSettings(
+        syncSilent = preferences.getBoolean(KEY_SYNC_SILENT, true),
+        hiddenContentPackages = preferences.getStringSet(KEY_HIDDEN_CONTENT_PACKAGES, emptySet())
+            .orEmpty()
+            .toSet(),
+        ongoingNotificationPackages = preferences
+            .getStringSet(KEY_ONGOING_NOTIFICATION_PACKAGES, emptySet())
+            .orEmpty()
+            .toSet(),
+    )
+
     fun remoteOperationSettings(): RemoteOperationSettings {
         val globalDefaults = RemoteOperationPermissions(
             actions = preferences.getBoolean(KEY_GLOBAL_ACTIONS, false),
@@ -187,6 +243,34 @@ internal class AndroidProductPreferences(context: Context) {
 
     fun isRemoteOperationAllowed(packageName: String, operation: RemoteOperationType): Boolean =
         remoteOperationSettings().permissionsFor(packageName).allows(operation)
+
+    @SuppressLint("UseKtx")
+    fun saveSyncSilentNotifications(enabled: Boolean) {
+        check(preferences.edit().putBoolean(KEY_SYNC_SILENT, enabled).commit()) {
+            "Unable to persist silent notification preference"
+        }
+    }
+
+    @SuppressLint("UseKtx")
+    fun saveApplicationNotificationSettings(
+        packageName: String,
+        settings: ApplicationNotificationSettings,
+    ) {
+        require(isValidPackageName(packageName)) { "Invalid application package name" }
+        val current = notificationSharingSettings()
+        val hiddenContentPackages = current.hiddenContentPackages.toMutableSet()
+        val ongoingNotificationPackages = current.ongoingNotificationPackages.toMutableSet()
+        if (settings.showContent) hiddenContentPackages -= packageName
+        else hiddenContentPackages += packageName
+        if (settings.syncOngoing) ongoingNotificationPackages += packageName
+        else ongoingNotificationPackages -= packageName
+        check(
+            preferences.edit()
+                .putStringSet(KEY_HIDDEN_CONTENT_PACKAGES, hiddenContentPackages)
+                .putStringSet(KEY_ONGOING_NOTIFICATION_PACKAGES, ongoingNotificationPackages)
+                .commit(),
+        ) { "Unable to persist application notification settings" }
+    }
 
     @SuppressLint("UseKtx")
     fun saveGlobalRemoteOperationPermissions(permissions: RemoteOperationPermissions) {
@@ -238,6 +322,10 @@ internal class AndroidProductPreferences(context: Context) {
             "certified-re-enrollment-reset-pending"
         private const val KEY_APPLICATION_SELECTION_CONFIRMED = "application-selection-confirmed"
         private const val KEY_SELECTED_PACKAGES = "selected-packages"
+        private const val KEY_SYNC_SILENT = "notification-sharing.sync-silent"
+        private const val KEY_HIDDEN_CONTENT_PACKAGES = "notification-sharing.hidden-content-packages"
+        private const val KEY_ONGOING_NOTIFICATION_PACKAGES =
+            "notification-sharing.ongoing-notification-packages"
         private const val KEY_GLOBAL_ACTIONS = "remote-operations.global.actions"
         private const val KEY_GLOBAL_REPLIES = "remote-operations.global.replies"
         private const val KEY_GLOBAL_CLEARING = "remote-operations.global.clearing"

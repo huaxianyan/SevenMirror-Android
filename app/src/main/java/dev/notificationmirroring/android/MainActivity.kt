@@ -97,6 +97,7 @@ class MainActivity : ComponentActivity() {
     private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
     private var installedApplications by mutableStateOf<List<SelectableApplication>>(emptyList())
     private var applicationsLoaded by mutableStateOf(false)
+    private var notificationSharingSettings by mutableStateOf(NotificationSharingSettings())
     private var remoteOperationSettings by mutableStateOf(RemoteOperationSettings())
 
     private val notificationPermission = registerForActivityResult(
@@ -114,6 +115,7 @@ class MainActivity : ComponentActivity() {
         welcomeCompleted = productPreferences.isWelcomeCompleted()
         applicationSelectionConfirmed = productPreferences.isApplicationSelectionConfirmed()
         selectedPackages = productPreferences.selectedPackages()
+        notificationSharingSettings = productPreferences.notificationSharingSettings()
         remoteOperationSettings = productPreferences.remoteOperationSettings()
         refreshNotificationAccess()
         loadApplications()
@@ -129,6 +131,7 @@ class MainActivity : ComponentActivity() {
                     applications = installedApplications,
                     applicationsLoaded = applicationsLoaded,
                     selectedPackages = selectedPackages,
+                    notificationSharingSettings = notificationSharingSettings,
                     remoteOperationSettings = remoteOperationSettings,
                     onCompleteWelcome = {
                         productPreferences.completeWelcome()
@@ -140,9 +143,19 @@ class MainActivity : ComponentActivity() {
                     onRefreshNotificationAccess = ::refreshNotificationAccess,
                     onSaveApplicationSelection = { packages ->
                         productPreferences.saveApplicationSelection(packages)
-                        LocalNotificationController.refreshMirroringEligibility(this)
+                        LocalNotificationController.refreshMirroringPolicy(this)
                         selectedPackages = packages.toSet()
                         applicationSelectionConfirmed = true
+                    },
+                    onSaveSyncSilentNotifications = { enabled ->
+                        productPreferences.saveSyncSilentNotifications(enabled)
+                        notificationSharingSettings = productPreferences.notificationSharingSettings()
+                        LocalNotificationController.refreshMirroringPolicy(this)
+                    },
+                    onSaveApplicationNotificationSettings = { packageName, settings ->
+                        productPreferences.saveApplicationNotificationSettings(packageName, settings)
+                        notificationSharingSettings = productPreferences.notificationSharingSettings()
+                        LocalNotificationController.refreshMirroringPolicy(this)
                     },
                     onSaveGlobalRemoteOperations = { permissions ->
                         productPreferences.saveGlobalRemoteOperationPermissions(permissions)
@@ -219,11 +232,14 @@ private fun SevenMirrorApp(
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
     selectedPackages: Set<String>,
+    notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
     onCompleteWelcome: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onRefreshNotificationAccess: () -> Unit,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveSyncSilentNotifications: (Boolean) -> Unit,
+    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onPostDebugNotification: (() -> Unit)?,
@@ -258,8 +274,11 @@ private fun SevenMirrorApp(
                 applicationsLoaded = applicationsLoaded,
                 initialSelection = selectedPackages,
                 onboarding = true,
+                notificationSharingSettings = notificationSharingSettings,
                 remoteOperationSettings = remoteOperationSettings,
                 onSave = onSaveApplicationSelection,
+                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
+                onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
                 onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
                 onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
             )
@@ -271,8 +290,11 @@ private fun SevenMirrorApp(
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
                 selectedPackages = selectedPackages,
+                notificationSharingSettings = notificationSharingSettings,
                 remoteOperationSettings = remoteOperationSettings,
                 onSaveApplicationSelection = onSaveApplicationSelection,
+                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
+                onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
                 onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
                 onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                 onOpenNotificationAccess = onOpenNotificationAccess,
@@ -492,8 +514,11 @@ private fun ApplicationSelectionScreen(
     applicationsLoaded: Boolean,
     initialSelection: Set<String>,
     onboarding: Boolean,
+    notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
     onSave: (Set<String>) -> Unit,
+    onSaveSyncSilentNotifications: (Boolean) -> Unit,
+    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
 ) {
@@ -528,6 +553,12 @@ private fun ApplicationSelectionScreen(
             )
         }
         if (!onboarding) {
+            item {
+                GlobalNotificationSharingCard(
+                    syncSilent = notificationSharingSettings.syncSilent,
+                    onSaveSyncSilent = onSaveSyncSilentNotifications,
+                )
+            }
             item {
                 GlobalRemoteOperationsCard(
                     permissions = remoteOperationSettings.globalDefaults,
@@ -628,11 +659,7 @@ private fun ApplicationSelectionScreen(
                     }
                     if (!onboarding && selected) {
                         TextButton(onClick = { configuringPackage = app.packageName }) {
-                            Text(
-                                applicationOperationModeLabel(
-                                    remoteOperationSettings.applicationOverrides[app.packageName]?.mode,
-                                ),
-                            )
+                            Text(stringResource(R.string.configure_app))
                         }
                     }
                 }
@@ -654,15 +681,38 @@ private fun ApplicationSelectionScreen(
 
     configuringPackage?.let { packageName ->
         applications.firstOrNull { it.packageName == packageName }?.let { application ->
-            ApplicationOperationDialog(
+            ApplicationSettingsDialog(
                 applicationName = application.label,
-                globalDefaults = remoteOperationSettings.globalDefaults,
-                currentOverride = remoteOperationSettings.applicationOverrides[packageName],
+                notificationSettings = notificationSharingSettings.settingsFor(packageName),
+                globalOperationDefaults = remoteOperationSettings.globalDefaults,
+                currentOperationOverride = remoteOperationSettings.applicationOverrides[packageName],
                 onDismiss = { configuringPackage = null },
-                onSave = { override ->
-                    onSaveApplicationOperationOverride(packageName, override)
+                onSave = { notificationSettings, operationOverride ->
+                    onSaveApplicationNotificationSettings(packageName, notificationSettings)
+                    onSaveApplicationOperationOverride(packageName, operationOverride)
                     configuringPackage = null
                 },
+            )
+        }
+    }
+}
+
+@Composable
+private fun GlobalNotificationSharingCard(
+    syncSilent: Boolean,
+    onSaveSyncSilent: (Boolean) -> Unit,
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(stringResource(R.string.notification_sharing), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.notification_sharing_body), style = MaterialTheme.typography.bodySmall)
+            PermissionSwitchRow(
+                label = stringResource(R.string.sync_silent_notifications),
+                checked = syncSilent,
+                onCheckedChange = onSaveSyncSilent,
             )
         }
     }
@@ -732,28 +782,55 @@ private fun applicationOperationModeLabel(mode: ApplicationOperationMode?): Stri
     )
 
 @Composable
-private fun ApplicationOperationDialog(
+private fun ApplicationSettingsDialog(
     applicationName: String,
-    globalDefaults: RemoteOperationPermissions,
-    currentOverride: ApplicationOperationOverride?,
+    notificationSettings: ApplicationNotificationSettings,
+    globalOperationDefaults: RemoteOperationPermissions,
+    currentOperationOverride: ApplicationOperationOverride?,
     onDismiss: () -> Unit,
-    onSave: (ApplicationOperationOverride?) -> Unit,
+    onSave: (ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
 ) {
-    var mode by remember(currentOverride) {
-        mutableStateOf(currentOverride?.mode ?: ApplicationOperationMode.GLOBAL_DEFAULTS)
+    var showContent by remember(notificationSettings) { mutableStateOf(notificationSettings.showContent) }
+    var syncOngoing by remember(notificationSettings) { mutableStateOf(notificationSettings.syncOngoing) }
+    var mode by remember(currentOperationOverride) {
+        mutableStateOf(currentOperationOverride?.mode ?: ApplicationOperationMode.GLOBAL_DEFAULTS)
     }
-    var customPermissions by remember(currentOverride, globalDefaults) {
+    var customPermissions by remember(currentOperationOverride, globalOperationDefaults) {
         mutableStateOf(
-            currentOverride?.customPermissions
-                ?.takeIf { currentOverride.mode == ApplicationOperationMode.CUSTOM }
-                ?: globalDefaults,
+            currentOperationOverride?.customPermissions
+                ?.takeIf { currentOperationOverride.mode == ApplicationOperationMode.CUSTOM }
+                ?: globalOperationDefaults,
         )
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.app_operation_permissions, applicationName)) },
+        title = { Text(stringResource(R.string.app_settings, applicationName)) },
         text = {
             LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+                item {
+                    Text(
+                        stringResource(R.string.notification_content),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    PermissionSwitchRow(
+                        label = stringResource(R.string.show_notification_content),
+                        checked = showContent,
+                        onCheckedChange = { showContent = it },
+                    )
+                    Text(
+                        stringResource(R.string.hidden_content_help),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    PermissionSwitchRow(
+                        label = stringResource(R.string.sync_ongoing_notifications),
+                        checked = syncOngoing,
+                        onCheckedChange = { syncOngoing = it },
+                    )
+                    Text(
+                        stringResource(R.string.remote_operations),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
                 ApplicationOperationMode.entries.forEach { option ->
                     item(option.name) {
                         Row(
@@ -804,6 +881,10 @@ private fun ApplicationOperationDialog(
             TextButton(
                 onClick = {
                     onSave(
+                        ApplicationNotificationSettings(
+                            showContent = showContent,
+                            syncOngoing = syncOngoing,
+                        ),
                         if (mode == ApplicationOperationMode.GLOBAL_DEFAULTS) {
                             null
                         } else {
@@ -834,8 +915,11 @@ private fun MainScreen(
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
     selectedPackages: Set<String>,
+    notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveSyncSilentNotifications: (Boolean) -> Unit,
+    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onOpenNotificationAccess: () -> Unit,
@@ -904,8 +988,12 @@ private fun MainScreen(
                                 applicationsLoaded,
                                 selectedPackages,
                                 onboarding = false,
+                                notificationSharingSettings = notificationSharingSettings,
                                 remoteOperationSettings = remoteOperationSettings,
                                 onSave = onSaveApplicationSelection,
+                                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
+                                onSaveApplicationNotificationSettings =
+                                    onSaveApplicationNotificationSettings,
                                 onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
                                 onSaveApplicationOperationOverride =
                                     onSaveApplicationOperationOverride,
