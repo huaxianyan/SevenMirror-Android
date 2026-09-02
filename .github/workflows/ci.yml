@@ -2,8 +2,14 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   actions: read
@@ -138,6 +144,7 @@ jobs:
         run: rm -rf "$RUNNER_TEMP/syncnotifications-signing"
 
   api29-secure-runtime:
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: read
