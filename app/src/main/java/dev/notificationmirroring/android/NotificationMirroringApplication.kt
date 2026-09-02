@@ -3,8 +3,9 @@ package dev.notificationmirroring.android
 import android.app.Application
 import dev.notificationmirroring.notification.ActiveNotificationSnapshot
 import dev.notificationmirroring.notification.LocalNotificationController
+import dev.notificationmirroring.notification.NotificationMirrorSink
+import dev.notificationmirroring.notification.NotificationMirroringPolicy
 import dev.notificationmirroring.notification.NotificationSnapshot
-import dev.notificationmirroring.notification.SyntheticNotificationMirrorSink
 
 class NotificationMirroringApplication : Application() {
     lateinit var transportCoordinator: AndroidTransportCoordinator
@@ -13,19 +14,27 @@ class NotificationMirroringApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         ProductDebugActions.restore(this)
+        val productPreferences = AndroidProductPreferences(this)
+        LocalNotificationController.installMirroringPolicy(
+            NotificationMirroringPolicy { context, packageName ->
+                (ProductDebugActions.available && packageName == context.packageName) ||
+                    (productPreferences.isApplicationSelectionConfirmed() &&
+                        packageName in productPreferences.selectedPackages())
+            },
+        )
         transportCoordinator = AndroidTransportCoordinator(this)
-        LocalNotificationController.installSyntheticMirrorSink(
-            object : SyntheticNotificationMirrorSink {
+        LocalNotificationController.installNotificationMirrorSink(
+            object : NotificationMirrorSink {
                 override fun onUpsert(snapshot: NotificationSnapshot) {
-                    transportCoordinator.mirrorSyntheticNotification(snapshot)
+                    transportCoordinator.mirrorNotification(snapshot)
                 }
 
                 override fun onRemoved(notificationId: String, revision: Long) {
-                    transportCoordinator.removeSyntheticNotification(notificationId, revision)
+                    transportCoordinator.removeNotification(notificationId, revision)
                 }
 
                 override fun onSnapshot(snapshot: ActiveNotificationSnapshot) {
-                    transportCoordinator.mirrorSyntheticSnapshot(snapshot)
+                    transportCoordinator.mirrorSnapshot(snapshot)
                 }
             },
         )

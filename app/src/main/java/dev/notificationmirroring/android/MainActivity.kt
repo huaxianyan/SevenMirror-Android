@@ -82,6 +82,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
 import dev.notificationmirroring.crypto.WorkspaceDeviceType
+import dev.notificationmirroring.notification.LocalNotificationController
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
                     onRefreshNotificationAccess = ::refreshNotificationAccess,
                     onSaveApplicationSelection = { packages ->
                         productPreferences.saveApplicationSelection(packages)
+                        LocalNotificationController.refreshMirroringEligibility(this)
                         selectedPackages = packages.toSet()
                         applicationSelectionConfirmed = true
                     },

@@ -48,7 +48,7 @@
     <string name="custom_permissions">Custom</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
-    <string name="alpha_app_selection_notice">This Alpha saves your selection, but third-party notification upload remains disabled until the security and device-compatibility gates are complete.</string>
+    <string name="alpha_app_selection_notice">Only notifications from the apps you select are synchronized. Saving an empty selection keeps notification synchronization off.</string>
     <string name="save_app_selection">Save selection (%1$d)</string>
     <string name="home">Home</string>
     <string name="applications">Apps</string>
@@ -77,7 +77,7 @@
         <item quantity="one">%1$d selected</item>
         <item quantity="other">%1$d selected</item>
     </plurals>
-    <string name="alpha_synthetic_boundary">Alpha safety boundary: only notifications created by SevenMirror itself can currently leave this device.</string>
+    <string name="alpha_synthetic_boundary">Only notifications from selected apps leave this device. Their content is end-to-end encrypted for authorized recipient devices.</string>
     <string name="devices_body">Devices authorized to use this SevenMirror workspace.</string>
     <string name="device_type_counts">Android: %1$d · Chrome: %2$d</string>
     <string name="devices_empty">No authorized devices are available from the saved workspace state.</string>

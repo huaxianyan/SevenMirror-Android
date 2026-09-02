@@ -111,6 +111,11 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             context.registerReceiver(sideEffectReceiver, IntentFilter(TEST_ACTION))
         }
         LocalNotificationController.clear()
+        LocalNotificationController.installMirroringPolicy(
+            NotificationMirroringPolicy { currentContext, packageName ->
+                packageName == currentContext.packageName
+            },
+        )
         val dismissRequests = mutableListOf<String>()
         LocalNotificationController.installDismissSink(dismissRequests::add)
 
@@ -299,6 +304,9 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         } finally {
             context.unregisterReceiver(sideEffectReceiver)
             LocalNotificationController.installDismissSink(null)
+            LocalNotificationController.installMirroringPolicy(
+                NotificationMirroringPolicy { _, _ -> false },
+            )
             LocalNotificationController.clear()
             replay.clear()
             operations.clear()

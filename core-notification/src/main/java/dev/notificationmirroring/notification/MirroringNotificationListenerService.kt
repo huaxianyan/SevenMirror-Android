@@ -6,8 +6,8 @@ import android.service.notification.NotificationListenerService.Ranking
 import android.service.notification.StatusBarNotification
 
 /**
- * Notification listener with an explicit app-package gate for the encrypted
- * synthetic alpha slice. Third-party notification content remains local.
+ * Notification listener whose process-level controller applies the user's application
+ * selection before any notification enters the encrypted mirror sink.
  */
 class MirroringNotificationListenerService : NotificationListenerService() {
     override fun onListenerConnected() {
