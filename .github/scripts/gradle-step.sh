@@ -2,7 +2,10 @@
 set -uo pipefail
 
 task_name="$1"
-log_file="gradle-${task_name//:/-}.log"
+log_dir="${RUNNER_TEMP:-${TMPDIR:-${TEMP:-.}}}"
+mkdir -p "$log_dir"
+log_file="$log_dir/sevenmirror-gradle-${task_name//:/-}-$$.log"
+trap 'rm -f "$log_file"' EXIT
 
 set +e
 ./gradlew "$@" --console=plain 2>&1 | tee "$log_file"
