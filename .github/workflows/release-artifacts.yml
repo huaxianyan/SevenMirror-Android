@@ -43,9 +43,11 @@ jobs:
         run: |
           test -z "$(git status --porcelain=v1)"
           bash .github/scripts/gradle-step.sh \
-            verifyVendoredProtocol \
-            test \
-            lint \
+            :app:dependencies \
+            :core-crypto:dependencies \
+            :core-notification:dependencies \
+            :core-protocol:dependencies \
+            :core-transport:dependencies \
             writeReleaseRuntimeDependencyInventory \
             --write-locks
           if [[ -n "$(git status --porcelain -- ':(glob)**/gradle.lockfile')" ]]; then
@@ -53,6 +55,7 @@ jobs:
             git status --short -- ':(glob)**/gradle.lockfile'
             exit 1
           fi
+          bash .github/scripts/gradle-step.sh verifyVendoredProtocol test lint
           python3 scripts/test_android_osv_evidence.py
       - name: Generate verified OSV query evidence
         run: |
