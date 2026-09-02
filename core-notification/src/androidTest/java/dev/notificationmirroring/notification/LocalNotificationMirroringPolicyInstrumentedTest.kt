@@ -20,10 +20,15 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
     fun selectionChangesEmitFreshUpsertRemovalAndSnapshotRevisions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val selectedPackages = mutableSetOf<String>()
+        var hideContent = false
         val events = mutableListOf<MirrorEvent>()
         LocalNotificationController.clear()
         LocalNotificationController.installMirroringPolicy(
-            NotificationMirroringPolicy { _, packageName -> packageName in selectedPackages },
+            NotificationMirroringPolicy { _, snapshot ->
+                snapshot.takeIf { it.packageName in selectedPackages }?.let {
+                    if (hideContent) it.copy(title = null, text = null, expandedText = null) else it
+                }
+            },
         )
         LocalNotificationController.installNotificationMirrorSink(
             object : NotificationMirrorSink {
@@ -51,7 +56,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
 
             events.clear()
             selectedPackages += packageName
-            LocalNotificationController.refreshMirroringEligibility(context)
+            LocalNotificationController.refreshMirroringPolicy(context)
 
             val upsert = (events[0] as MirrorEvent.Upsert).value
             val selectedSnapshot = (events[1] as MirrorEvent.Snapshot).value
@@ -61,13 +66,23 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
             assertTrue(selectedSnapshot.highWaterRevision > upsert.revision)
 
             events.clear()
+            hideContent = true
+            LocalNotificationController.refreshMirroringPolicy(context)
+
+            val hiddenUpsert = (events[0] as MirrorEvent.Upsert).value
+            val hiddenSnapshot = (events[1] as MirrorEvent.Snapshot).value
+            assertEquals(null, hiddenUpsert.title)
+            assertTrue(hiddenUpsert.revision > upsert.revision)
+            assertEquals(listOf(hiddenUpsert), hiddenSnapshot.notifications)
+
+            events.clear()
             selectedPackages.clear()
-            LocalNotificationController.refreshMirroringEligibility(context)
+            LocalNotificationController.refreshMirroringPolicy(context)
 
             val removed = events[0] as MirrorEvent.Removed
             val deselectedSnapshot = (events[1] as MirrorEvent.Snapshot).value
             assertEquals(notification.key, removed.notificationId)
-            assertTrue(removed.revision > upsert.revision)
+            assertTrue(removed.revision > hiddenUpsert.revision)
             assertTrue(deselectedSnapshot.notifications.isEmpty())
             assertTrue(deselectedSnapshot.highWaterRevision > removed.revision)
             assertEquals(
@@ -81,7 +96,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         } finally {
             LocalNotificationController.installNotificationMirrorSink(null)
             LocalNotificationController.installMirroringPolicy(
-                NotificationMirroringPolicy { _, _ -> false },
+                NotificationMirroringPolicy { _, _ -> null },
             )
             LocalNotificationController.clear()
         }

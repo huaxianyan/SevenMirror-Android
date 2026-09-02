@@ -1,5 +1,6 @@
 package dev.notificationmirroring.android
 
+import dev.notificationmirroring.notification.NotificationSnapshot
 import dev.notificationmirroring.notification.RemoteOperationType
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -28,6 +29,61 @@ class AndroidProductPreferencesTest {
         assertEquals(false, settings.permissionsFor("com.example.blocked").allows(RemoteOperationType.ACTION))
         assertEquals(true, settings.permissionsFor("com.example.custom").allows(RemoteOperationType.REPLY))
         assertEquals(false, settings.permissionsFor("com.example.custom").allows(RemoteOperationType.CLEAR))
+    }
+
+    @Test
+    fun `selected applications follow silent ongoing and content sharing settings`() {
+        val notification = notificationSnapshot(packageName = "com.example.messages")
+        val selected = setOf(notification.packageName)
+
+        assertEquals(
+            notification,
+            prepareNotificationForMirroring(
+                snapshot = notification,
+                ownPackageName = "dev.notificationmirroring.android",
+                debugFixtureEnabled = false,
+                applicationSelectionConfirmed = true,
+                selectedPackages = selected,
+                sharingSettings = NotificationSharingSettings(),
+            ),
+        )
+        assertEquals(
+            null,
+            prepareNotificationForMirroring(
+                snapshot = notification.copy(isOngoing = true),
+                ownPackageName = "dev.notificationmirroring.android",
+                debugFixtureEnabled = false,
+                applicationSelectionConfirmed = true,
+                selectedPackages = selected,
+                sharingSettings = NotificationSharingSettings(),
+            ),
+        )
+        assertEquals(
+            null,
+            prepareNotificationForMirroring(
+                snapshot = notification.copy(isSilent = true),
+                ownPackageName = "dev.notificationmirroring.android",
+                debugFixtureEnabled = false,
+                applicationSelectionConfirmed = true,
+                selectedPackages = selected,
+                sharingSettings = NotificationSharingSettings(syncSilent = false),
+            ),
+        )
+        val hidden = prepareNotificationForMirroring(
+            snapshot = notification.copy(containsContentImage = true),
+            ownPackageName = "dev.notificationmirroring.android",
+            debugFixtureEnabled = false,
+            applicationSelectionConfirmed = true,
+            selectedPackages = selected,
+            sharingSettings = NotificationSharingSettings(
+                hiddenContentPackages = selected,
+                ongoingNotificationPackages = selected,
+            ),
+        )
+        assertEquals(null, hidden?.title)
+        assertEquals(null, hidden?.text)
+        assertEquals(false, hidden?.containsContentImage)
+        assertEquals(0, hidden?.actions?.size)
     }
 
     @Test
@@ -142,6 +198,26 @@ class AndroidProductPreferencesTest {
             ),
         )
     }
+
+    private fun notificationSnapshot(packageName: String): NotificationSnapshot = NotificationSnapshot(
+        key = "notification-key",
+        revision = 1,
+        packageName = packageName,
+        appName = "Messages",
+        title = "Alex",
+        text = "Meet at 6",
+        expandedText = null,
+        appIcon = null,
+        avatar = null,
+        containsContentImage = false,
+        postedAtMillis = 1,
+        isClearable = true,
+        isOngoing = false,
+        isSilent = false,
+        groupKey = null,
+        isGroupSummary = false,
+        actions = emptyList(),
+    )
 
     private fun stage(
         welcomeCompleted: Boolean = true,

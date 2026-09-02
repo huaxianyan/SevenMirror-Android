@@ -16,10 +16,16 @@ class NotificationMirroringApplication : Application() {
         ProductDebugActions.restore(this)
         val productPreferences = AndroidProductPreferences(this)
         LocalNotificationController.installMirroringPolicy(
-            NotificationMirroringPolicy { context, packageName ->
-                (ProductDebugActions.available && packageName == context.packageName) ||
-                    (productPreferences.isApplicationSelectionConfirmed() &&
-                        packageName in productPreferences.selectedPackages())
+            NotificationMirroringPolicy { context, snapshot ->
+                prepareNotificationForMirroring(
+                    snapshot = snapshot,
+                    ownPackageName = context.packageName,
+                    debugFixtureEnabled = ProductDebugActions.available,
+                    applicationSelectionConfirmed =
+                        productPreferences.isApplicationSelectionConfirmed(),
+                    selectedPackages = productPreferences.selectedPackages(),
+                    sharingSettings = productPreferences.notificationSharingSettings(),
+                )
             },
         )
         transportCoordinator = AndroidTransportCoordinator(this)
