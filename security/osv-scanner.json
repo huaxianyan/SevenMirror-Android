@@ -1,0 +1,8 @@
+{
+  "commit": "c84fa4568f2526d0333e9a914ea8a0a5f74ad68b",
+  "linux_amd64_sha256": "f9f25499a2c8cc367b3af45df2ea7eeca7fbccceab9c35079968f4b3652194be",
+  "osv_scalibr_version": "0.5.2",
+  "provider_api": "https://api.osv.dev/v1/querybatch",
+  "schema": "sevenmirror-osv-scanner-tool-v1",
+  "version": "2.5.1"
+}

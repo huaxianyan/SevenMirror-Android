@@ -69,22 +69,40 @@ tools and signing can affect bytes. The accepted release identity is the exact
 attested APK digest, verified certificate and embedded application/version
 metadata—not an assumption that a second build will have the same hash.
 
+## OSV query evidence
+
+Before signing material is reconstructed, the workflow regenerates and verifies
+the 90-package release-runtime inventory, then runs checksum-pinned OSV Scanner
+once against that inventory and the complete 472-package Gradle artifact/plugin
+inventory. Runtime findings stop the release job. Build-tool findings remain
+visible in a separately attested three-file evidence set and require disposition
+before production approval; they are not mislabeled as APK runtime.
+
+The evidence binds the exact two input hashes, normalized package inventories,
+scanner build identity, OSV API, source revision, command completion time and
+complete raw report. The provider does not expose database publication time, so
+that field remains explicitly null. See
+[`vulnerability-evidence.md`](vulnerability-evidence.md) for the verifier and
+scope boundary.
+
 ## GitHub provenance
 
-`.github/workflows/release-artifacts.yml` runs protocol verification, tests and
-lint before reconstructing the JKS in the ephemeral runner temporary directory.
-All four signing secrets are mandatory. It builds only the release APK, verifies
-its public identity, then passes the APK, manifest and checksum to the official
+`.github/workflows/release-artifacts.yml` runs protocol verification, tests, lint
+and OSV evidence generation before reconstructing the JKS in the ephemeral runner
+temporary directory. All four signing secrets are mandatory. It builds only the
+release APK, verifies its public identity, then passes the APK, manifest and
+checksum to the official
 `actions/attest` action pinned at
 `1e69f48acb82d1966a394da916b4c1698aa569d6` (`v4.2.2`, GitHub-verified commit).
 GitHub OIDC and a short-lived Sigstore certificate produce SLSA provenance; no
 additional long-lived provenance key is introduced. Reconstructed signing
 material is removed in an `always()` cleanup step.
 
-Verify all three downloaded subjects:
+Verify all three downloaded release subjects, then separately verify every OSV
+evidence subject:
 
 ```sh
-for artifact in sevenmirror-android-release/*; do
+for artifact in sevenmirror-android-release/* sevenmirror-android-osv-evidence/*; do
   gh attestation verify "$artifact" \
     --repo huaxianyan/SevenMirror-Android
 done
