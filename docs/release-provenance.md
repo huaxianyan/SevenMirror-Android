@@ -79,9 +79,13 @@ visible in a separately attested three-file evidence set and require disposition
 before production approval; they are not mislabeled as APK runtime. Audited
 resolution pins followed by the AGP `9.4.0`／Gradle `9.6.0` built-in Kotlin
 migration have reduced the build-tool baseline from 21 affected packages／86
-records to 2／2 without scanner ignores. Both residual findings are Kotlin Gradle
-Plugin versions whose first OSV fixed version remains beta; build caching is
-disabled as an internal mitigation, not an independent accepted-risk decision.
+records to 2／2 without scanner ignores. Both residual records are Kotlin Gradle
+Plugin versions whose first OSV fixed version remains pre-release. The protected
+workflow runs `verifyKotlinKaptAdvisoryGuard` before signing: the project has no
+KAPT tasks, and both incremental KAPT and Gradle build caching remain disabled.
+This enforced reachability mitigation is not an exception or independent risk
+acceptance; the exact analysis is recorded in
+[`kotlin-kapt-advisory-analysis.md`](kotlin-kapt-advisory-analysis.md).
 
 The evidence binds the exact two input hashes, normalized package inventories,
 scanner build identity, OSV API, source revision, command completion time and

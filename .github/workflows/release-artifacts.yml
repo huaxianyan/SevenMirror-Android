@@ -31,6 +31,8 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - name: Verify Kotlin advisory guard
+        run: bash .github/scripts/gradle-step.sh verifyKotlinKaptAdvisoryGuard
       - name: Verify release tag binding
         if: github.ref_type == 'tag'
         run: |
