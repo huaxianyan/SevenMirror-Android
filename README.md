@@ -54,6 +54,28 @@ Gradle/plugin inventory in `verification-metadata.xml`; known upstream Android
 build-tool findings remain visible there and are not misrepresented as APK
 runtime dependencies.
 
+## Development CI flow
+
+Feature-branch pushes do not automatically run CI. Before opening a pull request,
+push the branch and explicitly dispatch the `CI` workflow against that branch:
+
+```sh
+gh workflow run CI --ref <branch>
+```
+
+Wait for that run before opening the pull request. This preflight resolves Linux
+and platform-specific Gradle artifacts that a Windows checkout cannot discover;
+if dependency verification fails, add only checksums independently downloaded
+from the named upstream repository, amend the branch, and dispatch once more.
+Do not open a pull request merely to use required checks as a dependency metadata
+probe.
+
+Pull requests run one required-check set. A newer commit cancels an obsolete run,
+and the API 29 emulator starts only after the build and dependency-integrity job
+succeeds. Pushes to `main` still run the complete required-check set. These
+ordering rules reduce duplicate runner failures; they do not relax any build,
+OSV, instrumentation, or release gate.
+
 ## Sensitive local data
 
 The API 29 instrumentation suite uses real Android Keystore-backed stores and
