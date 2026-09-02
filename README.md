@@ -16,7 +16,7 @@ Repository: <https://github.com/huaxianyan/SevenMirror-Android>
 ## Build
 
 ```sh
-./gradlew verifyVendoredProtocol test lint assembleDebug
+./gradlew verifyKotlinKaptAdvisoryGuard verifyVendoredProtocol test lint assembleDebug
 ```
 
 On Windows PowerShell or Command Prompt, use `gradlew.bat`.
@@ -40,7 +40,7 @@ To update dependency versions intentionally, run:
   :core-transport:dependencies \
   writeReleaseRuntimeDependencyInventory \
   --write-locks
-./gradlew verifyVendoredProtocol test lint assembleDebug \
+./gradlew verifyKotlinKaptAdvisoryGuard verifyVendoredProtocol test lint assembleDebug \
   --write-verification-metadata sha256
 ```
 
@@ -52,7 +52,9 @@ Scanner v2.5.1 blocks known vulnerabilities in the exact release runtime
 inventory. A separate supply-chain audit scans the complete artifact and
 Gradle/plugin inventory in `verification-metadata.xml`; known upstream Android
 build-tool findings remain visible there and are not misrepresented as APK
-runtime dependencies.
+runtime dependencies. The remaining Kotlin Gradle Plugin advisory records and
+the enforced no-KAPT reachability boundary are documented in
+[`docs/kotlin-kapt-advisory-analysis.md`](docs/kotlin-kapt-advisory-analysis.md).
 
 ## Development CI flow
 

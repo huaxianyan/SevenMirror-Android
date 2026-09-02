@@ -124,6 +124,27 @@ tasks.register("writeReleaseRuntimeDependencyInventory") {
     }
 }
 
+tasks.register("verifyKotlinKaptAdvisoryGuard") {
+    group = "verification"
+    description = "Rejects build settings that expose the open Kotlin KAPT cache advisory path."
+    doLast {
+        check(!gradle.startParameter.isBuildCacheEnabled) {
+            "Gradle build cache must remain disabled while GHSA-r937-wjx7-w2jp is open"
+        }
+        check(providers.gradleProperty("kapt.incremental.apt").orNull == "false") {
+            "Incremental KAPT must remain disabled while GHSA-r937-wjx7-w2jp is open"
+        }
+        val kaptTasks = allprojects.flatMap { project ->
+            project.tasks.names
+                .filter { it.startsWith("kapt", ignoreCase = true) }
+                .map { "${project.path}:$it" }
+        }
+        check(kaptTasks.isEmpty()) {
+            "KAPT is not permitted while GHSA-r937-wjx7-w2jp is open: ${kaptTasks.sorted()}"
+        }
+    }
+}
+
 tasks.register("verifyVendoredProtocol") {
     group = "verification"
     description = "Verifies SHA-256 hashes of vendored protocol assets."
