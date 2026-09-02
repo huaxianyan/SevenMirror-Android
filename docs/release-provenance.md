@@ -1,6 +1,22 @@
 # Android release provenance and rollback
 
-Status: **release-channel engineering baseline; independent review and distribution-channel evidence remain required**
+Status: **protected release-candidate baseline; independent review and distribution-channel evidence remain required**
+
+## Release authority
+
+The release job targets the GitHub `release-candidate` environment. Only
+protected branches may deploy to it, and an explicit repository-administrator
+approval is required before signing secrets, job permissions, or provenance
+steps become available. The `main` branch separately requires a pull request,
+Android build and API 29 runtime checks, blocks force-push and deletion, and
+applies those rules to administrators.
+
+Only `huaxianyan` currently has repository access. The environment gate is
+therefore a deliberate second action by the same identity, not independent
+approval. Before production release, add a second trusted reviewer, require an
+approval from someone other than the last pusher, enable environment self-review
+prevention, and verify that signing-secret access remains limited to the gated
+job.
 
 ## Canonical public release identity
 
