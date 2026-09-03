@@ -236,7 +236,11 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, recovered.result.status)
             assertEquals(1, ActionSideEffectReceiver.count.get())
 
-            LocalNotificationController.onPosted(context, sbn, isSilent = false)
+            LocalNotificationController.onPosted(
+                context,
+                testNotification(context, title = "Updated test"),
+                isSilent = false,
+            )
             val stale = actionFrame(
                 12,
                 0xc3,
@@ -314,7 +318,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         }
     }
 
-    private fun testNotification(context: Context): StatusBarNotification {
+    private fun testNotification(context: Context, title: String = "Test"): StatusBarNotification {
         val intent = Intent(TEST_ACTION).setPackage(context.packageName)
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -325,7 +329,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val action = Notification.Action.Builder(0, "Mark as read", pendingIntent).build()
         val notification = Notification.Builder(context, "test")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Test")
+            .setContentTitle(title)
             .addAction(action)
             .build()
         val constructor = StatusBarNotification::class.java.constructors

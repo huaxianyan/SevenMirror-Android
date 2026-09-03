@@ -110,21 +110,40 @@ object LocalNotificationController {
         sbn: StatusBarNotification,
         isSilent: Boolean,
     ) {
-        val revision = revisionStore(context).allocate()
-        val actions = sbn.notification.actions.orEmpty().map { action ->
-            RegisteredAction(randomActionId(), action)
+        val previous = registered[sbn.key]
+        val platformActions = sbn.notification.actions.orEmpty()
+        val actionIds = if (
+            previous != null && sameActionPresentation(previous.sourceSnapshot.actions, platformActions)
+        ) {
+            previous.actions.map(RegisteredAction::id)
+        } else {
+            platformActions.map { randomActionId() }
         }
-        val snapshot = NotificationExtractor.extract(
+        val actions = platformActions.mapIndexed { index, action ->
+            RegisteredAction(actionIds[index], action)
+        }
+        val candidate = NotificationExtractor.extract(
             context,
             sbn,
-            revision,
+            previous?.sourceSnapshot?.revision ?: revisionStore(context).allocate(),
             isSilent,
-            actions.map(RegisteredAction::id),
+            actionIds,
         )
+        if (previous != null && previous.sourceSnapshot.sameMirroredContent(candidate)) {
+            // Keep the externally visible revision and action IDs, but execute the application's
+            // latest PendingIntent if Chrome later invokes the existing token.
+            registered[sbn.key] = previous.copy(actions = actions)
+            return
+        }
+        val snapshot = if (previous == null) {
+            candidate
+        } else {
+            candidate.withRevision(revisionStore(context).allocate())
+        }
         registered[sbn.key] = RegisteredNotification(
             sourceSnapshot = snapshot,
             actions = actions,
-            mirroredSnapshot = registered[sbn.key]?.mirroredSnapshot,
+            mirroredSnapshot = previous?.mirroredSnapshot,
         )
         reconcileMirroredSelection(context, freshRevisionKeys = setOf(sbn.key))
     }
@@ -287,6 +306,56 @@ object LocalNotificationController {
                 error::class.java.simpleName,
             )
         }
+    }
+
+    private fun sameActionPresentation(
+        previous: List<NotificationActionDescriptor>,
+        current: Array<out Notification.Action>,
+    ): Boolean = previous.size == current.size && current.indices.all { index ->
+        val currentAction = current[index]
+        val remoteInputs = currentAction.remoteInputs.orEmpty()
+        previous[index].title ==
+            (currentAction.title?.toString()?.takeIf(String::isNotBlank) ?: "Action ${index + 1}") &&
+            previous[index].semanticAction == currentAction.semanticAction &&
+            previous[index].requiresTextInput == remoteInputs.isNotEmpty() &&
+            previous[index].allowsFreeFormInput == remoteInputs.any { it.allowFreeFormInput }
+    }
+
+    private fun NotificationSnapshot.sameMirroredContent(other: NotificationSnapshot): Boolean =
+        key == other.key &&
+            packageName == other.packageName &&
+            appName == other.appName &&
+            title == other.title &&
+            text == other.text &&
+            expandedText == other.expandedText &&
+            appIcon.sameMedia(other.appIcon) &&
+            avatar.sameMedia(other.avatar) &&
+            containsContentImage == other.containsContentImage &&
+            postedAtMillis == other.postedAtMillis &&
+            isClearable == other.isClearable &&
+            isOngoing == other.isOngoing &&
+            isSilent == other.isSilent &&
+            groupKey == other.groupKey &&
+            isGroupSummary == other.isGroupSummary &&
+            actions.size == other.actions.size &&
+            actions.indices.all { index -> actions[index].samePresentation(other.actions[index]) }
+
+    private fun NotificationActionDescriptor.samePresentation(
+        other: NotificationActionDescriptor,
+    ): Boolean = token.notificationKey == other.token.notificationKey &&
+        token.actionId == other.token.actionId &&
+        title == other.title &&
+        semanticAction == other.semanticAction &&
+        requiresTextInput == other.requiresTextInput &&
+        allowsFreeFormInput == other.allowsFreeFormInput
+
+    private fun NotificationMedia?.sameMedia(other: NotificationMedia?): Boolean = when {
+        this == null || other == null -> this == null && other == null
+        else -> mimeType == other.mimeType &&
+            width == other.width &&
+            height == other.height &&
+            contentSha256.contentEquals(other.contentSha256) &&
+            bytes.contentEquals(other.bytes)
     }
 
     private fun reconcileMirroredSelection(
