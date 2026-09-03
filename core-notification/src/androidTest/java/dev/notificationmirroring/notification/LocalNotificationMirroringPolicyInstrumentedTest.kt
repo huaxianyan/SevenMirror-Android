@@ -1,9 +1,13 @@
 package dev.notificationmirroring.notification
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Process
 import android.os.UserHandle
 import android.service.notification.StatusBarNotification
@@ -13,6 +17,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class LocalNotificationMirroringPolicyInstrumentedTest {
@@ -98,6 +104,69 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
             LocalNotificationController.installMirroringPolicy(
                 NotificationMirroringPolicy { _, _ -> null },
             )
+            LocalNotificationController.clear()
+        }
+    }
+
+    @Test
+    fun repeatedCallbackKeepsChromeRevisionAndExecutesLatestAppAction() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val events = mutableListOf<MirrorEvent>()
+        val received = CountDownLatch(1)
+        val secondAction = "dev.notificationmirroring.TEST_UPDATED_ACTION"
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == secondAction) received.countDown()
+            }
+        }
+        registerTestReceiver(context, receiver, IntentFilter(secondAction))
+        LocalNotificationController.clear()
+        LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
+        LocalNotificationController.installNotificationMirrorSink(
+            object : NotificationMirrorSink {
+                override fun onUpsert(snapshot: NotificationSnapshot) {
+                    events += MirrorEvent.Upsert(snapshot)
+                }
+
+                override fun onRemoved(notificationId: String, revision: Long) = Unit
+                override fun onSnapshot(snapshot: ActiveNotificationSnapshot) = Unit
+            },
+        )
+
+        try {
+            val postedAt = 123_456L
+            val first = testNotification(
+                context,
+                "com.example.selected",
+                postTime = postedAt,
+                actionRequestCode = 101,
+            )
+            LocalNotificationController.onPosted(context, first, isSilent = false)
+            val firstUpsert = (events.single() as MirrorEvent.Upsert).value
+
+            val updatedAction = testNotification(
+                context,
+                "com.example.selected",
+                postTime = postedAt,
+                actionRequestCode = 102,
+                actionIntentAction = secondAction,
+            )
+            LocalNotificationController.onPosted(context, updatedAction, isSilent = false)
+
+            assertEquals(1, events.size)
+            assertEquals(
+                ActionExecutionStatus.SUCCEEDED,
+                LocalNotificationController.invoke(
+                    context,
+                    firstUpsert.actions.single().token,
+                    operationAuthorizer = RemoteOperationAuthorizer { _, _ -> true },
+                ).status,
+            )
+            assertTrue(received.await(5, TimeUnit.SECONDS))
+        } finally {
+            context.unregisterReceiver(receiver)
+            LocalNotificationController.installNotificationMirrorSink(null)
+            LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, _ -> null })
             LocalNotificationController.clear()
         }
     }
@@ -204,6 +273,20 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         }
     }
 
+    @SuppressLint("UnspecifiedRegisterReceiverFlag")
+    @Suppress("DEPRECATION")
+    private fun registerTestReceiver(
+        context: Context,
+        receiver: BroadcastReceiver,
+        filter: IntentFilter,
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            context.registerReceiver(receiver, filter)
+        }
+    }
+
     private fun testNotification(
         context: Context,
         packageName: String,
@@ -211,11 +294,14 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         tag: String = "selected",
         groupKey: String? = null,
         isGroupSummary: Boolean = false,
+        postTime: Long = System.currentTimeMillis(),
+        actionRequestCode: Int = id,
+        actionIntentAction: String = "dev.notificationmirroring.TEST_SELECTED_ACTION",
     ): StatusBarNotification {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            id,
-            Intent("dev.notificationmirroring.TEST_SELECTED_ACTION").setPackage(context.packageName),
+            actionRequestCode,
+            Intent(actionIntentAction).setPackage(context.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val notification = Notification.Builder(context, "test")
@@ -239,7 +325,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                     0,
                     notification,
                     UserHandle.getUserHandleForUid(Process.myUid()),
-                    System.currentTimeMillis(),
+                    postTime,
                 )
             } else {
                 arrayOf(
@@ -252,7 +338,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                     notification,
                     UserHandle.getUserHandleForUid(Process.myUid()),
                     null,
-                    System.currentTimeMillis(),
+                    postTime,
                 )
             }
         return constructor.newInstance(*arguments) as StatusBarNotification
