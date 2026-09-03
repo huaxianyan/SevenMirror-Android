@@ -20,7 +20,7 @@ class NotificationMirroringApplication : Application() {
                 prepareNotificationForMirroring(
                     snapshot = snapshot,
                     ownPackageName = context.packageName,
-                    debugFixtureEnabled = ProductDebugActions.available,
+                    debugFixtureEnabled = ProductDebugActions.isFixtureNotification(snapshot),
                     applicationSelectionConfirmed =
                         productPreferences.isApplicationSelectionConfirmed(),
                     selectedPackages = productPreferences.selectedPackages(),
@@ -44,6 +44,5 @@ class NotificationMirroringApplication : Application() {
                 }
             },
         )
-        transportCoordinator.connect()
     }
 }

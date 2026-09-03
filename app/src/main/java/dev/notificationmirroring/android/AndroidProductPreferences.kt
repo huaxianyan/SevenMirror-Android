@@ -117,6 +117,11 @@ internal data class NotificationSharingSettings(
     }
 }
 
+internal fun backgroundConnectionEnabled(
+    savedPreference: Boolean?,
+    applicationSelectionConfirmed: Boolean,
+): Boolean = savedPreference ?: applicationSelectionConfirmed
+
 internal fun prepareNotificationForMirroring(
     snapshot: NotificationSnapshot,
     ownPackageName: String,
@@ -198,6 +203,22 @@ internal class AndroidProductPreferences(context: Context) {
 
     fun isApplicationSelectionConfirmed(): Boolean =
         preferences.getBoolean(KEY_APPLICATION_SELECTION_CONFIRMED, false)
+
+    fun isBackgroundConnectionEnabled(): Boolean = backgroundConnectionEnabled(
+        savedPreference = if (preferences.contains(KEY_BACKGROUND_CONNECTION_ENABLED)) {
+            preferences.getBoolean(KEY_BACKGROUND_CONNECTION_ENABLED, false)
+        } else {
+            null
+        },
+        applicationSelectionConfirmed = isApplicationSelectionConfirmed(),
+    )
+
+    @SuppressLint("UseKtx")
+    fun saveBackgroundConnectionEnabled(enabled: Boolean) {
+        check(preferences.edit().putBoolean(KEY_BACKGROUND_CONNECTION_ENABLED, enabled).commit()) {
+            "Unable to persist background connection preference"
+        }
+    }
 
     fun selectedPackages(): Set<String> =
         preferences.getStringSet(KEY_SELECTED_PACKAGES, emptySet()).orEmpty().toSet()
@@ -321,6 +342,7 @@ internal class AndroidProductPreferences(context: Context) {
         private const val KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING =
             "certified-re-enrollment-reset-pending"
         private const val KEY_APPLICATION_SELECTION_CONFIRMED = "application-selection-confirmed"
+        private const val KEY_BACKGROUND_CONNECTION_ENABLED = "background-connection.enabled"
         private const val KEY_SELECTED_PACKAGES = "selected-packages"
         private const val KEY_SYNC_SILENT = "notification-sharing.sync-silent"
         private const val KEY_HIDDEN_CONTENT_PACKAGES = "notification-sharing.hidden-content-packages"

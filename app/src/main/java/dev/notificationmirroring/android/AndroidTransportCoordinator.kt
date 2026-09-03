@@ -142,6 +142,7 @@ class AndroidTransportCoordinator(context: Context) {
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
+    private val connectionEnabled = AtomicBoolean(false)
     private val reconnectBackoff = BoundedReconnectBackoff()
     private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
     private val mutableEnrollmentPending = MutableStateFlow(false)
@@ -204,7 +205,9 @@ class AndroidTransportCoordinator(context: Context) {
             .registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        if (mutableState.value == AndroidTransportState.OFFLINE) connect()
+                        if (connectionEnabled.get() && mutableState.value == AndroidTransportState.OFFLINE) {
+                            connect()
+                        }
                     }
                 },
             )
@@ -212,11 +215,28 @@ class AndroidTransportCoordinator(context: Context) {
 
     /** Explicit and network-available requests connect immediately and reset stale backoff state. */
     fun connect() {
+        connectionEnabled.set(true)
         val requestedGeneration = generation.incrementAndGet()
         executor.execute {
             cancelReconnect()
             reconnectBackoff.reset()
             connectInternal(requestedGeneration)
+        }
+    }
+
+    fun disconnect() {
+        connectionEnabled.set(false)
+        generation.incrementAndGet()
+        executor.execute {
+            cancelReconnect()
+            cancelMembershipRefresh()
+            webSocket?.close(1000, "background connection disabled")
+            webSocket = null
+            if (mutableState.value != AndroidTransportState.NOT_CONFIGURED &&
+                mutableState.value != AndroidTransportState.SECURITY_ERROR
+            ) {
+                mutableState.value = AndroidTransportState.OFFLINE
+            }
         }
     }
 
@@ -944,7 +964,7 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun scheduleReconnect(requestedGeneration: Long) {
-        if (generation.get() != requestedGeneration || reconnectFuture != null) return
+        if (!connectionEnabled.get() || generation.get() != requestedGeneration || reconnectFuture != null) return
         val delayMs = reconnectBackoff.nextDelayMs()
         reconnectFuture = executor.schedule(
             {

@@ -21,7 +21,7 @@ class MirroringNotificationListenerService : NotificationListenerService() {
 
     override fun onListenerDisconnected() {
         LocalNotificationController.installDismissSink(null)
-        LocalNotificationController.clear()
+        LocalNotificationController.onActiveSetUnavailable(this)
         super.onListenerDisconnected()
     }
 
@@ -35,6 +35,7 @@ class MirroringNotificationListenerService : NotificationListenerService() {
 
     override fun onDestroy() {
         LocalNotificationController.installDismissSink(null)
+        LocalNotificationController.onActiveSetUnavailable(this)
         super.onDestroy()
     }
 
