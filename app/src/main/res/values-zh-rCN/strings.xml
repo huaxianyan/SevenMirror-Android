@@ -95,6 +95,10 @@
         <item quantity="other">%1$d 台设备</item>
     </plurals>
     <string name="selected_apps">已选应用</string>
+    <string name="notification_limit_title">部分通知尚未同步</string>
+    <plurals name="notification_limit_body">
+        <item quantity="other">有 %1$d 条较早的通知尚未同步。SevenMirror 会保留最近的 %2$d 条符合条件的通知。</item>
+    </plurals>
     <string name="accessibility_selected">已选中</string>
     <string name="accessibility_not_selected">未选中</string>
     <plurals name="selected_apps_count">

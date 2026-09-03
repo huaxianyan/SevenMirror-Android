@@ -98,6 +98,11 @@
         <item quantity="other">%1$d devices</item>
     </plurals>
     <string name="selected_apps">Selected apps</string>
+    <string name="notification_limit_title">Some notifications are not synchronized</string>
+    <plurals name="notification_limit_body">
+        <item quantity="one">%1$d older eligible notification is not synchronized. SevenMirror keeps the %2$d most recent.</item>
+        <item quantity="other">%1$d older eligible notifications are not synchronized. SevenMirror keeps the %2$d most recent.</item>
+    </plurals>
     <string name="accessibility_selected">Selected</string>
     <string name="accessibility_not_selected">Not selected</string>
     <plurals name="selected_apps_count">

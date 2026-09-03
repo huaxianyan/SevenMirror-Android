@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.service.notification.StatusBarNotification
+import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import java.security.SecureRandom
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +28,37 @@ interface NotificationMirrorSink {
     fun onSnapshot(snapshot: ActiveNotificationSnapshot)
 }
 
+internal data class NotificationMirrorSelection(
+    val snapshots: List<NotificationSnapshot>,
+    val omittedByLimit: Int,
+)
+
+internal fun selectNotificationMirrorSet(
+    candidates: Collection<NotificationSnapshot>,
+    limit: Int = EncryptedPayloadCodecV1.MAX_SNAPSHOT_ENTRIES,
+): NotificationMirrorSelection {
+    require(limit >= 0) { "Notification mirror limit must not be negative" }
+    val childGroups = candidates.asSequence()
+        .filterNot(NotificationSnapshot::isGroupSummary)
+        .mapNotNull { snapshot ->
+            snapshot.groupKey?.takeIf(String::isNotBlank)?.let { snapshot.packageName to it }
+        }
+        .toSet()
+    val deduplicated = candidates.filterNot { snapshot ->
+        snapshot.isGroupSummary && snapshot.groupKey?.let {
+            (snapshot.packageName to it) in childGroups
+        } == true
+    }.sortedWith(mirroredNotificationOrder)
+    return NotificationMirrorSelection(
+        snapshots = deduplicated.take(limit),
+        omittedByLimit = (deduplicated.size - limit).coerceAtLeast(0),
+    )
+}
+
+private val mirroredNotificationOrder =
+    compareByDescending<NotificationSnapshot>(NotificationSnapshot::postedAtMillis)
+        .thenBy(NotificationSnapshot::key)
+
 /**
  * Process-local notification-content and PendingIntent registry. Only the opaque global
  * notification revision high-water mark is persisted across process recreation.
@@ -38,11 +70,9 @@ object LocalNotificationController {
     )
 
     private data class RegisteredNotification(
-        val packageName: String,
-        val revision: Long,
+        val sourceSnapshot: NotificationSnapshot,
         val actions: List<RegisteredAction>,
         val mirroredSnapshot: NotificationSnapshot?,
-        val isClearable: Boolean,
     )
 
     private val secureRandom = SecureRandom()
@@ -50,6 +80,7 @@ object LocalNotificationController {
     private var revisionStore: AndroidNotificationRevisionStore? = null
     private val registered = mutableMapOf<String, RegisteredNotification>()
     private val mutableNotifications = MutableStateFlow<List<NotificationSnapshot>>(emptyList())
+    private val mutableOmittedNotificationCount = MutableStateFlow(0)
     @Volatile
     private var mirroringPolicy = NotificationMirroringPolicy { _, _ -> null }
     @Volatile
@@ -59,6 +90,7 @@ object LocalNotificationController {
     private var activeSetReady = false
 
     val notifications: StateFlow<List<NotificationSnapshot>> = mutableNotifications.asStateFlow()
+    val omittedNotificationCount: StateFlow<Int> = mutableOmittedNotificationCount.asStateFlow()
 
     fun installMirroringPolicy(policy: NotificationMirroringPolicy) {
         mirroringPolicy = policy
@@ -89,21 +121,12 @@ object LocalNotificationController {
             isSilent,
             actions.map(RegisteredAction::id),
         )
-        val previousMirroredSnapshot = registered[sbn.key]?.mirroredSnapshot
-        val mirroredSnapshot = mirroringPolicy.prepare(context, snapshot)
         registered[sbn.key] = RegisteredNotification(
-            packageName = sbn.packageName,
-            revision = revision,
+            sourceSnapshot = snapshot,
             actions = actions,
-            mirroredSnapshot = mirroredSnapshot,
-            isClearable = snapshot.isClearable,
+            mirroredSnapshot = registered[sbn.key]?.mirroredSnapshot,
         )
-        mutableNotifications.value = (mutableNotifications.value.filterNot { it.key == sbn.key } + snapshot)
-            .sortedByDescending(NotificationSnapshot::postedAtMillis)
-        when {
-            mirroredSnapshot != null -> mirrorSink?.onUpsert(mirroredSnapshot)
-            previousMirroredSnapshot != null -> mirrorSink?.onRemoved(sbn.key, revision)
-        }
+        reconcileMirroredSelection(context, freshRevisionKeys = setOf(sbn.key))
     }
 
     @Synchronized
@@ -117,32 +140,7 @@ object LocalNotificationController {
 
     @Synchronized
     fun refreshMirroringPolicy(context: Context) {
-        var changed = false
-        val revisedSnapshots = mutableNotifications.value.associateBy(NotificationSnapshot::key).toMutableMap()
-        for ((key, notification) in registered.toMap()) {
-            val sourceSnapshot = revisedSnapshots[key] ?: continue
-            val preparedSnapshot = mirroringPolicy.prepare(context, sourceSnapshot)
-            if (preparedSnapshot == notification.mirroredSnapshot) continue
-
-            val revision = revisionStore(context).allocate()
-            val revisedSource = sourceSnapshot.withRevision(revision)
-            val revisedMirrored = mirroringPolicy.prepare(context, revisedSource)
-            revisedSnapshots[key] = revisedSource
-            registered[key] = notification.copy(
-                revision = revision,
-                mirroredSnapshot = revisedMirrored,
-            )
-            changed = true
-            if (revisedMirrored != null) {
-                mirrorSink?.onUpsert(revisedMirrored)
-            } else if (notification.mirroredSnapshot != null) {
-                mirrorSink?.onRemoved(key, revision)
-            }
-        }
-        if (!changed) return
-
-        mutableNotifications.value = revisedSnapshots.values
-            .sortedByDescending(NotificationSnapshot::postedAtMillis)
+        if (!reconcileMirroredSelection(context)) return
         if (activeSetReady) {
             revisionStore(context).allocate()
             mirrorSink?.onSnapshot(requireNotNull(currentActiveSnapshot(context)))
@@ -154,19 +152,18 @@ object LocalNotificationController {
         if (!activeSetReady) return null
         return ActiveNotificationSnapshot(
             highWaterRevision = revisionStore(context).current(),
-            notifications = mutableNotifications.value.mapNotNull { snapshot ->
-                registered[snapshot.key]?.mirroredSnapshot
-            },
+            notifications = registered.values.mapNotNull(RegisteredNotification::mirroredSnapshot)
+                .sortedWith(mirroredNotificationOrder),
         )
     }
 
     @Synchronized
     fun onRemoved(context: Context, key: String) {
         val removed = registered.remove(key)
-        mutableNotifications.value = mutableNotifications.value.filterNot { it.key == key }
         if (removed?.mirroredSnapshot != null) {
             mirrorSink?.onRemoved(key, revisionStore(context).allocate())
         }
+        reconcileMirroredSelection(context)
     }
 
     @Synchronized
@@ -188,6 +185,7 @@ object LocalNotificationController {
         activeSetReady = false
         registered.clear()
         mutableNotifications.value = emptyList()
+        mutableOmittedNotificationCount.value = 0
     }
 
     @Synchronized
@@ -201,13 +199,17 @@ object LocalNotificationController {
         if (notification.mirroredSnapshot == null) {
             return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
         }
-        if (notification.revision != notificationRevision) {
+        if (notification.sourceSnapshot.revision != notificationRevision) {
             return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
         }
-        if (!operationAuthorizer.isAllowed(notification.packageName, RemoteOperationType.CLEAR)) {
+        if (!operationAuthorizer.isAllowed(
+                notification.sourceSnapshot.packageName,
+                RemoteOperationType.CLEAR,
+            )
+        ) {
             return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
         }
-        if (!notification.isClearable) {
+        if (!notification.sourceSnapshot.isClearable) {
             return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_NOT_CLEARABLE")
         }
         val sink = dismissSink
@@ -232,7 +234,7 @@ object LocalNotificationController {
         if (notification.mirroredSnapshot == null) {
             return ActionExecutionResult(ActionExecutionStatus.NOTIFICATION_NOT_FOUND)
         }
-        if (notification.revision != token.notificationRevision) {
+        if (notification.sourceSnapshot.revision != token.notificationRevision) {
             return ActionExecutionResult(ActionExecutionStatus.STALE_NOTIFICATION_VERSION)
         }
         val action = notification.actions
@@ -244,7 +246,7 @@ object LocalNotificationController {
         } else {
             RemoteOperationType.REPLY
         }
-        if (!operationAuthorizer.isAllowed(notification.packageName, operationType)) {
+        if (!operationAuthorizer.isAllowed(notification.sourceSnapshot.packageName, operationType)) {
             return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
         }
         val remoteInputs = action.remoteInputs.orEmpty()
@@ -285,6 +287,47 @@ object LocalNotificationController {
                 error::class.java.simpleName,
             )
         }
+    }
+
+    private fun reconcileMirroredSelection(
+        context: Context,
+        freshRevisionKeys: Set<String> = emptySet(),
+    ): Boolean {
+        val prepared = registered.values.mapNotNull { notification ->
+            mirroringPolicy.prepare(context, notification.sourceSnapshot)
+        }
+        val selection = selectNotificationMirrorSet(prepared)
+        val desiredByKey = selection.snapshots.associateBy(NotificationSnapshot::key)
+        mutableOmittedNotificationCount.value = selection.omittedByLimit
+        var changed = false
+
+        for (key in registered.keys.sorted()) {
+            val current = requireNotNull(registered[key])
+            val desired = desiredByKey[key]
+            if (desired == current.mirroredSnapshot) continue
+
+            val revision = if (key in freshRevisionKeys) {
+                current.sourceSnapshot.revision
+            } else {
+                revisionStore(context).allocate()
+            }
+            val revisedSource = current.sourceSnapshot.withRevision(revision)
+            val revisedMirrored = desired?.withRevision(revision)
+            registered[key] = current.copy(
+                sourceSnapshot = revisedSource,
+                mirroredSnapshot = revisedMirrored,
+            )
+            changed = true
+            if (revisedMirrored != null) {
+                mirrorSink?.onUpsert(revisedMirrored)
+            } else if (current.mirroredSnapshot != null) {
+                mirrorSink?.onRemoved(key, revision)
+            }
+        }
+
+        mutableNotifications.value = registered.values.map(RegisteredNotification::sourceSnapshot)
+            .sortedWith(mirroredNotificationOrder)
+        return changed
     }
 
     private fun NotificationSnapshot.withRevision(revision: Long): NotificationSnapshot = copy(
