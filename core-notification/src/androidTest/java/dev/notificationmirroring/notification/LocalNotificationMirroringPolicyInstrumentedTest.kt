@@ -102,6 +102,45 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         }
     }
 
+    @Test
+    fun unavailableListenerPublishesEmptySnapshotAbovePreviousNotification() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val snapshots = mutableListOf<ActiveNotificationSnapshot>()
+        LocalNotificationController.clear()
+        LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
+        LocalNotificationController.installNotificationMirrorSink(
+            object : NotificationMirrorSink {
+                override fun onUpsert(snapshot: NotificationSnapshot) = Unit
+                override fun onRemoved(notificationId: String, revision: Long) = Unit
+                override fun onSnapshot(snapshot: ActiveNotificationSnapshot) {
+                    snapshots += snapshot
+                }
+            },
+        )
+
+        try {
+            LocalNotificationController.onPosted(
+                context,
+                testNotification(context, "com.example.selected"),
+                isSilent = false,
+            )
+            LocalNotificationController.onActiveSetReady(context)
+            val active = snapshots.single()
+            assertEquals(1, active.notifications.size)
+
+            LocalNotificationController.onActiveSetUnavailable(context)
+
+            val unavailable = snapshots.last()
+            assertTrue(unavailable.notifications.isEmpty())
+            assertTrue(unavailable.highWaterRevision > active.notifications.single().revision)
+            assertEquals(null, LocalNotificationController.currentActiveSnapshot(context))
+        } finally {
+            LocalNotificationController.installNotificationMirrorSink(null)
+            LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, _ -> null })
+            LocalNotificationController.clear()
+        }
+    }
+
     private fun testNotification(context: Context, packageName: String): StatusBarNotification {
         val pendingIntent = PendingIntent.getBroadcast(
             context,

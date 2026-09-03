@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -92,6 +93,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private var notificationAccessGranted by mutableStateOf(false)
+    private var foregroundNotificationGranted by mutableStateOf(false)
+    private var backgroundConnectionEnabled by mutableStateOf(false)
+    private var batteryOptimizationExempt by mutableStateOf(false)
+    private var pendingDebugNotification = false
     private var welcomeCompleted by mutableStateOf(false)
     private var applicationSelectionConfirmed by mutableStateOf(false)
     private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
@@ -103,9 +108,12 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        if (granted && ProductDebugActions.available) {
+        foregroundNotificationGranted = granted
+        BackgroundConnectionService.reconcile(this, granted)
+        if (granted && pendingDebugNotification && ProductDebugActions.available) {
             ProductDebugActions.postNotification(this)
         }
+        pendingDebugNotification = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -117,8 +125,11 @@ class MainActivity : ComponentActivity() {
         selectedPackages = productPreferences.selectedPackages()
         notificationSharingSettings = productPreferences.notificationSharingSettings()
         remoteOperationSettings = productPreferences.remoteOperationSettings()
-        refreshNotificationAccess()
+        backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
+        refreshSystemStatus()
         loadApplications()
+        (application as NotificationMirroringApplication).transportCoordinator.connect()
+        reconcileBackgroundConnection()
 
         setContent {
             SevenMirrorTheme {
@@ -133,6 +144,9 @@ class MainActivity : ComponentActivity() {
                     selectedPackages = selectedPackages,
                     notificationSharingSettings = notificationSharingSettings,
                     remoteOperationSettings = remoteOperationSettings,
+                    backgroundConnectionEnabled = backgroundConnectionEnabled,
+                    foregroundNotificationGranted = foregroundNotificationGranted,
+                    batteryOptimizationExempt = batteryOptimizationExempt,
                     onCompleteWelcome = {
                         productPreferences.completeWelcome()
                         welcomeCompleted = true
@@ -140,12 +154,14 @@ class MainActivity : ComponentActivity() {
                     onOpenNotificationAccess = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
-                    onRefreshNotificationAccess = ::refreshNotificationAccess,
+                    onRefreshNotificationAccess = ::refreshSystemStatus,
                     onSaveApplicationSelection = { packages ->
                         productPreferences.saveApplicationSelection(packages)
                         LocalNotificationController.refreshMirroringPolicy(this)
                         selectedPackages = packages.toSet()
                         applicationSelectionConfirmed = true
+                        backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
+                        requestForegroundNotificationAndReconcile()
                     },
                     onSaveSyncSilentNotifications = { enabled ->
                         productPreferences.saveSyncSilentNotifications(enabled)
@@ -165,6 +181,16 @@ class MainActivity : ComponentActivity() {
                         productPreferences.saveApplicationOperationOverride(packageName, override)
                         remoteOperationSettings = productPreferences.remoteOperationSettings()
                     },
+                    onSetBackgroundConnectionEnabled = { enabled ->
+                        productPreferences.saveBackgroundConnectionEnabled(enabled)
+                        backgroundConnectionEnabled = enabled
+                        if (enabled) requestForegroundNotificationAndReconcile()
+                        else BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
+                    },
+                    onRequestForegroundNotification = ::requestForegroundNotificationAndReconcile,
+                    onOpenBatterySettings = {
+                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                    },
                     onPostDebugNotification =
                     if (ProductDebugActions.available) ::postDebugNotification else null,
                 )
@@ -174,7 +200,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::productPreferences.isInitialized) refreshNotificationAccess()
+        if (::productPreferences.isInitialized) {
+            backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
+            refreshSystemStatus()
+            reconcileBackgroundConnection()
+        }
     }
 
     override fun onDestroy() {
@@ -182,9 +212,32 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun refreshNotificationAccess() {
+    private fun refreshSystemStatus() {
         notificationAccessGranted =
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        foregroundNotificationGranted =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        batteryOptimizationExempt =
+            getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+    }
+
+    private fun reconcileBackgroundConnection() {
+        BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
+    }
+
+    private fun requestForegroundNotificationAndReconcile() {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            foregroundNotificationGranted = true
+            BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
+        }
     }
 
     private fun loadApplications() {
@@ -203,6 +256,7 @@ class MainActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
             PackageManager.PERMISSION_GRANTED
         ) {
+            pendingDebugNotification = true
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             ProductDebugActions.postNotification(this)
@@ -234,6 +288,9 @@ private fun SevenMirrorApp(
     selectedPackages: Set<String>,
     notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
+    backgroundConnectionEnabled: Boolean,
+    foregroundNotificationGranted: Boolean,
+    batteryOptimizationExempt: Boolean,
     onCompleteWelcome: () -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onRefreshNotificationAccess: () -> Unit,
@@ -242,6 +299,9 @@ private fun SevenMirrorApp(
     onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
+    onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
+    onRequestForegroundNotification: () -> Unit,
+    onOpenBatterySettings: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     val transportState by transportCoordinator.state.collectAsState()
@@ -292,6 +352,9 @@ private fun SevenMirrorApp(
                 selectedPackages = selectedPackages,
                 notificationSharingSettings = notificationSharingSettings,
                 remoteOperationSettings = remoteOperationSettings,
+                backgroundConnectionEnabled = backgroundConnectionEnabled,
+                foregroundNotificationGranted = foregroundNotificationGranted,
+                batteryOptimizationExempt = batteryOptimizationExempt,
                 onSaveApplicationSelection = onSaveApplicationSelection,
                 onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
                 onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
@@ -299,6 +362,9 @@ private fun SevenMirrorApp(
                 onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                 onOpenNotificationAccess = onOpenNotificationAccess,
                 onReconnect = transportCoordinator::connect,
+                onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
+                onRequestForegroundNotification = onRequestForegroundNotification,
+                onOpenBatterySettings = onOpenBatterySettings,
                 onPostDebugNotification = onPostDebugNotification,
             )
             OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
@@ -917,6 +983,9 @@ private fun MainScreen(
     selectedPackages: Set<String>,
     notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
+    backgroundConnectionEnabled: Boolean,
+    foregroundNotificationGranted: Boolean,
+    batteryOptimizationExempt: Boolean,
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
@@ -924,6 +993,9 @@ private fun MainScreen(
     onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onReconnect: () -> Unit,
+    onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
+    onRequestForegroundNotification: () -> Unit,
+    onOpenBatterySettings: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     var destination by rememberSaveable { mutableStateOf(MainDestination.HOME) }
@@ -981,6 +1053,8 @@ private fun MainScreen(
                                 workspaceDevices,
                                 notificationAccessGranted,
                                 selectedPackages.size,
+                                backgroundConnectionEnabled,
+                                foregroundNotificationGranted,
                                 onReconnect,
                             )
                             MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
@@ -1005,7 +1079,13 @@ private fun MainScreen(
                                     .firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)
                                     ?.displayName,
                                 notificationAccessGranted = notificationAccessGranted,
+                                backgroundConnectionEnabled = backgroundConnectionEnabled,
+                                foregroundNotificationGranted = foregroundNotificationGranted,
+                                batteryOptimizationExempt = batteryOptimizationExempt,
                                 onOpenNotificationAccess = onOpenNotificationAccess,
+                                onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
+                                onRequestForegroundNotification = onRequestForegroundNotification,
+                                onOpenBatterySettings = onOpenBatterySettings,
                                 onPostDebugNotification = onPostDebugNotification,
                             )
                         }
@@ -1037,6 +1117,8 @@ private fun HomeScreen(
     workspaceDevices: List<WorkspaceDeviceSummary>,
     notificationAccessGranted: Boolean,
     selectedApplicationCount: Int,
+    backgroundConnectionEnabled: Boolean,
+    foregroundNotificationGranted: Boolean,
     onReconnect: () -> Unit,
 ) {
     LazyColumn(
@@ -1064,6 +1146,15 @@ private fun HomeScreen(
             ConnectionCard(
                 state = transportState,
                 onReconnect = onReconnect,
+            )
+        }
+        item {
+            StatusCard(
+                title = stringResource(R.string.background_connection),
+                value = backgroundConnectionLabel(
+                    backgroundConnectionEnabled,
+                    foregroundNotificationGranted,
+                ),
             )
         }
         item {
@@ -1114,6 +1205,16 @@ private fun ConnectionCard(state: AndroidTransportState, onReconnect: () -> Unit
         }
     }
 }
+
+@Composable
+private fun backgroundConnectionLabel(enabled: Boolean, notificationGranted: Boolean): String =
+    stringResource(
+        when {
+            !enabled -> R.string.paused
+            !notificationGranted -> R.string.notification_permission_required
+            else -> R.string.active
+        },
+    )
 
 @Composable
 private fun StatusCard(title: String, value: String) {
@@ -1208,7 +1309,13 @@ private fun SettingsScreen(
     serverOrigin: String?,
     currentDeviceName: String?,
     notificationAccessGranted: Boolean,
+    backgroundConnectionEnabled: Boolean,
+    foregroundNotificationGranted: Boolean,
+    batteryOptimizationExempt: Boolean,
     onOpenNotificationAccess: () -> Unit,
+    onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
+    onRequestForegroundNotification: () -> Unit,
+    onOpenBatterySettings: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     LazyColumn(
@@ -1230,6 +1337,47 @@ private fun SettingsScreen(
                 Text(stringResource(R.string.current_device), style = MaterialTheme.typography.labelLarge)
                 Text(currentDeviceName ?: stringResource(R.string.not_available))
                 Text(stringResource(R.string.server_change_help), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        item {
+            SettingsCard(stringResource(R.string.background_connection)) {
+                Text(stringResource(R.string.background_connection_body))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.keep_connection_active), Modifier.weight(1f))
+                    Switch(
+                        checked = backgroundConnectionEnabled,
+                        onCheckedChange = onSetBackgroundConnectionEnabled,
+                    )
+                }
+                Text(
+                    backgroundConnectionLabel(
+                        backgroundConnectionEnabled,
+                        foregroundNotificationGranted,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (backgroundConnectionEnabled && !foregroundNotificationGranted) {
+                    OutlinedButton(onClick = onRequestForegroundNotification) {
+                        Text(stringResource(R.string.allow_status_notification))
+                    }
+                }
+                Text(
+                    stringResource(
+                        if (batteryOptimizationExempt) {
+                            R.string.battery_usage_unrestricted
+                        } else {
+                            R.string.battery_usage_system_managed
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(onClick = onOpenBatterySettings) {
+                    Text(stringResource(R.string.review_battery_settings))
+                }
             }
         }
         item {

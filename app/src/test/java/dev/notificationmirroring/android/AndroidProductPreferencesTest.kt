@@ -87,6 +87,26 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
+    fun `background connection starts after selection and retains an explicit pause`() {
+        assertEquals(false, backgroundConnectionEnabled(null, applicationSelectionConfirmed = false))
+        assertEquals(true, backgroundConnectionEnabled(null, applicationSelectionConfirmed = true))
+        assertEquals(false, backgroundConnectionEnabled(false, applicationSelectionConfirmed = true))
+        assertEquals(true, backgroundConnectionEnabled(true, applicationSelectionConfirmed = true))
+    }
+
+    @Test
+    fun `debug allowance is limited to the explicit fixture notification`() {
+        val serviceNotification = notificationSnapshot(BuildConfig.APPLICATION_ID).copy(
+            title = "SevenMirror notification sync",
+            isOngoing = true,
+        )
+        val fixtureNotification = serviceNotification.copy(title = "Avatar test")
+
+        assertEquals(false, ProductDebugActions.isFixtureNotification(serviceNotification))
+        assertEquals(true, ProductDebugActions.isFixtureNotification(fixtureNotification))
+    }
+
+    @Test
     fun `search and category show only matching applications`() {
         val applications = listOf(
             SelectableApplication("com.example.calendar", "Calendar", false),

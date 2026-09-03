@@ -170,6 +170,20 @@ object LocalNotificationController {
     }
 
     @Synchronized
+    fun onActiveSetUnavailable(context: Context) {
+        if (activeSetReady) {
+            val highWaterRevision = revisionStore(context).allocate()
+            mirrorSink?.onSnapshot(
+                ActiveNotificationSnapshot(
+                    highWaterRevision = highWaterRevision,
+                    notifications = emptyList(),
+                ),
+            )
+        }
+        clear()
+    }
+
+    @Synchronized
     fun clear() {
         activeSetReady = false
         registered.clear()
