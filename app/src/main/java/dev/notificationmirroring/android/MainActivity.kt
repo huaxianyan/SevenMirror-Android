@@ -84,6 +84,7 @@ import androidx.core.content.ContextCompat
 import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
 import dev.notificationmirroring.crypto.WorkspaceDeviceType
 import dev.notificationmirroring.notification.LocalNotificationController
+import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
@@ -309,6 +310,7 @@ private fun SevenMirrorApp(
     val workspaceDevices by transportCoordinator.workspaceDevices.collectAsState()
     val serverOrigin by transportCoordinator.serverOrigin.collectAsState()
     val securityRecovery by transportCoordinator.securityRecovery.collectAsState()
+    val omittedNotificationCount by LocalNotificationController.omittedNotificationCount.collectAsState()
     val stage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
@@ -355,6 +357,7 @@ private fun SevenMirrorApp(
                 backgroundConnectionEnabled = backgroundConnectionEnabled,
                 foregroundNotificationGranted = foregroundNotificationGranted,
                 batteryOptimizationExempt = batteryOptimizationExempt,
+                omittedNotificationCount = omittedNotificationCount,
                 onSaveApplicationSelection = onSaveApplicationSelection,
                 onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
                 onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
@@ -986,6 +989,7 @@ private fun MainScreen(
     backgroundConnectionEnabled: Boolean,
     foregroundNotificationGranted: Boolean,
     batteryOptimizationExempt: Boolean,
+    omittedNotificationCount: Int,
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
@@ -1055,6 +1059,7 @@ private fun MainScreen(
                                 selectedPackages.size,
                                 backgroundConnectionEnabled,
                                 foregroundNotificationGranted,
+                                omittedNotificationCount,
                                 onReconnect,
                             )
                             MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
@@ -1119,6 +1124,7 @@ private fun HomeScreen(
     selectedApplicationCount: Int,
     backgroundConnectionEnabled: Boolean,
     foregroundNotificationGranted: Boolean,
+    omittedNotificationCount: Int,
     onReconnect: () -> Unit,
 ) {
     LazyColumn(
@@ -1184,6 +1190,19 @@ private fun HomeScreen(
                     selectedApplicationCount,
                 ),
             )
+        }
+        if (omittedNotificationCount > 0) {
+            item {
+                StatusCard(
+                    title = stringResource(R.string.notification_limit_title),
+                    value = pluralStringResource(
+                        R.plurals.notification_limit_body,
+                        omittedNotificationCount,
+                        omittedNotificationCount,
+                        EncryptedPayloadCodecV1.MAX_SNAPSHOT_ENTRIES,
+                    ),
+                )
+            }
         }
         item {
             Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)

@@ -10,7 +10,7 @@ import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManif
 import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
 import java.security.SecureRandom
 
-/** Online-only sender for the app-owned synthetic notification slice. */
+/** Online sender for revisioned notification state and active-set snapshots. */
 class NotificationEnvelopeSender(
     workspaceId: ByteArray,
     senderDeviceId: ByteArray,

@@ -103,6 +103,69 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
     }
 
     @Test
+    fun groupChildReplacesSummaryAndSummaryReturnsAfterChildRemoval() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val events = mutableListOf<MirrorEvent>()
+        LocalNotificationController.clear()
+        LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
+        LocalNotificationController.installNotificationMirrorSink(
+            object : NotificationMirrorSink {
+                override fun onUpsert(snapshot: NotificationSnapshot) {
+                    events += MirrorEvent.Upsert(snapshot)
+                }
+
+                override fun onRemoved(notificationId: String, revision: Long) {
+                    events += MirrorEvent.Removed(notificationId, revision)
+                }
+
+                override fun onSnapshot(snapshot: ActiveNotificationSnapshot) {
+                    events += MirrorEvent.Snapshot(snapshot)
+                }
+            },
+        )
+
+        try {
+            val summary = testNotification(
+                context,
+                "com.example.selected",
+                id = 92,
+                tag = "summary",
+                groupKey = "messages",
+                isGroupSummary = true,
+            )
+            val child = testNotification(
+                context,
+                "com.example.selected",
+                id = 93,
+                tag = "child",
+                groupKey = "messages",
+            )
+            LocalNotificationController.onPosted(context, summary, isSilent = false)
+            val firstSummary = (events.single() as MirrorEvent.Upsert).value
+
+            events.clear()
+            LocalNotificationController.onPosted(context, child, isSilent = false)
+            val childUpsert = events.filterIsInstance<MirrorEvent.Upsert>().single().value
+            val summaryRemoval = events.filterIsInstance<MirrorEvent.Removed>().single()
+            assertEquals(child.key, childUpsert.key)
+            assertEquals(summary.key, summaryRemoval.notificationId)
+            assertTrue(summaryRemoval.revision > firstSummary.revision)
+
+            events.clear()
+            LocalNotificationController.onRemoved(context, child.key)
+            val childRemoval = events.filterIsInstance<MirrorEvent.Removed>().single()
+            val restoredSummary = events.filterIsInstance<MirrorEvent.Upsert>().single().value
+            assertEquals(child.key, childRemoval.notificationId)
+            assertEquals(summary.key, restoredSummary.key)
+            assertTrue(restoredSummary.revision > summaryRemoval.revision)
+        } finally {
+            LocalNotificationController.installNotificationMirrorSink(null)
+            LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, _ -> null })
+            LocalNotificationController.clear()
+        }
+    }
+
+    @Test
     fun unavailableListenerPublishesEmptySnapshotAbovePreviousNotification() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val snapshots = mutableListOf<ActiveNotificationSnapshot>()
@@ -141,10 +204,17 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         }
     }
 
-    private fun testNotification(context: Context, packageName: String): StatusBarNotification {
+    private fun testNotification(
+        context: Context,
+        packageName: String,
+        id: Int = 91,
+        tag: String = "selected",
+        groupKey: String? = null,
+        isGroupSummary: Boolean = false,
+    ): StatusBarNotification {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            91,
+            id,
             Intent("dev.notificationmirroring.TEST_SELECTED_ACTION").setPackage(context.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -152,6 +222,8 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("Selected notification")
             .addAction(Notification.Action.Builder(0, "Open", pendingIntent).build())
+            .also { builder -> groupKey?.let(builder::setGroup) }
+            .setGroupSummary(isGroupSummary)
             .build()
         val constructor = StatusBarNotification::class.java.constructors
             .first { it.parameterTypes.size == 10 }
@@ -160,8 +232,8 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                 arrayOf(
                     packageName,
                     packageName,
-                    91,
-                    "selected",
+                    id,
+                    tag,
                     Process.myUid(),
                     Process.myPid(),
                     0,
@@ -173,8 +245,8 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                 arrayOf(
                     packageName,
                     packageName,
-                    91,
-                    "selected",
+                    id,
+                    tag,
                     Process.myUid(),
                     Process.myPid(),
                     notification,
