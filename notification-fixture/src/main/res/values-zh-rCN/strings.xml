@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">通知测试应用</string>
+    <string name="screen_title">第三方通知测试应用</string>
+    <string name="screen_description">生成内容可控的 Android 通知，用于 SevenMirror 端到端验收。</string>
+    <string name="permission_required">发布测试通知前，请允许此应用发送通知。</string>
+    <string name="post_notification">发布通知</string>
+    <string name="repeat_notification">重复发布相同内容</string>
+    <string name="update_notification">更新通知</string>
+    <string name="remove_notification">删除通知</string>
+    <string name="post_group">发布分组通知</string>
+    <string name="remove_group_children">删除分组子通知</string>
+    <string name="post_silent">发布静默通知</string>
+    <string name="post_ongoing">发布持续通知</string>
+    <string name="clear_all">清除全部测试通知</string>
+    <string name="last_result">最近结果：%1$s</string>
+    <string name="result_none">暂无</string>
+    <string name="result_posted">通知已发布</string>
+    <string name="result_repeated">已用新的本地操作重复发布相同内容</string>
+    <string name="result_updated">通知已更新至版本 %1$d</string>
+    <string name="result_removed">通知已删除</string>
+    <string name="result_group_posted">分组摘要和子通知已发布</string>
+    <string name="result_group_children_removed">分组子通知已删除，摘要已作为独立通知重新发布</string>
+    <string name="result_silent_posted">静默通知已发布</string>
+    <string name="result_ongoing_posted">持续通知已发布</string>
+    <string name="result_cleared">全部测试通知已清除</string>
+    <string name="result_action">已使用第 %1$d 代操作标记完成</string>
+    <string name="result_reply">已收到回复：%1$s</string>
+    <string name="notification_title">受控测试通知</string>
+    <string name="notification_title_updated">受控测试通知 · 更新 %1$d</string>
+    <string name="notification_body">用于端到端验收的已知正文</string>
+    <string name="notification_body_updated">已知更新正文 %1$d</string>
+    <string name="action_complete">标记完成</string>
+    <string name="action_reply">回复</string>
+    <string name="reply_label">回复内容</string>
+    <string name="group_summary">受控通知分组</string>
+    <string name="group_child_one">受控子通知一</string>
+    <string name="group_child_two">受控子通知二</string>
+    <string name="silent_title">受控静默通知</string>
+    <string name="ongoing_title">受控持续通知</string>
+    <string name="channel_default">受控测试通知</string>
+    <string name="channel_silent">受控静默通知</string>
+    <string name="channel_ongoing">受控持续通知</string>
+</resources>
