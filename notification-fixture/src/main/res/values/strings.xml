@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Notification Fixture</string>
+    <string name="screen_title">Third-party notification fixture</string>
+    <string name="screen_description">Creates controlled Android notifications for SevenMirror end-to-end acceptance.</string>
+    <string name="permission_required">Allow notifications before publishing fixtures.</string>
+    <string name="post_notification">Post notification</string>
+    <string name="repeat_notification">Repost the same content</string>
+    <string name="update_notification">Update notification</string>
+    <string name="remove_notification">Remove notification</string>
+    <string name="post_group">Post notification group</string>
+    <string name="remove_group_children">Remove group children</string>
+    <string name="post_silent">Post silent notification</string>
+    <string name="post_ongoing">Post ongoing notification</string>
+    <string name="clear_all">Clear all fixture notifications</string>
+    <string name="last_result">Last result: %1$s</string>
+    <string name="result_none">None</string>
+    <string name="result_posted">Notification posted</string>
+    <string name="result_repeated">Same content reposted with a refreshed local action</string>
+    <string name="result_updated">Notification updated to version %1$d</string>
+    <string name="result_removed">Notification removed</string>
+    <string name="result_group_posted">Group summary and children posted</string>
+    <string name="result_group_children_removed">Group children removed and summary reposted standalone</string>
+    <string name="result_silent_posted">Silent notification posted</string>
+    <string name="result_ongoing_posted">Ongoing notification posted</string>
+    <string name="result_cleared">All fixture notifications cleared</string>
+    <string name="result_action">Marked complete using action generation %1$d</string>
+    <string name="result_reply">Received reply: %1$s</string>
+    <string name="notification_title">Controlled notification</string>
+    <string name="notification_title_updated">Controlled notification · update %1$d</string>
+    <string name="notification_body">Known body for end-to-end verification</string>
+    <string name="notification_body_updated">Known updated body %1$d</string>
+    <string name="action_complete">Mark complete</string>
+    <string name="action_reply">Reply</string>
+    <string name="reply_label">Reply text</string>
+    <string name="group_summary">Controlled notification group</string>
+    <string name="group_child_one">Controlled child one</string>
+    <string name="group_child_two">Controlled child two</string>
+    <string name="silent_title">Controlled silent notification</string>
+    <string name="ongoing_title">Controlled ongoing notification</string>
+    <string name="channel_default">Controlled notifications</string>
+    <string name="channel_silent">Controlled silent notifications</string>
+    <string name="channel_ongoing">Controlled ongoing notifications</string>
+</resources>

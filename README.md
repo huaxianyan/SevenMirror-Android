@@ -107,6 +107,7 @@ the pinned release Actions are reviewed in
 - `core-protocol`: protocol models and generated code location
 - `core-crypto`: authenticated HPKE, replay/operation ledgers, immutable approved-peer pins, Workspace Membership authority/certificate/roster verification, authority-signed read-only device directory and durable rollback floor, pre-execution result reservations, durable outbox/sequence allocation, and bounded encrypted result draining
 - `core-transport`: strict code-gated registration, provisional ADR-005 membership register/prove/state HTTP client, Keystore-wrapped pending enrollment journal and transport credentials, recoverable proof/rotation state, authority-verified recoverable membership-to-transport promotion, process-start enrollment recovery before transport credential loading, Device Auth Frame v1, and authenticated OkHttp WebSocket boundary
+- `notification-fixture`: development-only third-party application for controlled notification lifecycle, action, reply, grouping, status, and media acceptance; it has an independent application ID and no dependency on SevenMirror modules, and is excluded from published artifacts
 
 ## Protocol
 
