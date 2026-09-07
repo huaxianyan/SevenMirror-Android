@@ -142,7 +142,8 @@ class AndroidTransportCoordinator(context: Context) {
     }
     private val mainHandler = Handler(Looper.getMainLooper())
     private val generation = AtomicLong()
-    private val connectionEnabled = AtomicBoolean(false)
+    // Accessed only while holding this coordinator's monitor.
+    private val connectionOwners = mutableSetOf<Any>()
     private val reconnectBackoff = BoundedReconnectBackoff()
     private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
     private val mutableEnrollmentPending = MutableStateFlow(false)
@@ -205,17 +206,34 @@ class AndroidTransportCoordinator(context: Context) {
             .registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
-                        if (connectionEnabled.get() && mutableState.value == AndroidTransportState.OFFLINE) {
-                            connect()
+                        if (mutableState.value == AndroidTransportState.OFFLINE) {
+                            retryConnection()
                         }
                     }
                 },
             )
     }
 
-    /** Explicit and network-available requests connect immediately and reset stale backoff state. */
-    fun connect() {
-        connectionEnabled.set(true)
+    /** Each visible Activity or running foreground Service holds its own connection ownership. */
+    @Synchronized
+    fun acquireConnection(owner: Any) {
+        val wasEmpty = connectionOwners.isEmpty()
+        connectionOwners.add(owner)
+        if (wasEmpty) retryConnection()
+    }
+
+    @Synchronized
+    fun releaseConnection(owner: Any) {
+        if (connectionOwners.remove(owner) && connectionOwners.isEmpty()) disconnect()
+    }
+
+    @Synchronized
+    private fun hasConnectionOwner(): Boolean = connectionOwners.isNotEmpty()
+
+    /** UI and network retries can use an existing demand, never create a new owner. */
+    @Synchronized
+    fun retryConnection() {
+        if (connectionOwners.isEmpty()) return
         val requestedGeneration = generation.incrementAndGet()
         executor.execute {
             cancelReconnect()
@@ -224,13 +242,12 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
-    fun disconnect() {
-        connectionEnabled.set(false)
+    private fun disconnect() {
         generation.incrementAndGet()
         executor.execute {
             cancelReconnect()
             cancelMembershipRefresh()
-            webSocket?.close(1000, "background connection disabled")
+            webSocket?.close(1000, "connection owners released")
             webSocket = null
             if (mutableState.value != AndroidTransportState.NOT_CONFIGURED &&
                 mutableState.value != AndroidTransportState.SECURITY_ERROR
@@ -347,7 +364,7 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun connectInternal(requestedGeneration: Long) {
-        if (generation.get() != requestedGeneration) return
+        if (!hasConnectionOwner() || generation.get() != requestedGeneration) return
         if (productPreferences.isCertifiedReEnrollmentResetPending()) {
             try {
                 completeCertifiedReEnrollmentReset()
@@ -964,7 +981,7 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun scheduleReconnect(requestedGeneration: Long) {
-        if (!connectionEnabled.get() || generation.get() != requestedGeneration || reconnectFuture != null) return
+        if (!hasConnectionOwner() || generation.get() != requestedGeneration || reconnectFuture != null) return
         val delayMs = reconnectBackoff.nextDelayMs()
         reconnectFuture = executor.schedule(
             {

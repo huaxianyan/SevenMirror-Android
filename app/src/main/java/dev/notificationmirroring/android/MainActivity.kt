@@ -129,7 +129,6 @@ class MainActivity : ComponentActivity() {
         backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
         refreshSystemStatus()
         loadApplications()
-        (application as NotificationMirroringApplication).transportCoordinator.connect()
         reconcileBackgroundConnection()
 
         setContent {
@@ -197,6 +196,16 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (application as NotificationMirroringApplication).transportCoordinator.acquireConnection(this)
+    }
+
+    override fun onStop() {
+        (application as NotificationMirroringApplication).transportCoordinator.releaseConnection(this)
+        super.onStop()
     }
 
     override fun onResume() {
@@ -325,7 +334,7 @@ private fun SevenMirrorApp(
             OnboardingStage.LOADING -> LoadingScreen()
             OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
             OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
-                onRetry = transportCoordinator::connect,
+                onRetry = transportCoordinator::retryConnection,
             )
             OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
                 onOpenSettings = onOpenNotificationAccess,
@@ -364,7 +373,7 @@ private fun SevenMirrorApp(
                 onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
                 onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                 onOpenNotificationAccess = onOpenNotificationAccess,
-                onReconnect = transportCoordinator::connect,
+                onReconnect = transportCoordinator::retryConnection,
                 onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
                 onRequestForegroundNotification = onRequestForegroundNotification,
                 onOpenBatterySettings = onOpenBatterySettings,

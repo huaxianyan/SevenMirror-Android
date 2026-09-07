@@ -58,16 +58,14 @@ class BackgroundConnectionService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (coordinator.state.value.shouldStartConnection()) {
-            coordinator.connect()
-        }
+        coordinator.acquireConnection(this)
         return START_STICKY
     }
 
     override fun onDestroy() {
         stateJob?.cancel()
         scope.cancel()
-        coordinator.disconnect()
+        coordinator.releaseConnection(this)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
@@ -137,20 +135,6 @@ private fun canShowForegroundStatus(context: Context): Boolean =
     Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
         ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) ==
         PackageManager.PERMISSION_GRANTED
-
-private fun AndroidTransportState.shouldStartConnection(): Boolean = when (this) {
-    AndroidTransportState.INITIALIZING,
-    AndroidTransportState.NOT_CONFIGURED,
-    AndroidTransportState.OFFLINE,
-    -> true
-    AndroidTransportState.SUBMITTING_REGISTRATION,
-    AndroidTransportState.REGISTERING,
-    AndroidTransportState.ROTATING,
-    AndroidTransportState.CONNECTING,
-    AndroidTransportState.ONLINE,
-    AndroidTransportState.SECURITY_ERROR,
-    -> false
-}
 
 private fun AndroidTransportState.notificationMessage(): Int = when (this) {
     AndroidTransportState.ONLINE -> R.string.background_connection_online
