@@ -13,6 +13,7 @@ import android.widget.TextView
 
 class MainActivity : Activity() {
     private lateinit var resultView: TextView
+    private lateinit var delayedHistoryView: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -49,7 +50,20 @@ class MainActivity : Activity() {
         }
         content.addAction(R.string.post_silent) { FixtureNotifications.postSilent(this) }
         content.addAction(R.string.post_ongoing) { FixtureNotifications.postOngoing(this) }
-        content.addAction(R.string.clear_all) { FixtureNotifications.clearAll(this) }
+        content.addAction(R.string.clear_all, requiresPermission = false) {
+            DelayedNotificationReceiver.cancel(this)
+            FixtureNotifications.clearAll(this)
+        }
+        content.addView(TextView(this).apply {
+            text = getString(R.string.delayed_description, DelayedNotificationReceiver.STEP_DELAY_SECONDS)
+            textSize = 16f
+        }, matchWidth())
+        content.addAction(R.string.delayed_start) { DelayedNotificationReceiver.start(this) }
+        content.addAction(R.string.delayed_cancel, requiresPermission = false) {
+            DelayedNotificationReceiver.cancel(this)
+        }
+        delayedHistoryView = TextView(this).apply { textSize = 16f }
+        content.addView(delayedHistoryView, matchWidth())
 
         setContentView(ScrollView(this).apply { addView(content) })
         requestNotificationPermissionIfNeeded()
@@ -61,12 +75,16 @@ class MainActivity : Activity() {
         if (::resultView.isInitialized) renderResult()
     }
 
-    private fun LinearLayout.addAction(label: Int, action: () -> Unit) {
+    private fun LinearLayout.addAction(
+        label: Int,
+        requiresPermission: Boolean = true,
+        action: () -> Unit,
+    ) {
         addView(Button(context).apply {
             setText(label)
             isAllCaps = false
             setOnClickListener {
-                if (canPostNotifications()) {
+                if (!requiresPermission || canPostNotifications()) {
                     action()
                     renderResult()
                 } else {
@@ -82,6 +100,7 @@ class MainActivity : Activity() {
             R.string.last_result,
             FixtureNotifications.lastResult(this),
         )
+        delayedHistoryView.text = DelayedNotificationReceiver.history(this)
     }
 
     private fun canPostNotifications(): Boolean =

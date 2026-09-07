@@ -41,4 +41,15 @@
     <string name="channel_default">受控测试通知</string>
     <string name="channel_silent">受控静默通知</string>
     <string name="channel_ongoing">受控持续通知</string>
+    <string name="delayed_description">熄屏测试：依次发布、更新和删除通知。每一步在上一步之后等待 %1$d 秒，Android 可能推迟执行，深度休眠时尤其如此。开始后请熄屏，返回此页可查看实际执行时间。此测试不申请精确闹钟权限或电池豁免。</string>
+    <string name="delayed_start">开始延时通知流程</string>
+    <string name="delayed_cancel">取消剩余步骤</string>
+    <string name="delayed_none">暂无延时测试记录</string>
+    <string name="delayed_started">已安排延时流程</string>
+    <string name="delayed_updated">通知已更新</string>
+    <string name="delayed_cancelled">剩余步骤已取消</string>
+    <string name="delayed_permission_lost">通知权限不可用。请允许发送通知后重新开始。</string>
+    <string name="delayed_awake">屏幕可交互</string>
+    <string name="delayed_asleep">屏幕不可交互</string>
+    <string name="delayed_event">%1$s · %2$s · %3$s</string>
 </resources>
