@@ -17,6 +17,9 @@
             </intent-filter>
         </activity>
         <receiver
+            android:name=".DelayedNotificationReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".NotificationActionReceiver"
             android:exported="false" />
     </application>

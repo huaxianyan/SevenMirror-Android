@@ -41,4 +41,15 @@
     <string name="channel_default">Controlled notifications</string>
     <string name="channel_silent">Controlled silent notifications</string>
     <string name="channel_ongoing">Controlled ongoing notifications</string>
+    <string name="delayed_description">Screen-off test: post, update, then remove a notification. Each step is scheduled %1$d seconds after the previous one. Android may delay alarms, especially during Doze. Turn off the screen after starting. Return here to see actual execution times. No exact-alarm permission or battery exemption is requested.</string>
+    <string name="delayed_start">Start delayed notification sequence</string>
+    <string name="delayed_cancel">Cancel remaining steps</string>
+    <string name="delayed_none">No delayed test recorded</string>
+    <string name="delayed_started">Sequence scheduled</string>
+    <string name="delayed_updated">Notification updated</string>
+    <string name="delayed_cancelled">Remaining steps cancelled</string>
+    <string name="delayed_permission_lost">Notifications are blocked. Allow notifications and start again.</string>
+    <string name="delayed_awake">screen interactive</string>
+    <string name="delayed_asleep">screen non-interactive</string>
+    <string name="delayed_event">%1$s · %2$s · %3$s</string>
 </resources>
