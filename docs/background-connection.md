@@ -13,8 +13,10 @@ On Android 13 and later, SevenMirror asks for notification permission before sta
 ## Lifetime and recovery
 
 - The service is `START_STICKY` and reconnects through the existing bounded transport backoff.
-- Default-network availability retries an offline connection only while connection ownership is enabled.
-- Stopping the background connection persistently disables service restart, closes the WebSocket, and cancels reconnect and membership-refresh work. Opening the app may still establish a foreground UI connection.
+- The coordinator owns one set of active connection owners. Each Activity acquires its own ownership in `onStart` and releases it in `onStop`; the foreground service acquires ownership after validating its start request and releases it in `onDestroy`.
+- Default-network availability retries an offline connection only while at least one owner remains. It cannot create ownership.
+- Stopping the background connection persistently disables service restart and releases service ownership. A visible Activity may still use a foreground UI connection. Once the last owner releases, the coordinator closes the WebSocket and cancels reconnect, result-drain, and membership-refresh work.
+- With background synchronization enabled and the foreground service running, leaving the Activity or turning off the screen does not release service ownership. Activity recreation or repeated service start requests do not replace an already-owned connection.
 - Saving the first explicit application selection enables background connection by default. A later user pause is retained across application-selection edits and process recreation.
 - SevenMirror does not request direct exemption from battery optimization. It reports whether Android currently grants unrestricted battery usage and opens system battery settings for an explicit user decision.
 - This slice does not start the foreground service from `BOOT_COMPLETED`; after a full device restart, the user must open SevenMirror once. Adding boot startup requires separate platform and distribution-policy validation.
