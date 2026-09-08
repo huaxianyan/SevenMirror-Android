@@ -95,7 +95,7 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
-    fun `debug allowance is limited to the explicit fixture notification`() {
+    fun `fixture allowance is debug only and never includes foreground status`() {
         val serviceNotification = notificationSnapshot(BuildConfig.APPLICATION_ID).copy(
             title = "SevenMirror notification sync",
             isOngoing = true,
@@ -103,7 +103,7 @@ class AndroidProductPreferencesTest {
         val fixtureNotification = serviceNotification.copy(title = "Avatar test")
 
         assertEquals(false, ProductDebugActions.isFixtureNotification(serviceNotification))
-        assertEquals(true, ProductDebugActions.isFixtureNotification(fixtureNotification))
+        assertEquals(BuildConfig.DEBUG, ProductDebugActions.isFixtureNotification(fixtureNotification))
     }
 
     @Test

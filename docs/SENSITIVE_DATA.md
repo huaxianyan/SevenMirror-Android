@@ -61,6 +61,19 @@ backup/debug tooling, screenshots, crash capture, and a compromised endpoint are
 separate trust boundaries. This inventory does not claim that content visible to
 those components is encrypted from the device owner or OS.
 
+## Debug transport diagnostics
+
+The Debug-only default `SevenMirrorTransport` tag records monotonic timestamps,
+process-local connection generations, code-defined event/state names, and
+optional numeric delays/network handles or boolean flags. It never accepts
+notification content/identifiers, URLs, IP addresses, SSIDs, credentials, keys,
+or exception messages. Nothing is uploaded or written to an app-owned file.
+These traces still reveal local timing and connectivity metadata and must be
+reviewed before sharing. Release-default suppression and exception-message
+exclusion have app unit tests; see [transport-diagnostics.md](transport-diagnostics.md)
+for scope and operator capture boundaries. This does not expand the core-store
+runtime canary into a full application logging audit.
+
 ## Runtime canary gate
 
 `AndroidSensitiveDataCanaryInstrumentedTest` runs on the API 29 CI emulator. It

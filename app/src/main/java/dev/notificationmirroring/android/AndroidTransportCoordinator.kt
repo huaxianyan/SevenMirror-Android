@@ -3,6 +3,7 @@ package dev.notificationmirroring.android
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
 import dev.notificationmirroring.crypto.AndroidActionResultOutbox
@@ -136,7 +137,6 @@ class AndroidTransportCoordinator(context: Context) {
         workspaceMembershipStore,
         credentialStore,
     )
-    private val webSocketFactory = AuthenticatedWebSocketFactory(httpClient)
     private val executor = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "notification-transport").apply { isDaemon = true }
     }
@@ -150,6 +150,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
     private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
+    private val diagnostics = TransportDiagnostics(state = { mutableState.value })
 
     private var webSocket: WebSocket? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
@@ -206,9 +207,34 @@ class AndroidTransportCoordinator(context: Context) {
             .registerDefaultNetworkCallback(
                 object : ConnectivityManager.NetworkCallback() {
                     override fun onAvailable(network: Network) {
+                        diagnostics.record(
+                            CoordinatorDiagnosticEvent.NETWORK_AVAILABLE,
+                            generation.get(),
+                            networkHandle = network.networkHandle,
+                        )
                         if (mutableState.value == AndroidTransportState.OFFLINE) {
                             retryConnection()
                         }
+                    }
+
+                    override fun onLost(network: Network) {
+                        diagnostics.record(
+                            CoordinatorDiagnosticEvent.NETWORK_LOST,
+                            generation.get(),
+                            networkHandle = network.networkHandle,
+                        )
+                    }
+
+                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                        diagnostics.record(
+                            CoordinatorDiagnosticEvent.NETWORK_CAPABILITIES_CHANGED,
+                            generation.get(),
+                            networkHandle = network.networkHandle,
+                            wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                            cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                            vpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                            validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                        )
                     }
                 },
             )
@@ -235,6 +261,7 @@ class AndroidTransportCoordinator(context: Context) {
     fun retryConnection() {
         if (connectionOwners.isEmpty()) return
         val requestedGeneration = generation.incrementAndGet()
+        diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_REQUESTED, requestedGeneration)
         executor.execute {
             cancelReconnect()
             reconnectBackoff.reset()
@@ -365,6 +392,7 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun connectInternal(requestedGeneration: Long) {
         if (!hasConnectionOwner() || generation.get() != requestedGeneration) return
+        diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_ATTEMPT, requestedGeneration)
         if (productPreferences.isCertifiedReEnrollmentResetPending()) {
             try {
                 completeCertifiedReEnrollmentReset()
@@ -379,7 +407,9 @@ class AndroidTransportCoordinator(context: Context) {
         webSocket = null
         cancelMembershipRefresh()
         val membershipReady = try {
-            recoverPendingMembership()
+            diagnostics.measure(CoordinatorDiagnosticEvent.PENDING_MEMBERSHIP_RECOVERY, requestedGeneration) {
+                recoverPendingMembership()
+            }
         } catch (_: IOException) {
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
@@ -411,7 +441,9 @@ class AndroidTransportCoordinator(context: Context) {
         mutableServerOrigin.value = credential.serverOrigin
         try {
             publishWorkspaceDevices(credential.workspaceId, credential.deviceId)
-            val refreshed = membershipClient.refreshActive(credential)
+            val refreshed = diagnostics.measure(CoordinatorDiagnosticEvent.MEMBERSHIP_REFRESH, requestedGeneration) {
+                membershipClient.refreshActive(credential)
+            }
             check(refreshed == null ||
                 refreshed.serverState == "approved" && refreshed.transportEligible
             ) { "Local device is not active in the durable workspace roster" }
@@ -473,7 +505,10 @@ class AndroidTransportCoordinator(context: Context) {
             }
             mutableState.value = AndroidTransportState.CONNECTING
             val receivedSno1 = AtomicBoolean(false)
-            val socket = webSocketFactory.open(
+            // Bind observations to this attempt, including callbacks arriving after replacement.
+            val socket = AuthenticatedWebSocketFactory(httpClient) { event ->
+                diagnostics.record(event, requestedGeneration)
+            }.open(
                 credential,
                 object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -505,11 +540,22 @@ class AndroidTransportCoordinator(context: Context) {
                                 }
                                 reconnectBackoff.reset()
                                 mutableState.value = AndroidTransportState.ONLINE
+                                diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_READY, requestedGeneration)
                                 scheduleMembershipRefresh(requestedGeneration, webSocket)
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
                                 LocalNotificationController.currentActiveSnapshot(applicationContext)
-                                    ?.let { snapshot -> sendSnapshot(snapshot) }
+                                    ?.let { snapshot ->
+                                        val accepted = diagnostics.measure(
+                                            CoordinatorDiagnosticEvent.STARTUP_SNAPSHOT,
+                                            requestedGeneration,
+                                        ) { sendSnapshot(snapshot) }
+                                        diagnostics.record(
+                                            CoordinatorDiagnosticEvent.STARTUP_SNAPSHOT_SUBMITTED,
+                                            requestedGeneration,
+                                            accepted = accepted,
+                                        )
+                                    }
                             } catch (_: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
@@ -807,6 +853,7 @@ class AndroidTransportCoordinator(context: Context) {
         receivedSno1: Boolean = true,
         handlers: ConnectionHandlers? = null,
     ) {
+        diagnostics.record(CoordinatorDiagnosticEvent.TERMINATION_QUEUED, requestedGeneration)
         executor.execute {
             handlers?.clearIdentities()
             if (generation.get() != requestedGeneration ||
@@ -822,6 +869,7 @@ class AndroidTransportCoordinator(context: Context) {
             cancelMembershipRefresh()
             if (webSocket === socket) webSocket = null
             mutableState.value = AndroidTransportState.OFFLINE
+            diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_TERMINATED, requestedGeneration)
             scheduleReconnect(requestedGeneration)
         }
     }
@@ -886,7 +934,10 @@ class AndroidTransportCoordinator(context: Context) {
                     return@schedule
                 }
                 try {
-                    val refreshed = membershipClient.refreshActive(credential)
+                    val refreshed = diagnostics.measure(
+                        CoordinatorDiagnosticEvent.MEMBERSHIP_REFRESH,
+                        requestedGeneration,
+                    ) { membershipClient.refreshActive(credential) }
                     if (refreshed == null) return@schedule
                     check(refreshed.serverState == "approved" && refreshed.transportEligible) {
                         "Local device is not active in the durable workspace roster"
@@ -983,10 +1034,12 @@ class AndroidTransportCoordinator(context: Context) {
     private fun scheduleReconnect(requestedGeneration: Long) {
         if (!hasConnectionOwner() || generation.get() != requestedGeneration || reconnectFuture != null) return
         val delayMs = reconnectBackoff.nextDelayMs()
+        diagnostics.record(CoordinatorDiagnosticEvent.RECONNECT_SCHEDULED, requestedGeneration, delayMs = delayMs)
         reconnectFuture = executor.schedule(
             {
                 reconnectFuture = null
                 if (generation.get() != requestedGeneration) return@schedule
+                diagnostics.record(CoordinatorDiagnosticEvent.RECONNECT_TIMER_FIRED, requestedGeneration)
                 val nextGeneration = generation.incrementAndGet()
                 connectInternal(nextGeneration)
             },

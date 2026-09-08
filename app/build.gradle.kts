@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.android.build.api.variant.HostTestBuilder
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -82,6 +83,12 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.hostTests.values.single { it.type == HostTestBuilder.UNIT_TEST_TYPE }.enable = true
     }
 }
 
