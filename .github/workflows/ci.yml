@@ -171,4 +171,15 @@ jobs:
           target: google_apis
           profile: pixel_2
           disable-animations: true
-          script: ./gradlew :app:connectedDebugAndroidTest :core-crypto:connectedDebugAndroidTest :core-notification:connectedDebugAndroidTest :core-transport:connectedDebugAndroidTest --console=plain
+          script: ./gradlew :app:connectedDebugAndroidTest :core-crypto:connectedDebugAndroidTest :core-notification:connectedDebugAndroidTest :core-transport:connectedDebugAndroidTest --console=plain || { mkdir -p app/build; adb logcat -d -s AndroidRuntime TestRunner > app/build/product-ui-runtime.txt; exit 1; }
+      - name: Preserve product UI test results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-product-ui-test-results
+          path: |
+            app/build/outputs/androidTest-results/connected/**/*.xml
+            app/build/reports/androidTests/connected/**/*.html
+            app/build/product-ui-runtime.txt
+          if-no-files-found: warn
+          retention-days: 7
