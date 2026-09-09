@@ -150,6 +150,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableEnrollmentPending = MutableStateFlow(false)
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
     private val mutableRecipientSettings = MutableStateFlow(RecipientSettingsState("", false, emptyList()))
+    private val mutableSynchronizationPaused = MutableStateFlow(productPreferences.isSynchronizationPaused())
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
     private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
     private val diagnostics = TransportDiagnostics(state = { mutableState.value })
@@ -166,12 +167,26 @@ class AndroidTransportCoordinator(context: Context) {
     val workspaceDevices: StateFlow<List<WorkspaceDeviceSummary>> =
         mutableWorkspaceDevices.asStateFlow()
     internal val recipientSettings: StateFlow<RecipientSettingsState> = mutableRecipientSettings.asStateFlow()
+    internal val synchronizationPaused: StateFlow<Boolean> = mutableSynchronizationPaused.asStateFlow()
     val serverOrigin: StateFlow<String?> = mutableServerOrigin.asStateFlow()
     val securityRecovery: StateFlow<AndroidSecurityRecovery> =
         mutableSecurityRecovery.asStateFlow()
 
     fun resultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
+
+    internal fun setSynchronizationPaused(paused: Boolean) {
+        productPreferences.saveSynchronizationPaused(paused)
+        mutableSynchronizationPaused.value = paused
+        if (!paused) {
+            executor.execute {
+                if (!productPreferences.isSynchronizationPaused()) {
+                    LocalNotificationController.currentActiveSnapshot(applicationContext)
+                        ?.let(::sendSnapshot)
+                }
+            }
+        }
+    }
 
     internal fun saveReceivingDevices(deviceKeys: Set<String>) {
         val settings = mutableRecipientSettings.value
@@ -183,7 +198,9 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     fun mirrorNotification(snapshot: NotificationSnapshot) {
+        if (productPreferences.isSynchronizationPaused()) return
         executor.execute {
+            if (productPreferences.isSynchronizationPaused()) return@execute
             sendNotification { sender, nowUnixMs ->
                 sender.createUpsert(
                     notificationId = snapshot.key,
@@ -203,7 +220,9 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     fun removeNotification(notificationId: String, revision: Long) {
+        if (productPreferences.isSynchronizationPaused()) return
         executor.execute {
+            if (productPreferences.isSynchronizationPaused()) return@execute
             sendNotification { sender, nowUnixMs ->
                 sender.createRemoved(notificationId, revision, nowUnixMs)
             }
@@ -211,7 +230,10 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     fun mirrorSnapshot(snapshot: ActiveNotificationSnapshot) {
-        executor.execute { sendSnapshot(snapshot) }
+        if (productPreferences.isSynchronizationPaused()) return
+        executor.execute {
+            if (!productPreferences.isSynchronizationPaused()) sendSnapshot(snapshot)
+        }
     }
 
     init {
@@ -490,6 +512,9 @@ class AndroidTransportCoordinator(context: Context) {
                     recipientIdentity = identity,
                     actionPeers = workspaceMembershipStore,
                     notificationRecipients = workspaceMembershipStore,
+                    isSynchronizationActive = {
+                        !productPreferences.isSynchronizationPaused()
+                    },
                     isNotificationRecipientSelected = { peerDeviceId ->
                         recipientSelection.isSelected(
                             credential.workspaceId,
@@ -564,6 +589,7 @@ class AndroidTransportCoordinator(context: Context) {
                                 cancelResultDrain()
                                 drainResults(requestedGeneration, webSocket, handlers.resultDrainer)
                                 LocalNotificationController.currentActiveSnapshot(applicationContext)
+                                    ?.takeUnless { productPreferences.isSynchronizationPaused() }
                                     ?.let { snapshot ->
                                         val accepted = diagnostics.measure(
                                             CoordinatorDiagnosticEvent.STARTUP_SNAPSHOT,
@@ -788,6 +814,7 @@ class AndroidTransportCoordinator(context: Context) {
         durable: Boolean = true,
         createFrames: (NotificationEnvelopeSender, Long) -> List<ByteArray>?,
     ): Boolean {
+        if (productPreferences.isSynchronizationPaused()) return false
         if (mutableState.value != AndroidTransportState.ONLINE) return false
         val socket = webSocket ?: return false
         var sender: NotificationEnvelopeSender? = null

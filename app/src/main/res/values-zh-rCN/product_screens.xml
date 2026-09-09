@@ -38,4 +38,8 @@
     <string name="no_receiving_devices_available">目前没有可选择的浏览器。请先由管理员批准浏览器加入。</string>
     <string name="save_receiving_devices">保存接收设备</string>
     <plurals name="receiving_devices_count"><item quantity="other">已选择 %d 个接收设备</item></plurals>
+    <string name="synchronization_paused">同步已暂停</string>
+    <string name="synchronization_paused_body">恢复后会按当前应用和接收设备重新同步。</string>
+    <string name="pause_synchronization">暂停同步</string>
+    <string name="resume_synchronization">恢复同步</string>
 </resources>

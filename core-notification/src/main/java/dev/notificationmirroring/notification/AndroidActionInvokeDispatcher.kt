@@ -24,7 +24,7 @@ sealed interface AuthenticatedInboundReceipt {
     data class ResultAck(
         val result: AndroidActionResultOutbox.AcknowledgeResult,
     ) : AuthenticatedInboundReceipt
-    data object UnselectedSnapshotRequest : AuthenticatedInboundReceipt
+    data object SuppressedSnapshotRequest : AuthenticatedInboundReceipt
     data class SnapshotRequest(
         val recoveryRequestId: ByteArray,
         val resetHighWaterDeliveryId: Long,
@@ -46,6 +46,7 @@ class AndroidActionInvokeDispatcher(
     private val actionPeers: WorkspaceActionPeerResolver,
     private val notificationRecipients: WorkspaceNotificationRecipientDirectory,
     private val isNotificationRecipientSelected: (ByteArray) -> Boolean,
+    private val isSynchronizationActive: () -> Boolean,
     private val operationAuthorizer: RemoteOperationAuthorizer,
     private val replayLedger: AndroidReplayLedger,
     private val operationLedger: AndroidOperationLedger,
@@ -74,7 +75,7 @@ class AndroidActionInvokeDispatcher(
         when (val received = receiveAnyOnce(frameBytes, nowUnixMs)) {
             is AuthenticatedInboundReceipt.Action -> received.receipt
             is AuthenticatedInboundReceipt.ResultAck,
-            AuthenticatedInboundReceipt.UnselectedSnapshotRequest,
+            AuthenticatedInboundReceipt.SuppressedSnapshotRequest,
             is AuthenticatedInboundReceipt.SnapshotRequest ->
                 throw IllegalArgumentException("Expected action.invoke payload")
         }
@@ -150,7 +151,8 @@ class AndroidActionInvokeDispatcher(
                         operationLedger = operationLedger,
                         resultOutbox = resultOutbox,
                         operationAuthorizer = RemoteOperationAuthorizer { packageName, operation ->
-                            isNotificationRecipientSelected(header.senderDeviceId) &&
+                            isSynchronizationActive() &&
+                                isNotificationRecipientSelected(header.senderDeviceId) &&
                                 operationAuthorizer.isAllowed(packageName, operation)
                         },
                         nowUnixMs = nowUnixMs,
@@ -171,8 +173,10 @@ class AndroidActionInvokeDispatcher(
                 }
                 EncryptedPayload.BodyCase.NOTIFICATION_SNAPSHOT_REQUEST -> {
                     check(notificationPeer != null) { "Snapshot requester is not authorized" }
-                    if (!isNotificationRecipientSelected(header.senderDeviceId)) {
-                        return AuthenticatedInboundReceipt.UnselectedSnapshotRequest
+                    if (!isSynchronizationActive() ||
+                        !isNotificationRecipientSelected(header.senderDeviceId)
+                    ) {
+                        return AuthenticatedInboundReceipt.SuppressedSnapshotRequest
                     }
                     AuthenticatedInboundReceipt.SnapshotRequest(
                         recoveryRequestId = payload.notificationSnapshotRequest

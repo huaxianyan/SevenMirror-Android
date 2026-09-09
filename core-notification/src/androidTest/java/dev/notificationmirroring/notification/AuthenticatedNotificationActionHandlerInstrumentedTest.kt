@@ -67,7 +67,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val operations = AndroidOperationLedger(context, name)
         var senderAuthorized = false
         var recipientSelected = false
-        var operationAllowed = true
+        var synchronizationActive = true
         val outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val sender = AuthenticatedHpke.generateKeyPair()
@@ -95,7 +95,8 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             },
             notificationRecipients = WorkspaceNotificationRecipientDirectory { _, _, _ -> emptyList() },
             isNotificationRecipientSelected = { recipientSelected },
-            operationAuthorizer = RemoteOperationAuthorizer { _, _ -> operationAllowed },
+            isSynchronizationActive = { synchronizationActive },
+            operationAuthorizer = RemoteOperationAuthorizer { _, _ -> true },
             replayLedger = replay,
             operationLedger = operations,
             resultOutbox = outbox,
@@ -172,6 +173,38 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             )
 
             recipientSelected = true
+            synchronizationActive = false
+            val paused = actionFrame(
+                8,
+                0x91,
+                token,
+                now,
+                workspace,
+                recipientDevice,
+                sender,
+                recipient,
+            )
+            val pausedReceipt = dispatcher.receiveOnce(paused, now)
+            assertEquals(
+                ActionResultStatus.ACTION_RESULT_STATUS_ACTION_NOT_FOUND,
+                pausedReceipt.result.status,
+            )
+            assertEquals(0, ActionSideEffectReceiver.count.get())
+            dispatcher.receiveAnyOnce(
+                ackFrame(
+                    98,
+                    ByteArray(16) { 0x91.toByte() },
+                    sha256(pausedReceipt.resultPayload),
+                    now,
+                    workspace,
+                    recipientDevice,
+                    sender,
+                    recipient,
+                ),
+                now,
+            )
+
+            synchronizationActive = true
             val firstResult = dispatcher.receiveOnce(first, now)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, firstResult.result.status)
             assertEquals(false, firstResult.recovered)

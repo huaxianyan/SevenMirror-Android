@@ -24,23 +24,27 @@ class ProductNavigationInstrumentedTest {
     @get:Rule val compose = createComposeRule()
 
     @Test
-    fun savedAppPolicyRestoresContentAndOperationChoicesTogether() {
+    fun savedProductSettingsRestoreAppPolicyAndPausedSynchronization() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = AndroidProductPreferences(context)
         val pkg = "com.example.productsettingsfixture"
         val previousContent = preferences.notificationSharingSettings().settingsFor(pkg)
         val previousOverride = preferences.remoteOperationSettings().applicationOverrides[pkg]
+        val previousPaused = preferences.isSynchronizationPaused()
         try {
             preferences.saveApplicationSettings(
                 pkg, ApplicationNotificationSettings(showContent = false, syncOngoing = true),
                 ApplicationOperationOverride(ApplicationOperationMode.VIEW_ONLY),
             )
+            preferences.saveSynchronizationPaused(true)
             val restored = AndroidProductPreferences(context)
             assertEquals(false, restored.notificationSharingSettings().settingsFor(pkg).showContent)
             assertEquals(true, restored.notificationSharingSettings().settingsFor(pkg).syncOngoing)
             assertEquals(ApplicationOperationMode.VIEW_ONLY, restored.remoteOperationSettings().applicationOverrides[pkg]?.mode)
+            assertEquals(true, restored.isSynchronizationPaused())
         } finally {
             preferences.saveApplicationSettings(pkg, previousContent, previousOverride)
+            preferences.saveSynchronizationPaused(previousPaused)
         }
     }
 
@@ -55,6 +59,7 @@ class ProductNavigationInstrumentedTest {
         var recipients by mutableStateOf(
             RecipientSettingsState("test", false, listOf(ReceivingDevice("work", "Work browser", false))),
         )
+        var paused by mutableStateOf(false)
         var background by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
@@ -62,6 +67,7 @@ class ProductNavigationInstrumentedTest {
                     transportState = AndroidTransportState.ONLINE,
                     workspaceDevices = emptyList(),
                     recipientSettings = recipients,
+                    synchronizationPaused = paused,
                     serverOrigin = "https://mirror.example",
                     notificationAccessGranted = access,
                     applications = listOf(SelectableApplication("com.example.calendar", "Calendar example", false)),
@@ -75,6 +81,7 @@ class ProductNavigationInstrumentedTest {
                     batteryOptimizationExempt = false,
                     omittedNotificationCount = 0,
                     onSaveApplicationSelection = { selected = it },
+                    onSetSynchronizationPaused = { paused = it },
                     onSaveReceivingDevices = { selected ->
                         recipients = recipients.copy(
                             configured = true,
@@ -97,6 +104,11 @@ class ProductNavigationInstrumentedTest {
                 )
             }
         }
+        compose.onNodeWithText(text(R.string.pause_synchronization)).performClick()
+        compose.runOnIdle { assertEquals(true, paused) }
+        compose.onNodeWithText(text(R.string.resume_synchronization)).performClick()
+        compose.runOnIdle { assertEquals(false, paused) }
+
         compose.onNodeWithText(text(R.string.applications)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("com.example.calendar"))
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()

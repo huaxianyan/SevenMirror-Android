@@ -65,6 +65,7 @@
     <string name="background_connection_channel">同步状态</string>
     <string name="background_connection_channel_description">显示通知同步和后台运行状态。</string>
     <string name="background_connection_notification_title">SevenMirror 通知同步</string>
+    <string name="background_connection_notification_paused">同步已暂停，可打开应用恢复</string>
     <string name="background_connection_online">已准备同步所选应用的通知</string>
     <string name="background_connection_connecting">正在连接你的私有服务器</string>
     <string name="background_connection_offline">连接已中断，请打开 SevenMirror 重试</string>

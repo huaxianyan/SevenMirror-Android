@@ -103,6 +103,7 @@ internal fun MainScreen(
     transportState: AndroidTransportState,
     workspaceDevices: List<WorkspaceDeviceSummary>,
     recipientSettings: RecipientSettingsState,
+    synchronizationPaused: Boolean,
     serverOrigin: String?,
     notificationAccessGranted: Boolean,
     applications: List<SelectableApplication>,
@@ -117,6 +118,7 @@ internal fun MainScreen(
     omittedNotificationCount: Int,
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onSaveReceivingDevices: (Set<String>) -> Unit,
+    onSetSynchronizationPaused: (Boolean) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
@@ -200,10 +202,26 @@ internal fun MainScreen(
                                             workspaceDevices.firstOrNull { it.isCurrentDevice }?.let {
                                                 Text(it.displayName, style = MaterialTheme.typography.labelLarge)
                                             }
-                                            Text(connectionLabel(transportState), style = MaterialTheme.typography.headlineSmall)
-                                            Text(stringResource(R.string.connection_delivery_boundary))
-                                            if (transportState == AndroidTransportState.OFFLINE) {
-                                                OutlinedButton(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
+                                            Text(
+                                                if (synchronizationPaused) stringResource(R.string.synchronization_paused)
+                                                else connectionLabel(transportState),
+                                                style = MaterialTheme.typography.headlineSmall,
+                                            )
+                                            Text(stringResource(
+                                                if (synchronizationPaused) R.string.synchronization_paused_body
+                                                else R.string.connection_delivery_boundary,
+                                            ))
+                                            if (synchronizationPaused) {
+                                                Button(onClick = { save { onSetSynchronizationPaused(false) } }) {
+                                                    Text(stringResource(R.string.resume_synchronization))
+                                                }
+                                            } else {
+                                                OutlinedButton(onClick = { save { onSetSynchronizationPaused(true) } }) {
+                                                    Text(stringResource(R.string.pause_synchronization))
+                                                }
+                                                if (transportState == AndroidTransportState.OFFLINE) {
+                                                    OutlinedButton(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
+                                                }
                                             }
                                         }
                                     }

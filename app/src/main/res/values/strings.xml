@@ -67,6 +67,7 @@
     <string name="background_connection_channel">Sync status</string>
     <string name="background_connection_channel_description">Shows notification sync and background activity status.</string>
     <string name="background_connection_notification_title">SevenMirror notification sync</string>
+    <string name="background_connection_notification_paused">Sync paused. Open the app to resume.</string>
     <string name="background_connection_online">Ready to synchronize selected app notifications</string>
     <string name="background_connection_connecting">Connecting to your private server</string>
     <string name="background_connection_offline">Connection interrupted; open SevenMirror to retry</string>

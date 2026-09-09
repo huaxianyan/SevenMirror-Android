@@ -21,6 +21,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /** User-controlled foreground owner for the persistent encrypted relay connection. */
@@ -36,13 +37,18 @@ class BackgroundConnectionService : Service() {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            statusNotification(AndroidTransportState.INITIALIZING),
+            statusNotification(
+                AndroidTransportState.INITIALIZING,
+                coordinator.synchronizationPaused.value,
+            ),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
         stateJob = scope.launch {
-            coordinator.state.collectLatest { state ->
+            combine(coordinator.state, coordinator.synchronizationPaused) { state, paused ->
+                state to paused
+            }.collectLatest { (state, paused) ->
                 getSystemService(NotificationManager::class.java)
-                    .notify(NOTIFICATION_ID, statusNotification(state))
+                    .notify(NOTIFICATION_ID, statusNotification(state, paused))
             }
         }
     }
@@ -85,7 +91,7 @@ class BackgroundConnectionService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
-    private fun statusNotification(state: AndroidTransportState): Notification {
+    private fun statusNotification(state: AndroidTransportState, paused: Boolean): Notification {
         val openIntent = PendingIntent.getActivity(
             this,
             0,
@@ -101,7 +107,10 @@ class BackgroundConnectionService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status)
             .setContentTitle(getString(R.string.background_connection_notification_title))
-            .setContentText(getString(state.notificationMessage()))
+            .setContentText(getString(
+                if (paused) R.string.background_connection_notification_paused
+                else state.notificationMessage(),
+            ))
             .setContentIntent(openIntent)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

@@ -38,4 +38,8 @@
     <string name="no_receiving_devices_available">No browsers are available. Ask an administrator to approve a browser first.</string>
     <string name="save_receiving_devices">Save receiving devices</string>
     <plurals name="receiving_devices_count"><item quantity="one">%d receiving device selected</item><item quantity="other">%d receiving devices selected</item></plurals>
+    <string name="synchronization_paused">Sync paused</string>
+    <string name="synchronization_paused_body">Resume to reconcile using the current apps and receiving devices.</string>
+    <string name="pause_synchronization">Pause sync</string>
+    <string name="resume_synchronization">Resume sync</string>
 </resources>
