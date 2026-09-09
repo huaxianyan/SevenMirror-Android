@@ -2,7 +2,6 @@ package dev.notificationmirroring.android
 
 import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -11,48 +10,31 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -67,25 +49,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
-import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
-import dev.notificationmirroring.crypto.WorkspaceDeviceType
 import dev.notificationmirroring.notification.LocalNotificationController
-import dev.notificationmirroring.protocol.EncryptedPayloadCodecV1
 import java.util.concurrent.Executors
+
+private const val PRODUCT_UI_STATE_KEY = "sevenmirror-product-ui-version"
+private const val PRODUCT_UI_STATE_VERSION = 1
 
 class MainActivity : ComponentActivity() {
     private lateinit var productPreferences: AndroidProductPreferences
@@ -103,14 +80,15 @@ class MainActivity : ComponentActivity() {
     private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
     private var installedApplications by mutableStateOf<List<SelectableApplication>>(emptyList())
     private var applicationsLoaded by mutableStateOf(false)
+    private var applicationsLoadFailed by mutableStateOf(false)
     private var notificationSharingSettings by mutableStateOf(NotificationSharingSettings())
     private var remoteOperationSettings by mutableStateOf(RemoteOperationSettings())
 
     private val notificationPermission = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
-        foregroundNotificationGranted = granted
-        BackgroundConnectionService.reconcile(this, granted)
+        foregroundNotificationGranted = canShowForegroundStatus(this)
+        BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
         if (granted && pendingDebugNotification && ProductDebugActions.available) {
             ProductDebugActions.postNotification(this)
         }
@@ -118,7 +96,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        // Old builds saved the removed MainDestination enum. Drop only that UI snapshot,
+        // not persisted enrollment, keys or user settings, when adopting this navigation.
+        super.onCreate(savedInstanceState?.takeIf { it.getInt(PRODUCT_UI_STATE_KEY) == PRODUCT_UI_STATE_VERSION })
         enableEdgeToEdge()
         productPreferences = AndroidProductPreferences(this)
         welcomeCompleted = productPreferences.isWelcomeCompleted()
@@ -141,6 +121,8 @@ class MainActivity : ComponentActivity() {
                     applicationSelectionConfirmed = applicationSelectionConfirmed,
                     applications = installedApplications,
                     applicationsLoaded = applicationsLoaded,
+                    applicationsLoadFailed = applicationsLoadFailed,
+                    onReloadApplications = ::loadApplications,
                     selectedPackages = selectedPackages,
                     notificationSharingSettings = notificationSharingSettings,
                     remoteOperationSettings = remoteOperationSettings,
@@ -168,26 +150,26 @@ class MainActivity : ComponentActivity() {
                         notificationSharingSettings = productPreferences.notificationSharingSettings()
                         LocalNotificationController.refreshMirroringPolicy(this)
                     },
-                    onSaveApplicationNotificationSettings = { packageName, settings ->
-                        productPreferences.saveApplicationNotificationSettings(packageName, settings)
+                    onSaveApplicationSettings = { packageName, settings, override ->
+                        productPreferences.saveApplicationSettings(packageName, settings, override)
                         notificationSharingSettings = productPreferences.notificationSharingSettings()
+                        remoteOperationSettings = productPreferences.remoteOperationSettings()
                         LocalNotificationController.refreshMirroringPolicy(this)
                     },
                     onSaveGlobalRemoteOperations = { permissions ->
                         productPreferences.saveGlobalRemoteOperationPermissions(permissions)
                         remoteOperationSettings = productPreferences.remoteOperationSettings()
                     },
-                    onSaveApplicationOperationOverride = { packageName, override ->
-                        productPreferences.saveApplicationOperationOverride(packageName, override)
-                        remoteOperationSettings = productPreferences.remoteOperationSettings()
-                    },
+
                     onSetBackgroundConnectionEnabled = { enabled ->
                         productPreferences.saveBackgroundConnectionEnabled(enabled)
                         backgroundConnectionEnabled = enabled
                         if (enabled) requestForegroundNotificationAndReconcile()
                         else BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
                     },
-                    onRequestForegroundNotification = ::requestForegroundNotificationAndReconcile,
+                    onOpenStatusNotificationSettings = {
+                        startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
+                    },
                     onOpenBatterySettings = {
                         startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
                     },
@@ -196,6 +178,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(PRODUCT_UI_STATE_KEY, PRODUCT_UI_STATE_VERSION)
     }
 
     override fun onStart() {
@@ -225,10 +212,7 @@ class MainActivity : ComponentActivity() {
     private fun refreshSystemStatus() {
         notificationAccessGranted =
             NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
-        foregroundNotificationGranted =
-            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+        foregroundNotificationGranted = canShowForegroundStatus(this)
         batteryOptimizationExempt =
             getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
     }
@@ -238,34 +222,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestForegroundNotificationAndReconcile() {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !canShowForegroundStatus(this)) {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            foregroundNotificationGranted = true
+            foregroundNotificationGranted = canShowForegroundStatus(this)
             BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
         }
     }
 
     private fun loadApplications() {
+        applicationsLoaded = false
+        applicationsLoadFailed = false
         applicationLoader.execute {
-            val loaded = runCatching { InstalledApplicationCatalog.load(this) }.getOrDefault(emptyList())
+            val loaded = runCatching { InstalledApplicationCatalog.load(this) }
             runOnUiThread {
-                installedApplications = loaded
-                applicationsLoaded = true
+                if (!isDestroyed) {
+                    installedApplications = loaded.getOrDefault(emptyList())
+                    applicationsLoadFailed = loaded.isFailure
+                    applicationsLoaded = true
+                }
             }
         }
     }
 
     private fun postDebugNotification() {
-        if (
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !canShowForegroundStatus(this)) {
             pendingDebugNotification = true
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -295,6 +276,8 @@ private fun SevenMirrorApp(
     applicationSelectionConfirmed: Boolean,
     applications: List<SelectableApplication>,
     applicationsLoaded: Boolean,
+    applicationsLoadFailed: Boolean,
+    onReloadApplications: () -> Unit,
     selectedPackages: Set<String>,
     notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
@@ -306,11 +289,10 @@ private fun SevenMirrorApp(
     onRefreshNotificationAccess: () -> Unit,
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
-    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
+    onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
-    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
-    onRequestForegroundNotification: () -> Unit,
+    onOpenStatusNotificationSettings: () -> Unit,
     onOpenBatterySettings: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
@@ -343,15 +325,15 @@ private fun SevenMirrorApp(
             OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
+                applicationsLoadFailed = applicationsLoadFailed,
                 initialSelection = selectedPackages,
                 onboarding = true,
-                notificationSharingSettings = notificationSharingSettings,
-                remoteOperationSettings = remoteOperationSettings,
-                onSave = onSaveApplicationSelection,
-                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
-                onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
-                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
+                onSave = {
+                    try { onSaveApplicationSelection(it); true } catch (_: RuntimeException) { false }
+                },
+                onReload = onReloadApplications,
+                onConfigure = null,
+                onDirtyChange = null,
             )
             OnboardingStage.COMPLETE -> MainScreen(
                 transportState = transportState,
@@ -360,6 +342,8 @@ private fun SevenMirrorApp(
                 notificationAccessGranted = notificationAccessGranted,
                 applications = applications,
                 applicationsLoaded = applicationsLoaded,
+                applicationsLoadFailed = applicationsLoadFailed,
+                onReloadApplications = onReloadApplications,
                 selectedPackages = selectedPackages,
                 notificationSharingSettings = notificationSharingSettings,
                 remoteOperationSettings = remoteOperationSettings,
@@ -369,13 +353,12 @@ private fun SevenMirrorApp(
                 omittedNotificationCount = omittedNotificationCount,
                 onSaveApplicationSelection = onSaveApplicationSelection,
                 onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
-                onSaveApplicationNotificationSettings = onSaveApplicationNotificationSettings,
+                onSaveApplicationSettings = onSaveApplicationSettings,
                 onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                onSaveApplicationOperationOverride = onSaveApplicationOperationOverride,
                 onOpenNotificationAccess = onOpenNotificationAccess,
                 onReconnect = transportCoordinator::retryConnection,
                 onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
-                onRequestForegroundNotification = onRequestForegroundNotification,
+                onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
                 onOpenBatterySettings = onOpenBatterySettings,
                 onPostDebugNotification = onPostDebugNotification,
             )
@@ -582,881 +565,6 @@ private fun NotificationAccessScreen(
             OutlinedButton(onClick = onCheckAgain, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.permission_granted_check_again))
             }
-        }
-    }
-}
-
-@Composable
-private fun ApplicationSelectionScreen(
-    applications: List<SelectableApplication>,
-    applicationsLoaded: Boolean,
-    initialSelection: Set<String>,
-    onboarding: Boolean,
-    notificationSharingSettings: NotificationSharingSettings,
-    remoteOperationSettings: RemoteOperationSettings,
-    onSave: (Set<String>) -> Unit,
-    onSaveSyncSilentNotifications: (Boolean) -> Unit,
-    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
-    onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
-    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
-) {
-    var selection by remember(initialSelection) { mutableStateOf(initialSelection.toSet()) }
-    var query by rememberSaveable { mutableStateOf("") }
-    var configuringPackage by rememberSaveable { mutableStateOf<String?>(null) }
-    var filter by rememberSaveable { mutableStateOf(ApplicationFilter.ORDINARY) }
-    val visibleApplications = remember(applications, filter, query) {
-        filterApplications(applications, filter, query)
-    }
-    val visiblePackages = remember(visibleApplications) {
-        visibleApplications.mapTo(mutableSetOf(), SelectableApplication::packageName)
-    }
-
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item { Spacer(Modifier.height(20.dp)) }
-        item {
-            Text(
-                stringResource(if (onboarding) R.string.choose_apps_title else R.string.apps_title),
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.choose_apps_body))
-            Spacer(Modifier.height(8.dp))
-            Text(
-                pluralStringResource(R.plurals.selected_apps_count, selection.size, selection.size),
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-        if (!onboarding) {
-            item {
-                GlobalNotificationSharingCard(
-                    syncSilent = notificationSharingSettings.syncSilent,
-                    onSaveSyncSilent = onSaveSyncSilentNotifications,
-                )
-            }
-            item {
-                GlobalRemoteOperationsCard(
-                    permissions = remoteOperationSettings.globalDefaults,
-                    onSave = onSaveGlobalRemoteOperations,
-                )
-            }
-        }
-        item {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.search_apps)) },
-                singleLine = true,
-            )
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterChip(
-                    selected = filter == ApplicationFilter.ORDINARY,
-                    onClick = { filter = ApplicationFilter.ORDINARY },
-                    label = { Text(stringResource(R.string.ordinary_apps)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FilterChip(
-                    selected = filter == ApplicationFilter.SYSTEM,
-                    onClick = { filter = ApplicationFilter.SYSTEM },
-                    label = { Text(stringResource(R.string.system_apps)) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-        }
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(
-                    onClick = { selection = selection + visiblePackages },
-                    enabled = visiblePackages.any { it !in selection },
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.select_shown_apps))
-                }
-                OutlinedButton(
-                    onClick = { selection = emptySet() },
-                    enabled = selection.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.clear_selection))
-                }
-            }
-        }
-        if (!applicationsLoaded) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp),
-                    horizontalArrangement = Arrangement.Center,
-                ) { CircularProgressIndicator() }
-            }
-        } else if (applications.isEmpty()) {
-            item { Text(stringResource(R.string.no_selectable_apps)) }
-        } else if (visibleApplications.isEmpty()) {
-            item { Text(stringResource(R.string.no_apps_match_filters)) }
-        } else {
-            items(visibleApplications, key = SelectableApplication::packageName) { app ->
-                val selected = app.packageName in selection
-                val selectionState = stringResource(
-                    if (selected) R.string.accessibility_selected else R.string.accessibility_not_selected,
-                )
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .semantics(mergeDescendants = true) {
-                                stateDescription = selectionState
-                                liveRegion = LiveRegionMode.Polite
-                            }
-                            .toggleable(
-                                value = selected,
-                                role = Role.Checkbox,
-                                onValueChange = { selection = selection.toggled(app.packageName) },
-                            )
-                            .heightIn(min = 48.dp)
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = selected,
-                            onCheckedChange = null,
-                        )
-                        Column(modifier = Modifier.padding(start = 8.dp).weight(1f)) {
-                            Text(app.label, style = MaterialTheme.typography.bodyLarge)
-                            if (app.isSystemApplication) {
-                                Text(
-                                    stringResource(R.string.system_application),
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                    }
-                    if (!onboarding && selected) {
-                        TextButton(onClick = { configuringPackage = app.packageName }) {
-                            Text(stringResource(R.string.configure_app))
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            Text(stringResource(R.string.alpha_app_selection_notice), style = MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = { onSave(selection) },
-                enabled = applicationsLoaded,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.save_app_selection, selection.size))
-            }
-            Spacer(Modifier.height(24.dp))
-        }
-    }
-
-    configuringPackage?.let { packageName ->
-        applications.firstOrNull { it.packageName == packageName }?.let { application ->
-            ApplicationSettingsDialog(
-                applicationName = application.label,
-                notificationSettings = notificationSharingSettings.settingsFor(packageName),
-                globalOperationDefaults = remoteOperationSettings.globalDefaults,
-                currentOperationOverride = remoteOperationSettings.applicationOverrides[packageName],
-                onDismiss = { configuringPackage = null },
-                onSave = { notificationSettings, operationOverride ->
-                    onSaveApplicationNotificationSettings(packageName, notificationSettings)
-                    onSaveApplicationOperationOverride(packageName, operationOverride)
-                    configuringPackage = null
-                },
-            )
-        }
-    }
-}
-
-@Composable
-private fun GlobalNotificationSharingCard(
-    syncSilent: Boolean,
-    onSaveSyncSilent: (Boolean) -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(stringResource(R.string.notification_sharing), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.notification_sharing_body), style = MaterialTheme.typography.bodySmall)
-            PermissionSwitchRow(
-                label = stringResource(R.string.sync_silent_notifications),
-                checked = syncSilent,
-                onCheckedChange = onSaveSyncSilent,
-            )
-        }
-    }
-}
-
-@Composable
-private fun GlobalRemoteOperationsCard(
-    permissions: RemoteOperationPermissions,
-    onSave: (RemoteOperationPermissions) -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(stringResource(R.string.remote_operations), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.remote_operations_body), style = MaterialTheme.typography.bodySmall)
-            PermissionSwitchRow(
-                label = stringResource(R.string.allow_actions),
-                checked = permissions.actions,
-                onCheckedChange = { onSave(permissions.copy(actions = it)) },
-            )
-            PermissionSwitchRow(
-                label = stringResource(R.string.allow_replies),
-                checked = permissions.replies,
-                onCheckedChange = { onSave(permissions.copy(replies = it)) },
-            )
-            PermissionSwitchRow(
-                label = stringResource(R.string.allow_clearing),
-                checked = permissions.clearing,
-                onCheckedChange = { onSave(permissions.copy(clearing = it)) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun PermissionSwitchRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth()
-            .heightIn(min = 48.dp)
-            .toggleable(
-                value = checked,
-                role = Role.Switch,
-                onValueChange = onCheckedChange,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = null)
-    }
-}
-
-@Composable
-private fun applicationOperationModeLabel(mode: ApplicationOperationMode?): String =
-    stringResource(
-        when (mode) {
-            null, ApplicationOperationMode.GLOBAL_DEFAULTS -> R.string.use_global_defaults
-            ApplicationOperationMode.ALLOW_ALL -> R.string.allow_all_operations
-            ApplicationOperationMode.VIEW_ONLY -> R.string.view_only
-            ApplicationOperationMode.CUSTOM -> R.string.custom_permissions
-        },
-    )
-
-@Composable
-private fun ApplicationSettingsDialog(
-    applicationName: String,
-    notificationSettings: ApplicationNotificationSettings,
-    globalOperationDefaults: RemoteOperationPermissions,
-    currentOperationOverride: ApplicationOperationOverride?,
-    onDismiss: () -> Unit,
-    onSave: (ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
-) {
-    var showContent by remember(notificationSettings) { mutableStateOf(notificationSettings.showContent) }
-    var syncOngoing by remember(notificationSettings) { mutableStateOf(notificationSettings.syncOngoing) }
-    var mode by remember(currentOperationOverride) {
-        mutableStateOf(currentOperationOverride?.mode ?: ApplicationOperationMode.GLOBAL_DEFAULTS)
-    }
-    var customPermissions by remember(currentOperationOverride, globalOperationDefaults) {
-        mutableStateOf(
-            currentOperationOverride?.customPermissions
-                ?.takeIf { currentOperationOverride.mode == ApplicationOperationMode.CUSTOM }
-                ?: globalOperationDefaults,
-        )
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.app_settings, applicationName)) },
-        text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
-                item {
-                    Text(
-                        stringResource(R.string.notification_content),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    PermissionSwitchRow(
-                        label = stringResource(R.string.show_notification_content),
-                        checked = showContent,
-                        onCheckedChange = { showContent = it },
-                    )
-                    Text(
-                        stringResource(R.string.hidden_content_help),
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    PermissionSwitchRow(
-                        label = stringResource(R.string.sync_ongoing_notifications),
-                        checked = syncOngoing,
-                        onCheckedChange = { syncOngoing = it },
-                    )
-                    Text(
-                        stringResource(R.string.remote_operations),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                }
-                ApplicationOperationMode.entries.forEach { option ->
-                    item(option.name) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { mode = option }
-                                .padding(vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RadioButton(
-                                selected = mode == option,
-                                onClick = { mode = option },
-                            )
-                            Text(applicationOperationModeLabel(option))
-                        }
-                    }
-                }
-                if (mode == ApplicationOperationMode.CUSTOM) {
-                    item {
-                        PermissionSwitchRow(
-                            label = stringResource(R.string.allow_actions),
-                            checked = customPermissions.actions,
-                            onCheckedChange = {
-                                customPermissions = customPermissions.copy(actions = it)
-                            },
-                        )
-                    }
-                    item {
-                        PermissionSwitchRow(
-                            label = stringResource(R.string.allow_replies),
-                            checked = customPermissions.replies,
-                            onCheckedChange = {
-                                customPermissions = customPermissions.copy(replies = it)
-                            },
-                        )
-                    }
-                    item {
-                        PermissionSwitchRow(
-                            label = stringResource(R.string.allow_clearing),
-                            checked = customPermissions.clearing,
-                            onCheckedChange = {
-                                customPermissions = customPermissions.copy(clearing = it)
-                            },
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(
-                        ApplicationNotificationSettings(
-                            showContent = showContent,
-                            syncOngoing = syncOngoing,
-                        ),
-                        if (mode == ApplicationOperationMode.GLOBAL_DEFAULTS) {
-                            null
-                        } else {
-                            ApplicationOperationOverride(mode, customPermissions)
-                        },
-                    )
-                },
-            ) { Text(stringResource(R.string.save)) }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
-}
-
-private fun Set<String>.toggled(value: String): Set<String> =
-    if (value in this) this - value else this + value
-
-private enum class MainDestination { HOME, APPLICATIONS, DEVICES, SETTINGS }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun MainScreen(
-    transportState: AndroidTransportState,
-    workspaceDevices: List<WorkspaceDeviceSummary>,
-    serverOrigin: String?,
-    notificationAccessGranted: Boolean,
-    applications: List<SelectableApplication>,
-    applicationsLoaded: Boolean,
-    selectedPackages: Set<String>,
-    notificationSharingSettings: NotificationSharingSettings,
-    remoteOperationSettings: RemoteOperationSettings,
-    backgroundConnectionEnabled: Boolean,
-    foregroundNotificationGranted: Boolean,
-    batteryOptimizationExempt: Boolean,
-    omittedNotificationCount: Int,
-    onSaveApplicationSelection: (Set<String>) -> Unit,
-    onSaveSyncSilentNotifications: (Boolean) -> Unit,
-    onSaveApplicationNotificationSettings: (String, ApplicationNotificationSettings) -> Unit,
-    onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
-    onSaveApplicationOperationOverride: (String, ApplicationOperationOverride?) -> Unit,
-    onOpenNotificationAccess: () -> Unit,
-    onReconnect: () -> Unit,
-    onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
-    onRequestForegroundNotification: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
-    onPostDebugNotification: (() -> Unit)?,
-) {
-    var destination by rememberSaveable { mutableStateOf(MainDestination.HOME) }
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val layout = navigationLayout(maxWidth.value)
-        Scaffold(
-            topBar = { TopAppBar(title = { Text(stringResource(R.string.app_name)) }) },
-            bottomBar = {
-                if (layout == NavigationLayout.COMPACT) {
-                    NavigationBar {
-                        MainDestination.entries.forEach { item ->
-                            NavigationBarItem(
-                                selected = destination == item,
-                                onClick = { destination = item },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(destinationIcon(item)),
-                                        contentDescription = null,
-                                    )
-                                },
-                                label = { Text(destinationLabel(item)) },
-                            )
-                        }
-                    }
-                }
-            },
-        ) { padding ->
-            Row(modifier = Modifier.fillMaxSize().padding(padding)) {
-                if (layout == NavigationLayout.EXPANDED) {
-                    NavigationRail {
-                        MainDestination.entries.forEach { item ->
-                            NavigationRailItem(
-                                selected = destination == item,
-                                onClick = { destination = item },
-                                icon = {
-                                    Icon(
-                                        painter = painterResource(destinationIcon(item)),
-                                        contentDescription = null,
-                                    )
-                                },
-                                label = { Text(destinationLabel(item)) },
-                                alwaysShowLabel = true,
-                            )
-                        }
-                    }
-                }
-                Box(
-                    modifier = Modifier.fillMaxSize().weight(1f),
-                    contentAlignment = Alignment.TopCenter,
-                ) {
-                    Box(modifier = Modifier.fillMaxSize().widthIn(max = 960.dp)) {
-                        when (destination) {
-                            MainDestination.HOME -> HomeScreen(
-                                transportState,
-                                workspaceDevices,
-                                notificationAccessGranted,
-                                selectedPackages.size,
-                                backgroundConnectionEnabled,
-                                foregroundNotificationGranted,
-                                omittedNotificationCount,
-                                onReconnect,
-                            )
-                            MainDestination.APPLICATIONS -> ApplicationSelectionScreen(
-                                applications,
-                                applicationsLoaded,
-                                selectedPackages,
-                                onboarding = false,
-                                notificationSharingSettings = notificationSharingSettings,
-                                remoteOperationSettings = remoteOperationSettings,
-                                onSave = onSaveApplicationSelection,
-                                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
-                                onSaveApplicationNotificationSettings =
-                                    onSaveApplicationNotificationSettings,
-                                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                                onSaveApplicationOperationOverride =
-                                    onSaveApplicationOperationOverride,
-                            )
-                            MainDestination.DEVICES -> DevicesScreen(workspaceDevices)
-                            MainDestination.SETTINGS -> SettingsScreen(
-                                serverOrigin = serverOrigin,
-                                currentDeviceName = workspaceDevices
-                                    .firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)
-                                    ?.displayName,
-                                notificationAccessGranted = notificationAccessGranted,
-                                backgroundConnectionEnabled = backgroundConnectionEnabled,
-                                foregroundNotificationGranted = foregroundNotificationGranted,
-                                batteryOptimizationExempt = batteryOptimizationExempt,
-                                onOpenNotificationAccess = onOpenNotificationAccess,
-                                onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
-                                onRequestForegroundNotification = onRequestForegroundNotification,
-                                onOpenBatterySettings = onOpenBatterySettings,
-                                onPostDebugNotification = onPostDebugNotification,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun destinationIcon(destination: MainDestination): Int = when (destination) {
-    MainDestination.HOME -> R.drawable.ic_home
-    MainDestination.APPLICATIONS -> R.drawable.ic_apps
-    MainDestination.DEVICES -> R.drawable.ic_devices
-    MainDestination.SETTINGS -> R.drawable.ic_settings
-}
-
-@Composable
-private fun destinationLabel(destination: MainDestination): String = when (destination) {
-    MainDestination.HOME -> stringResource(R.string.home)
-    MainDestination.APPLICATIONS -> stringResource(R.string.applications)
-    MainDestination.DEVICES -> stringResource(R.string.devices)
-    MainDestination.SETTINGS -> stringResource(R.string.settings)
-}
-
-@Composable
-private fun HomeScreen(
-    transportState: AndroidTransportState,
-    workspaceDevices: List<WorkspaceDeviceSummary>,
-    notificationAccessGranted: Boolean,
-    selectedApplicationCount: Int,
-    backgroundConnectionEnabled: Boolean,
-    foregroundNotificationGranted: Boolean,
-    omittedNotificationCount: Int,
-    onReconnect: () -> Unit,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.home_title),
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(stringResource(R.string.home_subtitle))
-        }
-        workspaceDevices.firstOrNull(WorkspaceDeviceSummary::isCurrentDevice)?.let { current ->
-            item {
-                StatusCard(
-                    title = stringResource(R.string.current_device),
-                    value = current.displayName,
-                )
-            }
-        }
-        item {
-            ConnectionCard(
-                state = transportState,
-                onReconnect = onReconnect,
-            )
-        }
-        item {
-            StatusCard(
-                title = stringResource(R.string.background_connection),
-                value = backgroundConnectionLabel(
-                    backgroundConnectionEnabled,
-                    foregroundNotificationGranted,
-                ),
-            )
-        }
-        item {
-            StatusCard(
-                title = stringResource(R.string.authorized_devices),
-                value = pluralStringResource(
-                    R.plurals.authorized_devices_count,
-                    workspaceDevices.size,
-                    workspaceDevices.size,
-                ),
-            )
-        }
-        item {
-            StatusCard(
-                title = stringResource(R.string.notification_access_title),
-                value = stringResource(
-                    if (notificationAccessGranted) R.string.enabled else R.string.needs_attention,
-                ),
-            )
-        }
-        item {
-            StatusCard(
-                title = stringResource(R.string.selected_apps),
-                value = pluralStringResource(
-                    R.plurals.selected_apps_count,
-                    selectedApplicationCount,
-                    selectedApplicationCount,
-                ),
-            )
-        }
-        if (omittedNotificationCount > 0) {
-            item {
-                StatusCard(
-                    title = stringResource(R.string.notification_limit_title),
-                    value = pluralStringResource(
-                        R.plurals.notification_limit_body,
-                        omittedNotificationCount,
-                        omittedNotificationCount,
-                        EncryptedPayloadCodecV1.MAX_SNAPSHOT_ENTRIES,
-                    ),
-                )
-            }
-        }
-        item {
-            Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
-private fun ConnectionCard(state: AndroidTransportState, onReconnect: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.connection), style = MaterialTheme.typography.titleMedium)
-            Text(connectionLabel(state), style = MaterialTheme.typography.bodyLarge)
-            if (state == AndroidTransportState.OFFLINE) {
-                OutlinedButton(onClick = onReconnect) {
-                    Text(stringResource(R.string.retry_connection))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun backgroundConnectionLabel(enabled: Boolean, notificationGranted: Boolean): String =
-    stringResource(
-        when {
-            !enabled -> R.string.paused
-            !notificationGranted -> R.string.notification_permission_required
-            else -> R.string.active
-        },
-    )
-
-@Composable
-private fun StatusCard(title: String, value: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            Text(value, style = MaterialTheme.typography.bodyLarge)
-        }
-    }
-}
-
-@Composable
-private fun connectionLabel(state: AndroidTransportState): String = when (state) {
-    AndroidTransportState.ONLINE -> stringResource(R.string.connected)
-    AndroidTransportState.INITIALIZING,
-    AndroidTransportState.CONNECTING,
-    AndroidTransportState.SUBMITTING_REGISTRATION,
-    AndroidTransportState.REGISTERING,
-    AndroidTransportState.ROTATING,
-    -> stringResource(R.string.connecting)
-    AndroidTransportState.OFFLINE -> stringResource(R.string.connection_interrupted)
-    AndroidTransportState.NOT_CONFIGURED -> stringResource(R.string.not_configured)
-    AndroidTransportState.SECURITY_ERROR -> stringResource(R.string.needs_attention)
-}
-
-@Composable
-private fun DevicesScreen(devices: List<WorkspaceDeviceSummary>) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.devices),
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-            )
-            Text(stringResource(R.string.devices_body))
-        }
-        item {
-            val androidCount = devices.count { it.deviceType == WorkspaceDeviceType.ANDROID }
-            val chromeCount = devices.count { it.deviceType == WorkspaceDeviceType.CHROME }
-            Text(stringResource(R.string.device_type_counts, androidCount, chromeCount))
-        }
-        if (devices.isEmpty()) {
-            item { Text(stringResource(R.string.devices_empty)) }
-        } else {
-            items(devices) { device ->
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(device.displayName, style = MaterialTheme.typography.titleMedium)
-                            if (device.isCurrentDevice) {
-                                Text(
-                                    stringResource(R.string.this_device),
-                                    style = MaterialTheme.typography.labelLarge,
-                                )
-                            }
-                        }
-                        Text(
-                            stringResource(
-                                when (device.deviceType) {
-                                    WorkspaceDeviceType.ANDROID -> R.string.android_device
-                                    WorkspaceDeviceType.CHROME -> R.string.chrome_device
-                                },
-                            ),
-                        )
-                        Text(
-                            stringResource(
-                                if (device.accessCurrent) R.string.device_authorized
-                                else R.string.device_access_expired,
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-        }
-        item {
-            Card { Text(stringResource(R.string.devices_admin_boundary), Modifier.padding(20.dp)) }
-            Spacer(Modifier.height(20.dp))
-        }
-    }
-}
-
-@Composable
-private fun SettingsScreen(
-    serverOrigin: String?,
-    currentDeviceName: String?,
-    notificationAccessGranted: Boolean,
-    backgroundConnectionEnabled: Boolean,
-    foregroundNotificationGranted: Boolean,
-    batteryOptimizationExempt: Boolean,
-    onOpenNotificationAccess: () -> Unit,
-    onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
-    onRequestForegroundNotification: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
-    onPostDebugNotification: (() -> Unit)?,
-) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                stringResource(R.string.settings),
-                modifier = Modifier.semantics { heading() },
-                style = MaterialTheme.typography.headlineMedium,
-            )
-        }
-        item {
-            SettingsCard(stringResource(R.string.private_service)) {
-                Text(stringResource(R.string.server_address_label), style = MaterialTheme.typography.labelLarge)
-                Text(serverOrigin ?: stringResource(R.string.not_available))
-                Text(stringResource(R.string.current_device), style = MaterialTheme.typography.labelLarge)
-                Text(currentDeviceName ?: stringResource(R.string.not_available))
-                Text(stringResource(R.string.server_change_help), style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        item {
-            SettingsCard(stringResource(R.string.background_connection)) {
-                Text(stringResource(R.string.background_connection_body))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(R.string.keep_connection_active), Modifier.weight(1f))
-                    Switch(
-                        checked = backgroundConnectionEnabled,
-                        onCheckedChange = onSetBackgroundConnectionEnabled,
-                    )
-                }
-                Text(
-                    backgroundConnectionLabel(
-                        backgroundConnectionEnabled,
-                        foregroundNotificationGranted,
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                if (backgroundConnectionEnabled && !foregroundNotificationGranted) {
-                    OutlinedButton(onClick = onRequestForegroundNotification) {
-                        Text(stringResource(R.string.allow_status_notification))
-                    }
-                }
-                Text(
-                    stringResource(
-                        if (batteryOptimizationExempt) {
-                            R.string.battery_usage_unrestricted
-                        } else {
-                            R.string.battery_usage_system_managed
-                        },
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                OutlinedButton(onClick = onOpenBatterySettings) {
-                    Text(stringResource(R.string.review_battery_settings))
-                }
-            }
-        }
-        item {
-            SettingsCard(stringResource(R.string.notification_access_title)) {
-                Text(
-                    stringResource(
-                        if (notificationAccessGranted) R.string.enabled else R.string.needs_attention,
-                    ),
-                )
-                OutlinedButton(onClick = onOpenNotificationAccess) {
-                    Text(stringResource(R.string.open_notification_access))
-                }
-            }
-        }
-        item {
-            SettingsCard(stringResource(R.string.data_and_privacy)) {
-                Text(stringResource(R.string.data_and_privacy_body))
-                Text(stringResource(R.string.alpha_synthetic_boundary), style = MaterialTheme.typography.bodySmall)
-            }
-        }
-        item {
-            SettingsCard(stringResource(R.string.access_recovery)) {
-                Text(stringResource(R.string.access_recovery_body))
-            }
-        }
-        item {
-            SettingsCard(stringResource(R.string.about)) {
-                Text(stringResource(R.string.version_value, BuildConfig.VERSION_NAME))
-                Text(stringResource(R.string.license_value))
-            }
-        }
-        onPostDebugNotification?.let { post ->
-            item {
-                OutlinedButton(onClick = post) {
-                    Text(stringResource(R.string.debug_post_test_notification))
-                }
-            }
-        }
-        item { Spacer(Modifier.height(20.dp)) }
-    }
-}
-
-@Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
-            content()
         }
     }
 }

@@ -43,7 +43,9 @@ require(fixedSigningValues.none { it != null } || hasFixedSigningIdentity) {
 
 android {
     namespace = "dev.notificationmirroring.android"
-    compileSdk = 35
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
 
     defaultConfig {
         applicationId = releaseApplicationId
@@ -104,7 +106,9 @@ dependencies {
     implementation(project(":core-crypto"))
     implementation(project(":core-transport"))
 
-    implementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
     implementation("androidx.activity:activity-compose:1.10.0")
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.compose.material3:material3")
@@ -115,4 +119,7 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

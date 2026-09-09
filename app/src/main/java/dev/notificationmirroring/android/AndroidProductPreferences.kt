@@ -13,7 +13,7 @@ internal enum class NavigationLayout { COMPACT, EXPANDED }
 
 internal fun navigationLayout(widthDp: Float): NavigationLayout {
     require(widthDp >= 0f) { "Window width must not be negative" }
-    return if (widthDp >= 840f) NavigationLayout.EXPANDED else NavigationLayout.COMPACT
+    return if (widthDp >= 600f) NavigationLayout.EXPANDED else NavigationLayout.COMPACT
 }
 
 internal enum class OnboardingStage {
@@ -43,8 +43,10 @@ internal fun onboardingStage(
     if (transportState == AndroidTransportState.NOT_CONFIGURED ||
         transportState == AndroidTransportState.SUBMITTING_REGISTRATION
     ) return OnboardingStage.SERVER
-    if (!notificationAccessGranted) return OnboardingStage.NOTIFICATION_ACCESS
-    if (!applicationSelectionConfirmed) return OnboardingStage.APPLICATIONS
+    if (!applicationSelectionConfirmed) {
+        if (!notificationAccessGranted) return OnboardingStage.NOTIFICATION_ACCESS
+        return OnboardingStage.APPLICATIONS
+    }
     return OnboardingStage.COMPLETE
 }
 
@@ -273,9 +275,10 @@ internal class AndroidProductPreferences(context: Context) {
     }
 
     @SuppressLint("UseKtx")
-    fun saveApplicationNotificationSettings(
+    fun saveApplicationSettings(
         packageName: String,
         settings: ApplicationNotificationSettings,
+        override: ApplicationOperationOverride?,
     ) {
         require(isValidPackageName(packageName)) { "Invalid application package name" }
         val current = notificationSharingSettings()
@@ -285,32 +288,9 @@ internal class AndroidProductPreferences(context: Context) {
         else hiddenContentPackages += packageName
         if (settings.syncOngoing) ongoingNotificationPackages += packageName
         else ongoingNotificationPackages -= packageName
-        check(
-            preferences.edit()
-                .putStringSet(KEY_HIDDEN_CONTENT_PACKAGES, hiddenContentPackages)
-                .putStringSet(KEY_ONGOING_NOTIFICATION_PACKAGES, ongoingNotificationPackages)
-                .commit(),
-        ) { "Unable to persist application notification settings" }
-    }
-
-    @SuppressLint("UseKtx")
-    fun saveGlobalRemoteOperationPermissions(permissions: RemoteOperationPermissions) {
-        check(
-            preferences.edit()
-                .putBoolean(KEY_GLOBAL_ACTIONS, permissions.actions)
-                .putBoolean(KEY_GLOBAL_REPLIES, permissions.replies)
-                .putBoolean(KEY_GLOBAL_CLEARING, permissions.clearing)
-                .commit(),
-        ) { "Unable to persist global remote operation permissions" }
-    }
-
-    @SuppressLint("UseKtx")
-    fun saveApplicationOperationOverride(
-        packageName: String,
-        override: ApplicationOperationOverride?,
-    ) {
-        require(isValidPackageName(packageName)) { "Invalid application package name" }
         val editor = preferences.edit()
+            .putStringSet(KEY_HIDDEN_CONTENT_PACKAGES, hiddenContentPackages)
+            .putStringSet(KEY_ONGOING_NOTIFICATION_PACKAGES, ongoingNotificationPackages)
         if (override == null) {
             editor.remove(KEY_OVERRIDE_MODE_PREFIX + packageName)
                 .remove(KEY_OVERRIDE_ACTIONS_PREFIX + packageName)
@@ -322,7 +302,18 @@ internal class AndroidProductPreferences(context: Context) {
                 .putBoolean(KEY_OVERRIDE_REPLIES_PREFIX + packageName, override.customPermissions.replies)
                 .putBoolean(KEY_OVERRIDE_CLEARING_PREFIX + packageName, override.customPermissions.clearing)
         }
-        check(editor.commit()) { "Unable to persist application remote operation override" }
+        check(editor.commit()) { "Unable to persist application settings" }
+    }
+
+    @SuppressLint("UseKtx")
+    fun saveGlobalRemoteOperationPermissions(permissions: RemoteOperationPermissions) {
+        check(
+            preferences.edit()
+                .putBoolean(KEY_GLOBAL_ACTIONS, permissions.actions)
+                .putBoolean(KEY_GLOBAL_REPLIES, permissions.replies)
+                .putBoolean(KEY_GLOBAL_CLEARING, permissions.clearing)
+                .commit(),
+        ) { "Unable to persist global remote operation permissions" }
     }
 
     @SuppressLint("UseKtx")

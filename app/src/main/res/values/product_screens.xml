@@ -1,0 +1,34 @@
+<resources>
+    <string name="sync_defaults">Sync and defaults</string>
+    <string name="sync_defaults_summary">Background sync, silent notifications, and remote operations</string>
+    <string name="application_settings_title">Individual app settings</string>
+    <string name="application_settings_summary">Notification content, ongoing notifications, and permission overrides</string>
+    <string name="permissions_and_runtime">Permissions and background activity</string>
+    <string name="permissions_recovery_hint">Check permissions here at any time. After returning from system settings, their status is checked again.</string>
+    <string name="permissions_need_attention">A permission needs attention</string>
+    <string name="service_and_devices">Service and devices</string>
+    <string name="devices_membership_summary">View devices approved to join your private workspace.</string>
+    <string name="connection_delivery_boundary">View notifications on the receiving device, or open Apps to adjust what you share.</string>
+    <string name="background_enabled_summary">Enabled for use after leaving the app</string>
+    <string name="background_disabled_summary">Background sync is off. Open these settings to enable it.</string>
+    <string name="settings_apply_immediately">Changes on this page are saved immediately.</string>
+    <string name="settings_save_failed">Settings could not be fully updated. Please try again.</string>
+    <string name="back">Back</string>
+    <string name="unsaved_changes_title">Unsaved changes</string>
+    <string name="unsaved_changes_body">Leave without saving these changes?</string>
+    <string name="discard_changes">Discard changes</string>
+    <string name="keep_editing">Keep editing</string>
+    <string name="applications_load_failed">The app list could not be loaded. Please try again.</string>
+    <string name="reload_applications">Reload apps</string>
+    <string name="application_unavailable">This app is no longer in the available list. Reload the list or go back to choose another app.</string>
+    <string name="allowed">Allowed</string>
+    <string name="not_allowed">Not allowed</string>
+    <string name="effective_operations">Current permissions: actions — %1$s; replies — %2$s; clearing — %3$s</string>
+    <string name="required_for_sync">Permissions for sync</string>
+    <string name="status_notification_title">Status notifications</string>
+    <string name="status_notification_body">Show the ongoing sync status. SevenMirror requires status notifications to keep background sync enabled.</string>
+    <string name="open_system_settings">Open system settings</string>
+    <string name="background_recommendations">Background activity recommendations</string>
+    <string name="battery_recommendation_body">If sync often stops while the screen is off, review background restrictions. An exemption is not required for setup.</string>
+    <string name="developer_diagnostics">Developer diagnostics</string>
+</resources>

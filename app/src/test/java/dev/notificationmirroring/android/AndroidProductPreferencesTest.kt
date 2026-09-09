@@ -127,8 +127,9 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
-    fun `expanded windows use a navigation rail`() {
-        assertEquals(NavigationLayout.COMPACT, navigationLayout(839f))
+    fun `medium and expanded windows use a navigation rail`() {
+        assertEquals(NavigationLayout.COMPACT, navigationLayout(599f))
+        assertEquals(NavigationLayout.EXPANDED, navigationLayout(600f))
         assertEquals(NavigationLayout.EXPANDED, navigationLayout(840f))
     }
 
@@ -193,6 +194,18 @@ class AndroidProductPreferencesTest {
             stage(
                 transportState = AndroidTransportState.ONLINE,
                 notificationAccessGranted = true,
+                applicationSelectionConfirmed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `permission loss after setup keeps settings available`() {
+        assertEquals(
+            OnboardingStage.COMPLETE,
+            stage(
+                transportState = AndroidTransportState.ONLINE,
+                notificationAccessGranted = false,
                 applicationSelectionConfirmed = true,
             ),
         )
