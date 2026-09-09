@@ -121,6 +121,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val pendingMembershipStore = AndroidPendingMembershipStore(applicationContext)
     private val relayDeliveryCursorStore = AndroidRelayDeliveryCursorStore(applicationContext)
     private val workspaceMembershipStore = AndroidWorkspaceMembershipStore(applicationContext)
+    private val recipientSelection = AndroidRecipientSelection(applicationContext, workspaceMembershipStore)
     private val replayLedger = AndroidReplayLedger(applicationContext)
     private val operationLedger = AndroidOperationLedger(applicationContext)
     private val resultOutbox = AndroidActionResultOutbox(applicationContext)
@@ -148,6 +149,7 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableState = MutableStateFlow(AndroidTransportState.INITIALIZING)
     private val mutableEnrollmentPending = MutableStateFlow(false)
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
+    private val mutableRecipientSettings = MutableStateFlow(RecipientSettingsState("", false, emptyList()))
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
     private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
     private val diagnostics = TransportDiagnostics(state = { mutableState.value })
@@ -163,12 +165,22 @@ class AndroidTransportCoordinator(context: Context) {
     val enrollmentPending: StateFlow<Boolean> = mutableEnrollmentPending.asStateFlow()
     val workspaceDevices: StateFlow<List<WorkspaceDeviceSummary>> =
         mutableWorkspaceDevices.asStateFlow()
+    internal val recipientSettings: StateFlow<RecipientSettingsState> = mutableRecipientSettings.asStateFlow()
     val serverOrigin: StateFlow<String?> = mutableServerOrigin.asStateFlow()
     val securityRecovery: StateFlow<AndroidSecurityRecovery> =
         mutableSecurityRecovery.asStateFlow()
 
     fun resultOutboxSnapshot(): AndroidActionResultOutbox.Snapshot =
         resultOutbox.snapshot(System.currentTimeMillis())
+
+    internal fun saveReceivingDevices(deviceKeys: Set<String>) {
+        val settings = mutableRecipientSettings.value
+        recipientSelection.save(settings, deviceKeys)
+        mutableRecipientSettings.value = settings.copy(
+            configured = true,
+            devices = settings.devices.map { it.copy(selected = it.key in deviceKeys) },
+        )
+    }
 
     fun mirrorNotification(snapshot: NotificationSnapshot) {
         executor.execute {
@@ -478,6 +490,13 @@ class AndroidTransportCoordinator(context: Context) {
                     recipientIdentity = identity,
                     actionPeers = workspaceMembershipStore,
                     notificationRecipients = workspaceMembershipStore,
+                    isNotificationRecipientSelected = { peerDeviceId ->
+                        recipientSelection.isSelected(
+                            credential.workspaceId,
+                            credential.deviceId,
+                            peerDeviceId,
+                        )
+                    },
                     operationAuthorizer = RemoteOperationAuthorizer(
                         productPreferences::isRemoteOperationAllowed,
                     ),
@@ -794,7 +813,7 @@ class AndroidTransportCoordinator(context: Context) {
                 workspaceId = credential.workspaceId,
                 senderDeviceId = credential.deviceId,
                 senderIdentity = loadedIdentity,
-                recipients = workspaceMembershipStore,
+                recipients = recipientSelection,
                 allocateSequence = resultOutbox::allocateSequence,
             )
             val frames = createFrames(sender, System.currentTimeMillis()) ?: return false
@@ -972,10 +991,16 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun publishWorkspaceDevices(workspaceId: ByteArray, localDeviceId: ByteArray) {
+        val nowUnixMs = System.currentTimeMillis()
         mutableWorkspaceDevices.value = workspaceMembershipStore.listAuthorizedDevices(
             workspaceId,
             localDeviceId,
-            System.currentTimeMillis(),
+            nowUnixMs,
+        )
+        mutableRecipientSettings.value = recipientSelection.settings(
+            workspaceId,
+            localDeviceId,
+            nowUnixMs,
         )
     }
 
@@ -997,9 +1022,11 @@ class AndroidTransportCoordinator(context: Context) {
         credentialStore.clear()
         identityStore.clear()
         workspaceMembershipStore.clear()
+        recipientSelection.clear()
         productPreferences.finishCertifiedReEnrollmentReset()
         mutableEnrollmentPending.value = false
         mutableWorkspaceDevices.value = emptyList()
+        mutableRecipientSettings.value = RecipientSettingsState("", false, emptyList())
         mutableServerOrigin.value = null
         mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
     }

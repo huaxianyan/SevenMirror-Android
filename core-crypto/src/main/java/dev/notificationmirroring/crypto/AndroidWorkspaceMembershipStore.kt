@@ -10,6 +10,7 @@ import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
 import java.security.MessageDigest
 
 data class WorkspaceNotificationRecipient(
+    val displayName: String,
     val deviceId: ByteArray,
     val identityKeyId: ByteArray,
     val identityPublicKey: ByteArray,
@@ -317,6 +318,7 @@ class AndroidWorkspaceMembershipStore(
                 !certificateIsCurrent(certificate, nowUnixMs)
             ) return@mapNotNull null
             WorkspaceNotificationRecipient(
+                certificate.displayName,
                 certificate.deviceId.toByteArray(),
                 certificate.identityKeyId.toByteArray(),
                 certificate.identityPublicKey.toByteArray(),

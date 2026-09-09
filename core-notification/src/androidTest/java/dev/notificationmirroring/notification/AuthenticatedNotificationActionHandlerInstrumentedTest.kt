@@ -66,7 +66,8 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         val replay = AndroidReplayLedger(context, name)
         val operations = AndroidOperationLedger(context, name)
         var senderAuthorized = false
-        var operationAllowed = false
+        var recipientSelected = false
+        var operationAllowed = true
         val outbox = AndroidActionResultOutbox(context, name)
         val now = 1_800_000_000_000L
         val sender = AuthenticatedHpke.generateKeyPair()
@@ -93,6 +94,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 }
             },
             notificationRecipients = WorkspaceNotificationRecipientDirectory { _, _, _ -> emptyList() },
+            isNotificationRecipientSelected = { recipientSelected },
             operationAuthorizer = RemoteOperationAuthorizer { _, _ -> operationAllowed },
             replayLedger = replay,
             operationLedger = operations,
@@ -169,7 +171,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
                 now,
             )
 
-            operationAllowed = true
+            recipientSelected = true
             val firstResult = dispatcher.receiveOnce(first, now)
             assertEquals(ActionResultStatus.ACTION_RESULT_STATUS_SUCCEEDED, firstResult.result.status)
             assertEquals(false, firstResult.recovered)

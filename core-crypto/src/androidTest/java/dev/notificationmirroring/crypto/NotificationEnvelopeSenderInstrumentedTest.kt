@@ -151,6 +151,7 @@ class NotificationEnvelopeSenderInstrumentedTest {
 
     private fun recipient(deviceId: ByteArray, publicKey: ByteArray) =
         WorkspaceNotificationRecipient(
+            "Test browser",
             deviceId.copyOf(),
             MessageDigest.getInstance("SHA-256").digest(publicKey),
             publicKey.copyOf(),

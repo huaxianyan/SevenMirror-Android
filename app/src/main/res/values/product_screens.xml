@@ -31,4 +31,11 @@
     <string name="background_recommendations">Background activity recommendations</string>
     <string name="battery_recommendation_body">If sync often stops while the screen is off, review background restrictions. An exemption is not required for setup.</string>
     <string name="developer_diagnostics">Developer diagnostics</string>
+    <string name="receiving_devices">Receiving devices</string>
+    <string name="receiving_devices_summary">Choose browsers that receive notifications from this phone</string>
+    <string name="receiving_devices_body">Choose which browsers can receive notifications synced from this phone from now on. Select newly added browsers manually.</string>
+    <string name="no_receiving_devices_selected">No receiving devices selected</string>
+    <string name="no_receiving_devices_available">No browsers are available. Ask an administrator to approve a browser first.</string>
+    <string name="save_receiving_devices">Save receiving devices</string>
+    <plurals name="receiving_devices_count"><item quantity="one">%d receiving device selected</item><item quantity="other">%d receiving devices selected</item></plurals>
 </resources>

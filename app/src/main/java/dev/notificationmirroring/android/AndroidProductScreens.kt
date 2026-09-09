@@ -4,6 +4,7 @@ import android.content.pm.PackageManager
 import android.content.res.Resources
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -83,7 +84,7 @@ private enum class ProductPage(val title: Int) {
     SYNC(R.string.home), APPLICATIONS(R.string.applications), SETTINGS(R.string.settings),
     DEFAULTS(R.string.sync_defaults), APP_SETTINGS(R.string.application_settings_title),
     APP_DETAIL(R.string.application_settings_title), PERMISSIONS(R.string.permissions_and_runtime),
-    DEVICES(R.string.service_and_devices), PRIVACY(R.string.data_and_privacy),
+    RECIPIENTS(R.string.receiving_devices), DEVICES(R.string.service_and_devices), PRIVACY(R.string.data_and_privacy),
     ABOUT(R.string.about), DIAGNOSTICS(R.string.developer_diagnostics);
 
     val primary: ProductPage
@@ -101,6 +102,7 @@ private val packageSelectionSaver = listSaver<Set<String>, String>(save = { it.t
 internal fun MainScreen(
     transportState: AndroidTransportState,
     workspaceDevices: List<WorkspaceDeviceSummary>,
+    recipientSettings: RecipientSettingsState,
     serverOrigin: String?,
     notificationAccessGranted: Boolean,
     applications: List<SelectableApplication>,
@@ -114,6 +116,7 @@ internal fun MainScreen(
     batteryOptimizationExempt: Boolean,
     omittedNotificationCount: Int,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveReceivingDevices: (Set<String>) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
@@ -217,6 +220,14 @@ internal fun MainScreen(
                                     ) { navigate(ProductPage.APPLICATIONS) }
                                 }
                                 item {
+                                    val selectedRecipients = recipientSettings.devices.count(ReceivingDevice::selected)
+                                    SettingsLink(
+                                        title = stringResource(R.string.receiving_devices),
+                                        supporting = if (selectedRecipients == 0) stringResource(R.string.no_receiving_devices_selected)
+                                            else pluralStringResource(R.plurals.receiving_devices_count, selectedRecipients, selectedRecipients),
+                                    ) { navigate(ProductPage.RECIPIENTS) }
+                                }
+                                item {
                                     SettingsLink(
                                         title = stringResource(R.string.background_connection),
                                         supporting = stringResource(if (backgroundConnectionEnabled) R.string.background_enabled_summary else R.string.background_disabled_summary),
@@ -239,6 +250,7 @@ internal fun MainScreen(
                                 item { PageHeading(R.string.settings) }
                                 item { SettingsLink(R.string.sync_defaults, R.string.sync_defaults_summary) { navigate(ProductPage.DEFAULTS) } }
                                 item { SettingsLink(R.string.application_settings_title, R.string.application_settings_summary) { navigate(ProductPage.APP_SETTINGS) } }
+                                item { SettingsLink(R.string.receiving_devices, R.string.receiving_devices_summary) { navigate(ProductPage.RECIPIENTS) } }
                                 item { SettingsLink(R.string.permissions_and_runtime, R.string.permissions_recovery_hint) { navigate(ProductPage.PERMISSIONS) } }
                                 item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
                                 item { SettingsLink(R.string.data_and_privacy) { navigate(ProductPage.PRIVACY) } }
@@ -287,6 +299,11 @@ internal fun MainScreen(
                                     onSave = { settings, override -> save { onSaveApplicationSettings(app.packageName, settings, override) } },
                                 )
                             }
+                            ProductPage.RECIPIENTS -> RecipientSelectionScreen(
+                                recipientSettings,
+                                onDirtyChange = { dirty = it },
+                                onSave = { save { onSaveReceivingDevices(it) } },
+                            )
                             ProductPage.PERMISSIONS -> PermissionsScreen(
                                 notificationAccessGranted, foregroundNotificationGranted, batteryOptimizationExempt,
                                 onOpenNotificationAccess, onOpenStatusNotificationSettings, onOpenBatterySettings,
@@ -551,6 +568,46 @@ private fun PermissionSwitchRow(label: String, checked: Boolean, onCheckedChange
     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).toggleable(checked, role = Role.Switch, onValueChange = onCheckedChange), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
         Switch(checked, onCheckedChange = null)
+    }
+}
+
+@Composable
+private fun RecipientSelectionScreen(
+    settings: RecipientSettingsState,
+    onDirtyChange: (Boolean) -> Unit,
+    onSave: (Set<String>) -> Boolean,
+) {
+    val saved = settings.devices.filter(ReceivingDevice::selected).mapTo(mutableSetOf(), ReceivingDevice::key)
+    var draft by rememberSaveable(settings.scope, saved, stateSaver = packageSelectionSaver) { mutableStateOf(saved) }
+    val dirty = draft != saved
+    SideEffect { onDirtyChange(dirty) }
+    ProductList {
+        item { Text(stringResource(R.string.receiving_devices_body)) }
+        if (settings.devices.isEmpty()) item { Text(stringResource(R.string.no_receiving_devices_available)) }
+        items(settings.devices, key = ReceivingDevice::key) { device ->
+            val checked = device.key in draft
+            ListItem(
+                headlineContent = { Text(device.displayName) },
+                supportingContent = { Text(stringResource(R.string.chrome_device)) },
+                leadingContent = {
+                    Checkbox(checked = checked, onCheckedChange = null)
+                },
+                modifier = Modifier.toggleable(
+                    value = checked,
+                    role = Role.Checkbox,
+                    onValueChange = { value ->
+                        draft = if (value) draft + device.key else draft - device.key
+                    },
+                ),
+            )
+        }
+        item {
+            Button(
+                onClick = { if (onSave(draft)) onDirtyChange(false) },
+                enabled = dirty || !settings.configured,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.save_receiving_devices)) }
+        }
     }
 }
 

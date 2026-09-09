@@ -31,4 +31,11 @@
     <string name="background_recommendations">后台运行建议</string>
     <string name="battery_recommendation_body">如果熄屏后同步经常中断，可以检查后台限制。完成设置无需一律关闭电池优化。</string>
     <string name="developer_diagnostics">开发诊断</string>
+    <string name="receiving_devices">接收设备</string>
+    <string name="receiving_devices_summary">选择接收本手机通知的浏览器</string>
+    <string name="receiving_devices_body">选择哪些浏览器可以接收本手机之后同步的通知。新加入的浏览器需要手动选择。</string>
+    <string name="no_receiving_devices_selected">尚未选择接收设备</string>
+    <string name="no_receiving_devices_available">目前没有可选择的浏览器。请先由管理员批准浏览器加入。</string>
+    <string name="save_receiving_devices">保存接收设备</string>
+    <plurals name="receiving_devices_count"><item quantity="other">已选择 %d 个接收设备</item></plurals>
 </resources>

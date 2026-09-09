@@ -45,19 +45,23 @@ class ProductNavigationInstrumentedTest {
     }
 
     @Test
-    fun userFindsAppPolicyInSettingsAndCanRecoverMissingPermission() {
+    fun userConfiguresAppAndRecipientThenRecoversMissingPermission() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         fun text(id: Int) = context.getString(id)
         var selected by mutableStateOf(setOf("com.example.calendar"))
         var sharing by mutableStateOf(NotificationSharingSettings())
         var operations by mutableStateOf(RemoteOperationSettings())
         var access by mutableStateOf(true)
+        var recipients by mutableStateOf(
+            RecipientSettingsState("test", false, listOf(ReceivingDevice("work", "Work browser", false))),
+        )
         var background by mutableStateOf(false)
         compose.setContent {
             MaterialTheme {
                 MainScreen(
                     transportState = AndroidTransportState.ONLINE,
                     workspaceDevices = emptyList(),
+                    recipientSettings = recipients,
                     serverOrigin = "https://mirror.example",
                     notificationAccessGranted = access,
                     applications = listOf(SelectableApplication("com.example.calendar", "Calendar example", false)),
@@ -71,6 +75,12 @@ class ProductNavigationInstrumentedTest {
                     batteryOptimizationExempt = false,
                     omittedNotificationCount = 0,
                     onSaveApplicationSelection = { selected = it },
+                    onSaveReceivingDevices = { selected ->
+                        recipients = recipients.copy(
+                            configured = true,
+                            devices = recipients.devices.map { it.copy(selected = it.key in selected) },
+                        )
+                    },
                     onSaveSyncSilentNotifications = { sharing = sharing.copy(syncSilent = it) },
                     onSaveApplicationSettings = { pkg, value, override ->
                         sharing = sharing.copy(hiddenContentPackages = if (value.showContent) emptySet() else setOf(pkg))
@@ -102,6 +112,12 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithText(text(R.string.save)).performClick()
         compose.runOnIdle { assertEquals(false, sharing.settingsFor("com.example.calendar").showContent) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+        compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.receiving_devices)))
+        compose.onNodeWithText(text(R.string.receiving_devices)).performClick()
+        compose.onNodeWithText("Work browser").performClick()
+        compose.onNodeWithText(text(R.string.save_receiving_devices)).performClick()
+        compose.runOnIdle { assertEquals(true, recipients.devices.single().selected) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.permissions_and_runtime)))
         compose.onNodeWithText(text(R.string.permissions_and_runtime)).performClick()
