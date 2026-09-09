@@ -11,7 +11,9 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -86,20 +88,26 @@ class ProductNavigationInstrumentedTest {
             }
         }
         compose.onNodeWithText(text(R.string.applications)).performClick()
-        compose.onNodeWithText("com.example.calendar").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.configure_app)).performScrollTo().performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("com.example.calendar"))
+        compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.configure_app)))
+        compose.onNodeWithText(text(R.string.configure_app)).performClick()
         compose.onNodeWithText(text(R.string.settings)).assertIsSelected()
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.show_notification_content)).performScrollTo().performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.show_notification_content)))
+        compose.onNodeWithText(text(R.string.show_notification_content)).performClick()
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
         compose.onNodeWithText(text(R.string.keep_editing)).performClick()
-        compose.onNodeWithText(text(R.string.save)).performScrollTo().performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.save)))
+        compose.onNodeWithText(text(R.string.save)).performClick()
         compose.runOnIdle { assertEquals(false, sharing.settingsFor("com.example.calendar").showContent) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
-        compose.onNodeWithText(text(R.string.permissions_and_runtime)).performScrollTo().performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.permissions_and_runtime)))
+        compose.onNodeWithText(text(R.string.permissions_and_runtime)).performClick()
         compose.runOnIdle { access = false }
-        compose.onNodeWithText(text(R.string.needs_attention)).performScrollTo().assertIsDisplayed()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.needs_attention)))
+        compose.onNodeWithText(text(R.string.needs_attention)).assertIsDisplayed()
         compose.onAllNodesWithText(text(R.string.open_system_settings))[0].performClick()
         compose.runOnIdle { assertEquals(true, access) }
         compose.onNodeWithText(text(R.string.notification_access_title)).assertIsDisplayed()
