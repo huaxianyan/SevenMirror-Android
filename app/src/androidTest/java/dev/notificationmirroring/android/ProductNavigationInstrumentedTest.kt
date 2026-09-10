@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.performScrollToNode
@@ -115,14 +116,14 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithText(text(R.string.save_receiving_devices)).performClick()
         compose.runOnIdle { assertEquals(true, recipients.devices.single().selected) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
-        compose.onNodeWithText(text(R.string.home)).assertIsSelected()
+        compose.onNode(hasText(text(R.string.home)) and hasClickAction()).assertIsSelected()
 
         compose.onNodeWithText(text(R.string.applications)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("com.example.calendar"))
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.configure_app)))
         compose.onNodeWithText(text(R.string.configure_app)).performClick()
-        compose.onNodeWithText(text(R.string.applications)).assertIsSelected()
+        compose.onNode(hasText(text(R.string.applications)) and hasClickAction()).assertIsSelected()
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.show_notification_content)))
         compose.onNodeWithText(text(R.string.show_notification_content)).performClick()
@@ -132,7 +133,7 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithText(text(R.string.save)).performClick()
         compose.runOnIdle { assertEquals(false, sharing.settingsFor("com.example.calendar").showContent) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
-        compose.onNodeWithText(text(R.string.applications)).assertIsSelected()
+        compose.onNode(hasText(text(R.string.applications)) and hasClickAction()).assertIsSelected()
         compose.onNodeWithText(text(R.string.settings)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.permissions_and_runtime)))
         compose.onNodeWithText(text(R.string.permissions_and_runtime)).performClick()
