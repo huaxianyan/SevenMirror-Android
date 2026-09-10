@@ -89,11 +89,16 @@ private enum class ProductPage(val title: Int) {
 
     val primary: ProductPage
         get() = if (this == SYNC || this == APPLICATIONS) this else SETTINGS
-    val parent: ProductPage
-        get() = if (this == APP_DETAIL) APP_SETTINGS else if (primary == SETTINGS && this != SETTINGS) SETTINGS else SYNC
 }
 
+private enum class NavigationKind { PUSH, RESET, BACK }
+private data class ProductNavigation(val target: ProductPage, val kind: NavigationKind)
+
 private val productPageSaver = Saver<ProductPage, String>(save = { it.name }, restore = { ProductPage.valueOf(it) })
+private val productPageStackSaver = listSaver<List<ProductPage>, String>(
+    save = { pages -> pages.map(ProductPage::name) },
+    restore = { names -> names.map(ProductPage::valueOf) },
+)
 private val primaryPages = listOf(ProductPage.SYNC, ProductPage.APPLICATIONS, ProductPage.SETTINGS)
 private val packageSelectionSaver = listSaver<Set<String>, String>(save = { it.toList() }, restore = { it.toSet() })
 
@@ -131,13 +136,34 @@ internal fun MainScreen(
     onPostDebugNotification: (() -> Unit)?,
 ) {
     var page by rememberSaveable(stateSaver = productPageSaver) { mutableStateOf(ProductPage.SYNC) }
+    var pageStack by rememberSaveable(stateSaver = productPageStackSaver) {
+        mutableStateOf(emptyList())
+    }
     var selectedApplication by rememberSaveable { mutableStateOf<String?>(null) }
     var dirty by rememberSaveable { mutableStateOf(false) }
-    var pendingPage by remember { mutableStateOf<ProductPage?>(null) }
+    var pendingNavigation by remember { mutableStateOf<ProductNavigation?>(null) }
     var saveFailed by remember { mutableStateOf(false) }
-    fun navigate(next: ProductPage) {
-        if (next == page) return
-        if (dirty) pendingPage = next else { page = next; saveFailed = false }
+    fun commitNavigation(navigation: ProductNavigation) {
+        pageStack = when (navigation.kind) {
+            NavigationKind.PUSH -> pageStack + page
+            NavigationKind.RESET -> emptyList()
+            NavigationKind.BACK -> pageStack.dropLast(1)
+        }
+        page = navigation.target
+        saveFailed = false
+    }
+    fun requestNavigation(navigation: ProductNavigation) {
+        if (navigation.target == page) return
+        if (dirty) pendingNavigation = navigation else commitNavigation(navigation)
+    }
+    fun navigate(next: ProductPage) = requestNavigation(ProductNavigation(
+        next,
+        if (next in primaryPages) NavigationKind.RESET else NavigationKind.PUSH,
+    ))
+    fun navigateBack() {
+        pageStack.lastOrNull()?.let {
+            requestNavigation(ProductNavigation(it, NavigationKind.BACK))
+        }
     }
     fun save(operation: () -> Unit): Boolean = try {
         operation()
@@ -147,7 +173,8 @@ internal fun MainScreen(
         saveFailed = true
         false
     }
-    BackHandler(page != ProductPage.SYNC) { navigate(page.parent) }
+    BackHandler(pageStack.isNotEmpty()) { navigateBack() }
+    val selectedPrimary = pageStack.firstOrNull { it in primaryPages } ?: page.primary
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val rail = navigationLayout(maxWidth.value) == NavigationLayout.EXPANDED
@@ -156,7 +183,7 @@ internal fun MainScreen(
                 TopAppBar(
                     title = { Text(stringResource(if (page in primaryPages) R.string.app_name else page.title)) },
                     navigationIcon = {
-                        if (page !in primaryPages) IconButton(onClick = { navigate(page.parent) }) {
+                        if (pageStack.isNotEmpty()) IconButton(onClick = { navigateBack() }) {
                             Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = stringResource(R.string.back))
                         }
                     },
@@ -166,7 +193,7 @@ internal fun MainScreen(
                 if (!rail) NavigationBar {
                     primaryPages.forEach { target ->
                         NavigationBarItem(
-                            selected = page.primary == target,
+                            selected = selectedPrimary == target,
                             onClick = { navigate(target) },
                             icon = { NavigationIcon(target) },
                             label = { Text(stringResource(target.title)) },
@@ -179,7 +206,7 @@ internal fun MainScreen(
                 if (rail) NavigationRail {
                     primaryPages.forEach { target ->
                         NavigationRailItem(
-                            selected = page.primary == target,
+                            selected = selectedPrimary == target,
                             onClick = { navigate(target) },
                             icon = { NavigationIcon(target) },
                             label = { Text(stringResource(target.title)) },
@@ -357,13 +384,17 @@ internal fun MainScreen(
             }
         }
     }
-    pendingPage?.let { next ->
+    pendingNavigation?.let { navigation ->
         AlertDialog(
-            onDismissRequest = { pendingPage = null },
+            onDismissRequest = { pendingNavigation = null },
             title = { Text(stringResource(R.string.unsaved_changes_title)) },
             text = { Text(stringResource(R.string.unsaved_changes_body)) },
-            confirmButton = { TextButton(onClick = { dirty = false; page = next; pendingPage = null; saveFailed = false }) { Text(stringResource(R.string.discard_changes)) } },
-            dismissButton = { TextButton(onClick = { pendingPage = null }) { Text(stringResource(R.string.keep_editing)) } },
+            confirmButton = { TextButton(onClick = {
+                dirty = false
+                commitNavigation(navigation)
+                pendingNavigation = null
+            }) { Text(stringResource(R.string.discard_changes)) } },
+            dismissButton = { TextButton(onClick = { pendingNavigation = null }) { Text(stringResource(R.string.keep_editing)) } },
         )
     }
 }

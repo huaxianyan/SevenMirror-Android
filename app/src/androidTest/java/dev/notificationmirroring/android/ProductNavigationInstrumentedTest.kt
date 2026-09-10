@@ -109,12 +109,20 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithText(text(R.string.resume_synchronization)).performClick()
         compose.runOnIdle { assertEquals(false, paused) }
 
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.receiving_devices)))
+        compose.onNodeWithText(text(R.string.receiving_devices)).performClick()
+        compose.onNodeWithText("Work browser").performClick()
+        compose.onNodeWithText(text(R.string.save_receiving_devices)).performClick()
+        compose.runOnIdle { assertEquals(true, recipients.devices.single().selected) }
+        compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+        compose.onNodeWithText(text(R.string.home)).assertIsSelected()
+
         compose.onNodeWithText(text(R.string.applications)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("com.example.calendar"))
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.configure_app)))
         compose.onNodeWithText(text(R.string.configure_app)).performClick()
-        compose.onNodeWithText(text(R.string.settings)).assertIsSelected()
+        compose.onNodeWithText(text(R.string.applications)).assertIsSelected()
         compose.onNodeWithText("com.example.calendar").assertIsDisplayed()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.show_notification_content)))
         compose.onNodeWithText(text(R.string.show_notification_content)).performClick()
@@ -124,13 +132,8 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithText(text(R.string.save)).performClick()
         compose.runOnIdle { assertEquals(false, sharing.settingsFor("com.example.calendar").showContent) }
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
-        compose.onNodeWithContentDescription(text(R.string.back)).performClick()
-        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.receiving_devices)))
-        compose.onNodeWithText(text(R.string.receiving_devices)).performClick()
-        compose.onNodeWithText("Work browser").performClick()
-        compose.onNodeWithText(text(R.string.save_receiving_devices)).performClick()
-        compose.runOnIdle { assertEquals(true, recipients.devices.single().selected) }
-        compose.onNodeWithContentDescription(text(R.string.back)).performClick()
+        compose.onNodeWithText(text(R.string.applications)).assertIsSelected()
+        compose.onNodeWithText(text(R.string.settings)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.permissions_and_runtime)))
         compose.onNodeWithText(text(R.string.permissions_and_runtime)).performClick()
         compose.runOnIdle { access = false }
