@@ -58,25 +58,20 @@ the enforced no-KAPT reachability boundary are documented in
 
 ## Development CI flow
 
-Feature-branch pushes do not automatically run CI. Before opening a pull request,
-push the branch and explicitly dispatch the `CI` workflow against that branch:
+Every feature-branch push runs CI. The exact branch SHA must pass the required
+`build` and `api29-secure-runtime` checks before it is fast-forwarded to `main`;
+the resulting `main` SHA must pass the same checks before the topic branch is
+removed. The API 29 emulator starts only after the build and dependency-integrity
+job succeeds. These ordering rules reduce duplicate runner failures; they do not
+relax any build, OSV, instrumentation, or release gate.
 
-```sh
-gh workflow run CI --ref <branch>
-```
-
-Wait for that run before opening the pull request. This preflight resolves Linux
-and platform-specific Gradle artifacts that a Windows checkout cannot discover;
-if dependency verification fails, add only checksums independently downloaded
-from the named upstream repository, amend the branch, and dispatch once more.
-Do not open a pull request merely to use required checks as a dependency metadata
-probe.
-
-Pull requests run one required-check set. A newer commit cancels an obsolete run,
-and the API 29 emulator starts only after the build and dependency-integrity job
-succeeds. Pushes to `main` still run the complete required-check set. These
-ordering rules reduce duplicate runner failures; they do not relax any build,
-OSV, instrumentation, or release gate.
+Gradle tasks named `connected*AndroidTest` depend on
+`verifyConnectedTestsUseEmulators`. The guard rejects every attached physical
+device before instrumentation starts because Android Gradle Plugin connected
+tasks may uninstall the target package and erase its private app data. Run these
+tasks only against disposable emulators. Physical-device product validation uses
+release/debug APK installation and explicit user-flow checks, not Gradle
+connected-test tasks.
 
 ## Sensitive local data
 

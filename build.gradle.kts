@@ -124,6 +124,28 @@ tasks.register("writeReleaseRuntimeDependencyInventory") {
     }
 }
 
+val verifyConnectedTestsUseEmulators = tasks.register<Exec>("verifyConnectedTestsUseEmulators") {
+    group = "verification"
+    description = "Rejects Gradle connected tests when a physical Android device is attached."
+    val windows = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+    val androidHome = providers.environmentVariable("ANDROID_HOME").orNull
+        ?: providers.environmentVariable("ANDROID_SDK_ROOT").orNull
+    val adb = androidHome?.let {
+        file("$it/platform-tools/${if (windows) "adb.exe" else "adb"}")
+    }?.takeIf(File::isFile)?.absolutePath ?: if (windows) "adb.exe" else "adb"
+    commandLine(
+        if (windows) "python" else "python3",
+        layout.projectDirectory.file("scripts/verify_connected_test_devices.py").asFile,
+        "--adb",
+        adb,
+    )
+}
+
+subprojects {
+    tasks.matching { it.name.startsWith("connected") && it.name.endsWith("AndroidTest") }
+        .configureEach { dependsOn(verifyConnectedTestsUseEmulators) }
+}
+
 tasks.register("verifyKotlinKaptAdvisoryGuard") {
     group = "verification"
     description = "Rejects build settings that expose the open Kotlin KAPT cache advisory path."
