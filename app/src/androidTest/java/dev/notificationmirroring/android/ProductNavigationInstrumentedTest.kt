@@ -50,6 +50,28 @@ class ProductNavigationInstrumentedTest {
     }
 
     @Test
+    fun backgroundSyncDecisionPersistsWithTheConnectionOwnerPreference() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val preferences = AndroidProductPreferences(context)
+        val previousEnabled = preferences.isBackgroundConnectionEnabled()
+        try {
+            preferences.saveBackgroundSyncDecision(true)
+            val enabled = AndroidProductPreferences(context)
+            assertEquals(true, enabled.isBackgroundSyncDecided())
+            assertEquals(true, enabled.isBackgroundConnectionEnabled())
+
+            // Deciding "later" finishes the step while leaving the connection owner off.
+            preferences.saveBackgroundSyncDecision(false)
+            val later = AndroidProductPreferences(context)
+            assertEquals(true, later.isBackgroundSyncDecided())
+            assertEquals(false, later.isBackgroundConnectionEnabled())
+        } finally {
+            // The decided marker intentionally stays set: it records that the step was answered.
+            preferences.saveBackgroundConnectionEnabled(previousEnabled)
+        }
+    }
+
+    @Test
     fun userConfiguresAppAndRecipientThenRecoversMissingPermission() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         fun text(id: Int) = context.getString(id)

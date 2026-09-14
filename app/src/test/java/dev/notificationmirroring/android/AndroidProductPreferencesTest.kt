@@ -190,10 +190,93 @@ class AndroidProductPreferencesTest {
             ),
         )
         assertEquals(
+            OnboardingStage.BACKGROUND_SYNC,
+            stage(
+                transportState = AndroidTransportState.ONLINE,
+                notificationAccessGranted = true,
+                applicationSelectionConfirmed = true,
+            ),
+        )
+        assertEquals(
             OnboardingStage.COMPLETE,
             stage(
                 transportState = AndroidTransportState.ONLINE,
                 notificationAccessGranted = true,
+                applicationSelectionConfirmed = true,
+                backgroundSyncDecided = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `background sync is decided before the main screen appears`() {
+        assertEquals(
+            OnboardingStage.BACKGROUND_SYNC,
+            stage(
+                transportState = AndroidTransportState.ONLINE,
+                notificationAccessGranted = true,
+                applicationSelectionConfirmed = true,
+                backgroundSyncDecided = false,
+            ),
+        )
+        assertEquals(
+            OnboardingStage.COMPLETE,
+            stage(
+                transportState = AndroidTransportState.ONLINE,
+                notificationAccessGranted = true,
+                applicationSelectionConfirmed = true,
+                backgroundSyncDecided = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `a security error overrides a pending background sync decision`() {
+        assertEquals(
+            OnboardingStage.SECURITY_ERROR,
+            stage(
+                transportState = AndroidTransportState.SECURITY_ERROR,
+                applicationSelectionConfirmed = true,
+                backgroundSyncDecided = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `legacy installs skip the new background sync step`() {
+        assertEquals(
+            true,
+            shouldAdoptBackgroundSyncDecision(
+                storedFlowVersion = LEGACY_ONBOARDING_FLOW_VERSION,
+                welcomeCompleted = true,
+                applicationSelectionConfirmed = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `fresh and interrupted setups keep the new background sync step`() {
+        assertEquals(
+            false,
+            shouldAdoptBackgroundSyncDecision(
+                storedFlowVersion = LEGACY_ONBOARDING_FLOW_VERSION,
+                welcomeCompleted = false,
+                applicationSelectionConfirmed = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldAdoptBackgroundSyncDecision(
+                storedFlowVersion = LEGACY_ONBOARDING_FLOW_VERSION,
+                welcomeCompleted = true,
+                applicationSelectionConfirmed = false,
+            ),
+        )
+        assertEquals(
+            false,
+            shouldAdoptBackgroundSyncDecision(
+                storedFlowVersion = ONBOARDING_FLOW_VERSION,
+                welcomeCompleted = true,
                 applicationSelectionConfirmed = true,
             ),
         )
@@ -207,6 +290,7 @@ class AndroidProductPreferencesTest {
                 transportState = AndroidTransportState.ONLINE,
                 notificationAccessGranted = false,
                 applicationSelectionConfirmed = true,
+                backgroundSyncDecided = true,
             ),
         )
     }
@@ -258,11 +342,13 @@ class AndroidProductPreferencesTest {
         enrollmentPending: Boolean = false,
         notificationAccessGranted: Boolean = false,
         applicationSelectionConfirmed: Boolean = false,
+        backgroundSyncDecided: Boolean = false,
     ): OnboardingStage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
         enrollmentPending = enrollmentPending,
         notificationAccessGranted = notificationAccessGranted,
         applicationSelectionConfirmed = applicationSelectionConfirmed,
+        backgroundSyncDecided = backgroundSyncDecided,
     )
 }

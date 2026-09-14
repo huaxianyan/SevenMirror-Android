@@ -23,6 +23,7 @@ internal enum class OnboardingStage {
     WAITING_FOR_APPROVAL,
     NOTIFICATION_ACCESS,
     APPLICATIONS,
+    BACKGROUND_SYNC,
     COMPLETE,
     SECURITY_ERROR,
 }
@@ -33,6 +34,7 @@ internal fun onboardingStage(
     enrollmentPending: Boolean,
     notificationAccessGranted: Boolean,
     applicationSelectionConfirmed: Boolean,
+    backgroundSyncDecided: Boolean,
 ): OnboardingStage {
     if (transportState == AndroidTransportState.SECURITY_ERROR) return OnboardingStage.SECURITY_ERROR
     if (!welcomeCompleted) return OnboardingStage.WELCOME
@@ -47,6 +49,7 @@ internal fun onboardingStage(
         if (!notificationAccessGranted) return OnboardingStage.NOTIFICATION_ACCESS
         return OnboardingStage.APPLICATIONS
     }
+    if (!backgroundSyncDecided) return OnboardingStage.BACKGROUND_SYNC
     return OnboardingStage.COMPLETE
 }
 
@@ -167,6 +170,26 @@ internal fun filterApplications(
     }
 }
 
+internal const val LEGACY_ONBOARDING_FLOW_VERSION = 0
+internal const val ONBOARDING_FLOW_VERSION = 2
+
+/**
+ * Decides whether an install must record the background sync step as already decided.
+ *
+ * Builds before this revision finished setup right after the application selection and enabled
+ * background sync implicitly. An install at the legacy flow revision that already passed the
+ * welcome screen with a confirmed selection finished that older flow, so it must not be sent back
+ * through the new step. Fresh installs and setups interrupted mid-onboarding keep the step, because
+ * the revision is recorded before any selection exists.
+ */
+internal fun shouldAdoptBackgroundSyncDecision(
+    storedFlowVersion: Int,
+    welcomeCompleted: Boolean,
+    applicationSelectionConfirmed: Boolean,
+): Boolean = storedFlowVersion == LEGACY_ONBOARDING_FLOW_VERSION &&
+    welcomeCompleted &&
+    applicationSelectionConfirmed
+
 internal class AndroidProductPreferences(context: Context) {
     private val preferences = context.applicationContext.getSharedPreferences(
         PREFERENCES_NAME,
@@ -205,6 +228,39 @@ internal class AndroidProductPreferences(context: Context) {
 
     fun isApplicationSelectionConfirmed(): Boolean =
         preferences.getBoolean(KEY_APPLICATION_SELECTION_CONFIRMED, false)
+
+    fun isBackgroundSyncDecided(): Boolean =
+        preferences.getBoolean(KEY_BACKGROUND_SYNC_DECIDED, false)
+
+    /**
+     * Adopts the onboarding flow revision once per install.
+     *
+     * See [shouldAdoptBackgroundSyncDecision] for why a legacy install skips the new step.
+     */
+    @SuppressLint("UseKtx")
+    fun adoptOnboardingFlow() {
+        val current = preferences.getInt(KEY_ONBOARDING_FLOW_VERSION, LEGACY_ONBOARDING_FLOW_VERSION)
+        if (current >= ONBOARDING_FLOW_VERSION) return
+        val editor = preferences.edit().putInt(KEY_ONBOARDING_FLOW_VERSION, ONBOARDING_FLOW_VERSION)
+        if (shouldAdoptBackgroundSyncDecision(current, isWelcomeCompleted(), isApplicationSelectionConfirmed())) {
+            editor.putBoolean(KEY_BACKGROUND_SYNC_DECIDED, true)
+        }
+        check(editor.commit()) { "Unable to adopt the onboarding flow revision" }
+    }
+
+    /**
+     * Records the explicit background sync choice and the fact that the step is finished, so the
+     * choice survives process death and a later upgrade does not repeat the step.
+     */
+    @SuppressLint("UseKtx")
+    fun saveBackgroundSyncDecision(enabled: Boolean) {
+        check(
+            preferences.edit()
+                .putBoolean(KEY_BACKGROUND_CONNECTION_ENABLED, enabled)
+                .putBoolean(KEY_BACKGROUND_SYNC_DECIDED, true)
+                .commit(),
+        ) { "Unable to persist the background sync decision" }
+    }
 
     fun isSynchronizationPaused(): Boolean =
         preferences.getBoolean(KEY_SYNCHRONIZATION_PAUSED, false)
@@ -343,6 +399,8 @@ internal class AndroidProductPreferences(context: Context) {
         private const val KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING =
             "certified-re-enrollment-reset-pending"
         private const val KEY_APPLICATION_SELECTION_CONFIRMED = "application-selection-confirmed"
+        private const val KEY_BACKGROUND_SYNC_DECIDED = "background-sync-decided"
+        private const val KEY_ONBOARDING_FLOW_VERSION = "onboarding-flow.version"
         private const val KEY_SYNCHRONIZATION_PAUSED = "synchronization.paused"
         private const val KEY_BACKGROUND_CONNECTION_ENABLED = "background-connection.enabled"
         private const val KEY_SELECTED_PACKAGES = "selected-packages"

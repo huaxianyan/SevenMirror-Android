@@ -61,6 +61,8 @@
     <string name="background_connection">Background sync</string>
     <string name="background_connection_body">Continue syncing after leaving the app. Turning this off only stops background sync; delivery can continue while the app is open.</string>
     <string name="keep_connection_active">Enable background sync</string>
+    <string name="set_up_later">Set up later</string>
+    <string name="background_sync_later_note">While background sync is off, selected apps keep syncing only while SevenMirror is open. You can enable it later in Settings.</string>
     <string name="battery_usage_unrestricted">Battery usage: unrestricted</string>
     <string name="battery_usage_system_managed">Battery usage: managed by Android</string>
     <string name="review_battery_settings">Review battery settings</string>

@@ -59,6 +59,8 @@
     <string name="background_connection">后台同步</string>
     <string name="background_connection_body">退出应用后继续同步。关闭此项只停止后台同步，停留在应用中时仍可传送通知。</string>
     <string name="keep_connection_active">启用后台同步</string>
+    <string name="set_up_later">稍后设置</string>
+    <string name="background_sync_later_note">后台同步关闭时，所选应用只在 SevenMirror 打开期间继续同步。你可以稍后在设置中启用。</string>
     <string name="battery_usage_unrestricted">电池用量：不受限制</string>
     <string name="battery_usage_system_managed">电池用量：由 Android 管理</string>
     <string name="review_battery_settings">查看电池设置</string>

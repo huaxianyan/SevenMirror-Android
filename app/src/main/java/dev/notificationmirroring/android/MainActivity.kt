@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
     private var batteryOptimizationExempt by mutableStateOf(false)
     private var pendingDebugNotification = false
     private var welcomeCompleted by mutableStateOf(false)
+    private var backgroundSyncDecided by mutableStateOf(false)
     private var applicationSelectionConfirmed by mutableStateOf(false)
     private var selectedPackages by mutableStateOf<Set<String>>(emptySet())
     private var installedApplications by mutableStateOf<List<SelectableApplication>>(emptyList())
@@ -101,7 +102,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState?.takeIf { it.getInt(PRODUCT_UI_STATE_KEY) == PRODUCT_UI_STATE_VERSION })
         enableEdgeToEdge()
         productPreferences = AndroidProductPreferences(this)
+        productPreferences.adoptOnboardingFlow()
         welcomeCompleted = productPreferences.isWelcomeCompleted()
+        backgroundSyncDecided = productPreferences.isBackgroundSyncDecided()
         applicationSelectionConfirmed = productPreferences.isApplicationSelectionConfirmed()
         selectedPackages = productPreferences.selectedPackages()
         notificationSharingSettings = productPreferences.notificationSharingSettings()
@@ -117,6 +120,7 @@ class MainActivity : ComponentActivity() {
                     transportCoordinator =
                     (application as NotificationMirroringApplication).transportCoordinator,
                     welcomeCompleted = welcomeCompleted,
+                    backgroundSyncDecided = backgroundSyncDecided,
                     notificationAccessGranted = notificationAccessGranted,
                     applicationSelectionConfirmed = applicationSelectionConfirmed,
                     applications = installedApplications,
@@ -144,6 +148,23 @@ class MainActivity : ComponentActivity() {
                         applicationSelectionConfirmed = true
                         backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
                         requestForegroundNotificationAndReconcile()
+                    },
+                    onSaveOnboardingApplicationSelection = { packages ->
+                        // The background sync step decides the connection owner explicitly, so
+                        // finishing the selection must not enable it or request the status
+                        // notification permission on its own.
+                        productPreferences.saveApplicationSelection(packages)
+                        LocalNotificationController.refreshMirroringPolicy(this)
+                        selectedPackages = packages.toSet()
+                        applicationSelectionConfirmed = true
+                        backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
+                    },
+                    onDecideBackgroundSync = { enabled ->
+                        productPreferences.saveBackgroundSyncDecision(enabled)
+                        backgroundSyncDecided = true
+                        backgroundConnectionEnabled = enabled
+                        if (enabled) requestForegroundNotificationAndReconcile()
+                        else reconcileBackgroundConnection()
                     },
                     onSaveSyncSilentNotifications = { enabled ->
                         productPreferences.saveSyncSilentNotifications(enabled)
@@ -218,6 +239,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun reconcileBackgroundConnection() {
+        // The background sync step owns the first explicit choice. Reconciling before it would
+        // start the service from the default preference and skip the onboarding explanation.
+        if (!backgroundSyncDecided) return
         BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
     }
 
@@ -272,6 +296,7 @@ private fun SevenMirrorTheme(content: @Composable () -> Unit) {
 private fun SevenMirrorApp(
     transportCoordinator: AndroidTransportCoordinator,
     welcomeCompleted: Boolean,
+    backgroundSyncDecided: Boolean,
     notificationAccessGranted: Boolean,
     applicationSelectionConfirmed: Boolean,
     applications: List<SelectableApplication>,
@@ -288,6 +313,8 @@ private fun SevenMirrorApp(
     onOpenNotificationAccess: () -> Unit,
     onRefreshNotificationAccess: () -> Unit,
     onSaveApplicationSelection: (Set<String>) -> Unit,
+    onSaveOnboardingApplicationSelection: (Set<String>) -> Unit,
+    onDecideBackgroundSync: (Boolean) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
@@ -310,6 +337,7 @@ private fun SevenMirrorApp(
         enrollmentPending = enrollmentPending,
         notificationAccessGranted = notificationAccessGranted,
         applicationSelectionConfirmed = applicationSelectionConfirmed,
+        backgroundSyncDecided = backgroundSyncDecided,
     )
 
     Surface(modifier = Modifier.fillMaxSize()) {
@@ -331,11 +359,16 @@ private fun SevenMirrorApp(
                 initialSelection = selectedPackages,
                 onboarding = true,
                 onSave = {
-                    try { onSaveApplicationSelection(it); true } catch (_: RuntimeException) { false }
+                    try { onSaveOnboardingApplicationSelection(it); true } catch (_: RuntimeException) { false }
                 },
                 onReload = onReloadApplications,
                 onConfigure = null,
                 onDirtyChange = null,
+            )
+            OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
+                statusNotificationAllowed = foregroundNotificationGranted,
+                onEnable = { onDecideBackgroundSync(true) },
+                onLater = { onDecideBackgroundSync(false) },
             )
             OnboardingStage.COMPLETE -> MainScreen(
                 transportState = transportState,
@@ -571,6 +604,52 @@ private fun NotificationAccessScreen(
             OutlinedButton(onClick = onCheckAgain, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.permission_granted_check_again))
             }
+        }
+    }
+}
+
+@Composable
+private fun BackgroundSyncScreen(
+    statusNotificationAllowed: Boolean,
+    onEnable: () -> Unit,
+    onLater: () -> Unit,
+) {
+    Page { modifier ->
+        Column(
+            modifier = modifier.verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp),
+        ) {
+            Text(
+                stringResource(R.string.background_connection),
+                modifier = Modifier.semantics { heading() },
+                style = MaterialTheme.typography.headlineMedium,
+            )
+            Text(stringResource(R.string.background_connection_body))
+            Card {
+                Column(
+                    modifier = Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.status_notification_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(stringResource(R.string.status_notification_body))
+                    Text(
+                        stringResource(
+                            if (statusNotificationAllowed) R.string.allowed else R.string.not_allowed,
+                        ),
+                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    )
+                }
+            }
+            Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.keep_connection_active))
+            }
+            OutlinedButton(onClick = onLater, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.set_up_later))
+            }
+            Text(stringResource(R.string.background_sync_later_note))
         }
     }
 }
