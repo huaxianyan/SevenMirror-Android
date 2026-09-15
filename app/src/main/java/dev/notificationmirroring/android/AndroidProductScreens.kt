@@ -3,6 +3,18 @@ package dev.notificationmirroring.android
 import android.content.pm.PackageManager
 import android.content.res.Resources
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +84,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import dev.notificationmirroring.crypto.WorkspaceDeviceSummary
@@ -143,12 +156,16 @@ internal fun MainScreen(
     var dirty by rememberSaveable { mutableStateOf(false) }
     var pendingNavigation by remember { mutableStateOf<ProductNavigation?>(null) }
     var saveFailed by remember { mutableStateOf(false) }
+    var navigationKind by remember { mutableStateOf(NavigationKind.RESET) }
     fun commitNavigation(navigation: ProductNavigation) {
         pageStack = when (navigation.kind) {
             NavigationKind.PUSH -> pageStack + page
             NavigationKind.RESET -> emptyList()
             NavigationKind.BACK -> pageStack.dropLast(1)
         }
+        // The page transition reads the last committed move, so a popped page leaves the way it came
+        // in instead of every page sliding the same direction.
+        navigationKind = navigation.kind
         page = navigation.target
         saveFailed = false
     }
@@ -214,169 +231,216 @@ internal fun MainScreen(
                     }
                 }
                 Column(Modifier.weight(1f).fillMaxHeight(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    if (saveFailed && page != ProductPage.APPLICATIONS && page != ProductPage.APP_DETAIL) Text(
-                        stringResource(R.string.settings_save_failed),
-                        modifier = Modifier.padding(20.dp).semantics { liveRegion = LiveRegionMode.Polite },
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    AnimatedVisibility(
+                        visible = saveFailed && page != ProductPage.APPLICATIONS && page != ProductPage.APP_DETAIL,
+                        enter = fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) +
+                            expandVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)),
+                        exit = fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing)) +
+                            shrinkVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.exitEasing)),
+                    ) {
+                        Text(
+                            stringResource(R.string.settings_save_failed),
+                            modifier = Modifier.padding(20.dp).semantics { liveRegion = LiveRegionMode.Polite },
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
                     Box(Modifier.widthIn(max = 840.dp).fillMaxSize()) {
-                        when (page) {
-                            ProductPage.SYNC -> ProductList {
-                                item { PageHeading(R.string.home) }
-                                item {
-                                    Card(Modifier.fillMaxWidth()) {
-                                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                            workspaceDevices.firstOrNull { it.isCurrentDevice }?.let {
-                                                Text(it.displayName, style = MaterialTheme.typography.labelLarge)
-                                            }
-                                            Text(
-                                                if (synchronizationPaused) stringResource(R.string.synchronization_paused)
-                                                else connectionLabel(transportState),
-                                                style = MaterialTheme.typography.headlineSmall,
-                                            )
-                                            Text(stringResource(
-                                                if (synchronizationPaused) R.string.synchronization_paused_body
-                                                else R.string.connection_delivery_boundary,
-                                            ))
-                                            if (synchronizationPaused) {
-                                                Button(onClick = { save { onSetSynchronizationPaused(false) } }) {
-                                                    Text(stringResource(R.string.resume_synchronization))
+                        AnimatedContent(
+                            targetState = page,
+                            transitionSpec = { productPageTransition(navigationKind) },
+                            label = "product-page",
+                        ) { currentPage ->
+                            when (currentPage) {
+                                ProductPage.SYNC -> ProductList {
+                                    item { PageHeading(R.string.home) }
+                                    item {
+                                        Card(Modifier.fillMaxWidth()) {
+                                            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                workspaceDevices.firstOrNull { it.isCurrentDevice }?.let {
+                                                    Text(it.displayName, style = MaterialTheme.typography.labelLarge)
                                                 }
-                                            } else {
-                                                OutlinedButton(onClick = { save { onSetSynchronizationPaused(true) } }) {
-                                                    Text(stringResource(R.string.pause_synchronization))
+                                                // The headline carries the single state the whole screen is
+                                                // about, so it cross fades rather than snapping when the
+                                                // connection or the pause flag changes.
+                                                AnimatedContent(
+                                                    targetState = if (synchronizationPaused) {
+                                                        stringResource(R.string.synchronization_paused)
+                                                    } else {
+                                                        connectionLabel(transportState)
+                                                    },
+                                                    transitionSpec = {
+                                                        fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
+                                                            fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
+                                                    },
+                                                    label = "connection-headline",
+                                                ) { headline ->
+                                                    Text(headline, style = MaterialTheme.typography.headlineSmall)
                                                 }
-                                                if (transportState == AndroidTransportState.OFFLINE) {
+                                                Text(stringResource(
+                                                    if (synchronizationPaused) R.string.synchronization_paused_body
+                                                    else R.string.connection_delivery_boundary,
+                                                ))
+                                                AnimatedContent(
+                                                    targetState = synchronizationPaused,
+                                                    transitionSpec = {
+                                                        fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
+                                                            fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
+                                                    },
+                                                    label = "synchronization-control",
+                                                ) { paused ->
+                                                    if (paused) {
+                                                        Button(onClick = { save { onSetSynchronizationPaused(false) } }) {
+                                                            Text(stringResource(R.string.resume_synchronization))
+                                                        }
+                                                    } else {
+                                                        OutlinedButton(onClick = { save { onSetSynchronizationPaused(true) } }) {
+                                                            Text(stringResource(R.string.pause_synchronization))
+                                                        }
+                                                    }
+                                                }
+                                                // Retrying only makes sense while the connection is down and
+                                                // synchronization is running, so it expands into place.
+                                                AnimatedVisibility(
+                                                    visible = !synchronizationPaused && transportState == AndroidTransportState.OFFLINE,
+                                                    enter = fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) +
+                                                        expandVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)),
+                                                    exit = fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing)) +
+                                                        shrinkVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.exitEasing)),
+                                                ) {
                                                     OutlinedButton(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
                                                 }
                                             }
                                         }
                                     }
-                                }
-                                if (!notificationAccessGranted || !foregroundNotificationGranted) item {
-                                    SettingsLink(R.string.permissions_need_attention, R.string.permissions_recovery_hint) {
-                                        navigate(ProductPage.PERMISSIONS)
+                                    if (!notificationAccessGranted || !foregroundNotificationGranted) item {
+                                        SettingsLink(R.string.permissions_need_attention, R.string.permissions_recovery_hint) {
+                                            navigate(ProductPage.PERMISSIONS)
+                                        }
+                                    }
+                                    item {
+                                        SettingsLink(
+                                            title = stringResource(R.string.selected_apps),
+                                            supporting = pluralStringResource(R.plurals.selected_apps_count, selectedPackages.size, selectedPackages.size),
+                                        ) { navigate(ProductPage.APPLICATIONS) }
+                                    }
+                                    item {
+                                        val selectedRecipients = recipientSettings.devices.count(ReceivingDevice::selected)
+                                        SettingsLink(
+                                            title = stringResource(R.string.receiving_devices),
+                                            supporting = if (selectedRecipients == 0) stringResource(R.string.no_receiving_devices_selected)
+                                                else pluralStringResource(R.plurals.receiving_devices_count, selectedRecipients, selectedRecipients),
+                                        ) { navigate(ProductPage.RECIPIENTS) }
+                                    }
+                                    item {
+                                        SettingsLink(
+                                            title = stringResource(R.string.background_connection),
+                                            supporting = stringResource(if (backgroundConnectionEnabled) R.string.background_enabled_summary else R.string.background_disabled_summary),
+                                        ) { navigate(ProductPage.DEFAULTS) }
+                                    }
+                                    item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
+                                    if (omittedNotificationCount > 0) item {
+                                        Text(pluralStringResource(R.plurals.notification_limit_body, omittedNotificationCount, omittedNotificationCount, EncryptedPayloadCodecV1.MAX_SNAPSHOT_ENTRIES))
                                     }
                                 }
-                                item {
-                                    SettingsLink(
-                                        title = stringResource(R.string.selected_apps),
-                                        supporting = pluralStringResource(R.plurals.selected_apps_count, selectedPackages.size, selectedPackages.size),
-                                    ) { navigate(ProductPage.APPLICATIONS) }
-                                }
-                                item {
-                                    val selectedRecipients = recipientSettings.devices.count(ReceivingDevice::selected)
-                                    SettingsLink(
-                                        title = stringResource(R.string.receiving_devices),
-                                        supporting = if (selectedRecipients == 0) stringResource(R.string.no_receiving_devices_selected)
-                                            else pluralStringResource(R.plurals.receiving_devices_count, selectedRecipients, selectedRecipients),
-                                    ) { navigate(ProductPage.RECIPIENTS) }
-                                }
-                                item {
-                                    SettingsLink(
-                                        title = stringResource(R.string.background_connection),
-                                        supporting = stringResource(if (backgroundConnectionEnabled) R.string.background_enabled_summary else R.string.background_disabled_summary),
-                                    ) { navigate(ProductPage.DEFAULTS) }
-                                }
-                                item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
-                                if (omittedNotificationCount > 0) item {
-                                    Text(pluralStringResource(R.plurals.notification_limit_body, omittedNotificationCount, omittedNotificationCount, EncryptedPayloadCodecV1.MAX_SNAPSHOT_ENTRIES))
-                                }
-                            }
-                            ProductPage.APPLICATIONS -> ApplicationSelectionScreen(
-                                applications, applicationsLoaded, applicationsLoadFailed, selectedPackages,
-                                onboarding = false,
-                                onSave = { save { onSaveApplicationSelection(it) } },
-                                onReload = onReloadApplications,
-                                onConfigure = { selectedApplication = it; navigate(ProductPage.APP_DETAIL) },
-                                onDirtyChange = { dirty = it },
-                            )
-                            ProductPage.SETTINGS -> ProductList {
-                                item { PageHeading(R.string.settings) }
-                                item { SettingsLink(R.string.sync_defaults, R.string.sync_defaults_summary) { navigate(ProductPage.DEFAULTS) } }
-                                item { SettingsLink(R.string.application_settings_title, R.string.application_settings_summary) { navigate(ProductPage.APP_SETTINGS) } }
-                                item { SettingsLink(R.string.receiving_devices, R.string.receiving_devices_summary) { navigate(ProductPage.RECIPIENTS) } }
-                                item { SettingsLink(R.string.permissions_and_runtime, R.string.permissions_recovery_hint) { navigate(ProductPage.PERMISSIONS) } }
-                                item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
-                                item { SettingsLink(R.string.data_and_privacy) { navigate(ProductPage.PRIVACY) } }
-                                item { SettingsLink(R.string.about) { navigate(ProductPage.ABOUT) } }
-                                if (onPostDebugNotification != null) item { SettingsLink(R.string.developer_diagnostics) { navigate(ProductPage.DIAGNOSTICS) } }
-                            }
-                            ProductPage.DEFAULTS -> ProductList {
-                                item { Text(stringResource(R.string.settings_apply_immediately)) }
-                                item { SectionHeading(R.string.background_connection) }
-                                item {
-                                    PermissionSwitchRow(stringResource(R.string.keep_connection_active), backgroundConnectionEnabled) {
-                                        save { onSetBackgroundConnectionEnabled(it) }
-                                    }
-                                    Text(stringResource(R.string.background_connection_body), style = MaterialTheme.typography.bodySmall)
-                                }
-                                item { SettingsLink(R.string.permissions_and_runtime) { navigate(ProductPage.PERMISSIONS) } }
-                                item { SectionHeading(R.string.notification_sharing) }
-                                item { PermissionSwitchRow(stringResource(R.string.sync_silent_notifications), notificationSharingSettings.syncSilent) { save { onSaveSyncSilentNotifications(it) } } }
-                                item {
-                                    SectionHeading(R.string.remote_operations)
-                                    Text(stringResource(R.string.remote_operations_body), style = MaterialTheme.typography.bodySmall)
-                                }
-                                item { OperationSwitches(remoteOperationSettings.globalDefaults) { save { onSaveGlobalRemoteOperations(it) } } }
-                            }
-                            ProductPage.APP_SETTINGS -> ProductList {
-                                item { Text(stringResource(R.string.application_settings_summary)) }
-                                applicationLoadItems(applicationsLoaded, applicationsLoadFailed, onReloadApplications)
-                                if (applicationsLoaded && !applicationsLoadFailed && applications.isEmpty()) item { Text(stringResource(R.string.no_selectable_apps)) }
-                                items(applications, key = { it.packageName }) { app ->
-                                    Surface(onClick = { selectedApplication = app.packageName; navigate(ProductPage.APP_DETAIL) }) {
-                                        ApplicationIdentity(app, Modifier.padding(vertical = 12.dp))
-                                    }
-                                }
-                            }
-                            ProductPage.APP_DETAIL -> {
-                                val app = applications.firstOrNull { it.packageName == selectedApplication }
-                                if (app == null) ProductList {
-                                    item { Text(stringResource(R.string.application_unavailable)) }
-                                    item { OutlinedButton(onClick = onReloadApplications) { Text(stringResource(R.string.reload_applications)) } }
-                                } else ApplicationSettingsScreen(
-                                    app,
-                                    notificationSharingSettings.settingsFor(app.packageName),
-                                    remoteOperationSettings.globalDefaults,
-                                    remoteOperationSettings.applicationOverrides[app.packageName],
+                                ProductPage.APPLICATIONS -> ApplicationSelectionScreen(
+                                    applications, applicationsLoaded, applicationsLoadFailed, selectedPackages,
+                                    onboarding = false,
+                                    onSave = { save { onSaveApplicationSelection(it) } },
+                                    onReload = onReloadApplications,
+                                    onConfigure = { selectedApplication = it; navigate(ProductPage.APP_DETAIL) },
                                     onDirtyChange = { dirty = it },
-                                    onSave = { settings, override -> save { onSaveApplicationSettings(app.packageName, settings, override) } },
                                 )
-                            }
-                            ProductPage.RECIPIENTS -> RecipientSelectionScreen(
-                                recipientSettings,
-                                onDirtyChange = { dirty = it },
-                                onSave = { save { onSaveReceivingDevices(it) } },
-                            )
-                            ProductPage.PERMISSIONS -> PermissionsScreen(
-                                notificationAccessGranted, foregroundNotificationGranted, batteryOptimizationExempt,
-                                onOpenNotificationAccess, onOpenStatusNotificationSettings, onOpenBatterySettings,
-                            )
-                            ProductPage.DEVICES -> ProductList {
-                                item { SectionHeading(R.string.private_service); SelectionContainer { Text(serverOrigin ?: stringResource(R.string.not_available)) } }
-                                item { Text(stringResource(R.string.devices_membership_summary)) }
-                                items(workspaceDevices) { device ->
-                                    ListItem(
-                                        headlineContent = { Text(device.displayName) },
-                                        supportingContent = { Text(stringResource(if (device.deviceType == WorkspaceDeviceType.ANDROID) R.string.android_device else R.string.chrome_device)) },
-                                        trailingContent = { Text(stringResource(if (device.isCurrentDevice) R.string.this_device else if (device.accessCurrent) R.string.device_authorized else R.string.device_access_expired)) },
+                                ProductPage.SETTINGS -> ProductList {
+                                    item { PageHeading(R.string.settings) }
+                                    item { SettingsLink(R.string.sync_defaults, R.string.sync_defaults_summary) { navigate(ProductPage.DEFAULTS) } }
+                                    item { SettingsLink(R.string.application_settings_title, R.string.application_settings_summary) { navigate(ProductPage.APP_SETTINGS) } }
+                                    item { SettingsLink(R.string.receiving_devices, R.string.receiving_devices_summary) { navigate(ProductPage.RECIPIENTS) } }
+                                    item { SettingsLink(R.string.permissions_and_runtime, R.string.permissions_recovery_hint) { navigate(ProductPage.PERMISSIONS) } }
+                                    item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
+                                    item { SettingsLink(R.string.data_and_privacy) { navigate(ProductPage.PRIVACY) } }
+                                    item { SettingsLink(R.string.about) { navigate(ProductPage.ABOUT) } }
+                                    if (onPostDebugNotification != null) item { SettingsLink(R.string.developer_diagnostics) { navigate(ProductPage.DIAGNOSTICS) } }
+                                }
+                                ProductPage.DEFAULTS -> ProductList {
+                                    item { Text(stringResource(R.string.settings_apply_immediately)) }
+                                    item { SectionHeading(R.string.background_connection) }
+                                    item {
+                                        PermissionSwitchRow(stringResource(R.string.keep_connection_active), backgroundConnectionEnabled) {
+                                            save { onSetBackgroundConnectionEnabled(it) }
+                                        }
+                                        Text(stringResource(R.string.background_connection_body), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    item { SettingsLink(R.string.permissions_and_runtime) { navigate(ProductPage.PERMISSIONS) } }
+                                    item { SectionHeading(R.string.notification_sharing) }
+                                    item { PermissionSwitchRow(stringResource(R.string.sync_silent_notifications), notificationSharingSettings.syncSilent) { save { onSaveSyncSilentNotifications(it) } } }
+                                    item {
+                                        SectionHeading(R.string.remote_operations)
+                                        Text(stringResource(R.string.remote_operations_body), style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    item { OperationSwitches(remoteOperationSettings.globalDefaults) { save { onSaveGlobalRemoteOperations(it) } } }
+                                }
+                                ProductPage.APP_SETTINGS -> ProductList {
+                                    item { Text(stringResource(R.string.application_settings_summary)) }
+                                    applicationLoadItems(applicationsLoaded, applicationsLoadFailed, onReloadApplications)
+                                    if (applicationsLoaded && !applicationsLoadFailed && applications.isEmpty()) item { Text(stringResource(R.string.no_selectable_apps)) }
+                                    items(applications, key = { it.packageName }) { app ->
+                                        Surface(
+                                            onClick = { selectedApplication = app.packageName; navigate(ProductPage.APP_DETAIL) },
+                                            modifier = Modifier.animateItem(),
+                                        ) {
+                                            ApplicationIdentity(app, Modifier.padding(vertical = 12.dp))
+                                        }
+                                    }
+                                }
+                                ProductPage.APP_DETAIL -> {
+                                    val app = applications.firstOrNull { it.packageName == selectedApplication }
+                                    if (app == null) ProductList {
+                                        item { Text(stringResource(R.string.application_unavailable)) }
+                                        item { OutlinedButton(onClick = onReloadApplications) { Text(stringResource(R.string.reload_applications)) } }
+                                    } else ApplicationSettingsScreen(
+                                        app,
+                                        notificationSharingSettings.settingsFor(app.packageName),
+                                        remoteOperationSettings.globalDefaults,
+                                        remoteOperationSettings.applicationOverrides[app.packageName],
+                                        onDirtyChange = { dirty = it },
+                                        onSave = { settings, override -> save { onSaveApplicationSettings(app.packageName, settings, override) } },
                                     )
                                 }
-                                if (workspaceDevices.isEmpty()) item { Text(stringResource(R.string.devices_empty)) }
-                                item { Text(stringResource(R.string.devices_admin_boundary)) }
-                            }
-                            ProductPage.PRIVACY -> ProductList {
-                                item { Text(stringResource(R.string.data_and_privacy_body)) }
-                                item { SectionHeading(R.string.access_recovery); Text(stringResource(R.string.access_recovery_body)) }
-                                item { Text(stringResource(R.string.server_change_help)) }
-                            }
-                            ProductPage.ABOUT -> ProductList {
-                                item { Text(stringResource(R.string.version_value, BuildConfig.VERSION_NAME)) }
-                                item { Text(stringResource(R.string.license_value)) }
-                            }
-                            ProductPage.DIAGNOSTICS -> ProductList {
-                                onPostDebugNotification?.let { post -> item { OutlinedButton(onClick = post) { Text(stringResource(R.string.debug_post_test_notification)) } } }
+                                ProductPage.RECIPIENTS -> RecipientSelectionScreen(
+                                    recipientSettings,
+                                    onDirtyChange = { dirty = it },
+                                    onSave = { save { onSaveReceivingDevices(it) } },
+                                )
+                                ProductPage.PERMISSIONS -> PermissionsScreen(
+                                    notificationAccessGranted, foregroundNotificationGranted, batteryOptimizationExempt,
+                                    onOpenNotificationAccess, onOpenStatusNotificationSettings, onOpenBatterySettings,
+                                )
+                                ProductPage.DEVICES -> ProductList {
+                                    item { SectionHeading(R.string.private_service); SelectionContainer { Text(serverOrigin ?: stringResource(R.string.not_available)) } }
+                                    item { Text(stringResource(R.string.devices_membership_summary)) }
+                                    items(workspaceDevices) { device ->
+                                        ListItem(
+                                            headlineContent = { Text(device.displayName) },
+                                            supportingContent = { Text(stringResource(if (device.deviceType == WorkspaceDeviceType.ANDROID) R.string.android_device else R.string.chrome_device)) },
+                                            trailingContent = { Text(stringResource(if (device.isCurrentDevice) R.string.this_device else if (device.accessCurrent) R.string.device_authorized else R.string.device_access_expired)) },
+                                            modifier = Modifier.animateItem(),
+                                        )
+                                    }
+                                    if (workspaceDevices.isEmpty()) item { Text(stringResource(R.string.devices_empty)) }
+                                    item { Text(stringResource(R.string.devices_admin_boundary)) }
+                                }
+                                ProductPage.PRIVACY -> ProductList {
+                                    item { Text(stringResource(R.string.data_and_privacy_body)) }
+                                    item { SectionHeading(R.string.access_recovery); Text(stringResource(R.string.access_recovery_body)) }
+                                    item { Text(stringResource(R.string.server_change_help)) }
+                                }
+                                ProductPage.ABOUT -> ProductList {
+                                    item { Text(stringResource(R.string.version_value, BuildConfig.VERSION_NAME)) }
+                                    item { Text(stringResource(R.string.license_value)) }
+                                }
+                                ProductPage.DIAGNOSTICS -> ProductList {
+                                    onPostDebugNotification?.let { post -> item { OutlinedButton(onClick = post) { Text(stringResource(R.string.debug_post_test_notification)) } } }
+                                }
                             }
                         }
                     }
@@ -396,6 +460,28 @@ internal fun MainScreen(
             }) { Text(stringResource(R.string.discard_changes)) } },
             dismissButton = { TextButton(onClick = { pendingNavigation = null }) { Text(stringResource(R.string.keep_editing)) } },
         )
+    }
+}
+
+/**
+ * Page transitions follow the direction of the last navigation: a pushed page slides in from the
+ * right and a popped page slides in from the left, so leaving a detail view reads as going back.
+ * Switching a bottom bar destination is a lateral move and only cross fades.
+ */
+private fun AnimatedContentTransitionScope<ProductPage>.productPageTransition(
+    kind: NavigationKind,
+): ContentTransform {
+    val moveIn = tween<IntOffset>(AndroidMotion.PAGE_MILLIS, easing = AndroidMotion.enterEasing)
+    val moveOut = tween<IntOffset>(AndroidMotion.PAGE_MILLIS, easing = AndroidMotion.exitEasing)
+    val appear = tween<Float>(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)
+    val disappear = tween<Float>(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing)
+    val travel = { width: Int -> (width * AndroidMotion.PAGE_TRAVEL_FRACTION).toInt() }
+    return when (kind) {
+        NavigationKind.RESET -> fadeIn(appear) togetherWith fadeOut(disappear)
+        NavigationKind.PUSH -> (slideInHorizontally(moveIn, travel) + fadeIn(appear)) togetherWith
+            (slideOutHorizontally(moveOut) { width -> -travel(width) } + fadeOut(disappear))
+        NavigationKind.BACK -> (slideInHorizontally(moveIn) { width -> -travel(width) } + fadeIn(appear)) togetherWith
+            (slideOutHorizontally(moveOut, travel) + fadeOut(disappear))
     }
 }
 
@@ -493,7 +579,7 @@ internal fun ApplicationSelectionScreen(
             applicationLoadItems(applicationsLoaded, applicationsLoadFailed, onReload)
             if (applicationsLoaded && !applicationsLoadFailed && visible.isEmpty()) item { Text(stringResource(R.string.no_apps_match_filters)) }
             items(visible, key = { it.packageName }) { app ->
-                Column {
+                Column(Modifier.animateItem()) {
                     Row(
                         Modifier.fillMaxWidth().toggleable(app.packageName in selection, role = Role.Checkbox) {
                             selection = if (it) selection + app.packageName else selection - app.packageName
@@ -508,8 +594,30 @@ internal fun ApplicationSelectionScreen(
             }
         }
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-            if (saveFailed) Text(stringResource(R.string.settings_save_failed), color = MaterialTheme.colorScheme.error)
-            Text(stringResource(if (dirty) R.string.unsaved_changes_title else R.string.alpha_app_selection_notice), style = MaterialTheme.typography.bodySmall)
+            AnimatedVisibility(
+                visible = saveFailed,
+                enter = fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) +
+                    expandVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)),
+                exit = fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing)) +
+                    shrinkVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.exitEasing)),
+            ) {
+                Text(stringResource(R.string.settings_save_failed), color = MaterialTheme.colorScheme.error)
+            }
+            // The hint over the save button switches between the unsaved-changes warning and the
+            // standing Alpha notice, so it cross fades instead of swapping text in place.
+            AnimatedContent(
+                targetState = dirty,
+                transitionSpec = {
+                    fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
+                        fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
+                },
+                label = "application-selection-hint",
+            ) { unsaved ->
+                Text(
+                    stringResource(if (unsaved) R.string.unsaved_changes_title else R.string.alpha_app_selection_notice),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             Button(
                 onClick = { saveFailed = !onSave(selection) },
                 enabled = applicationsLoaded && !applicationsLoadFailed && (onboarding || dirty),
@@ -588,13 +696,26 @@ private fun ApplicationSettingsScreen(
                 }))
             }
         }
-        if (mode == ApplicationOperationMode.CUSTOM) item {
-            OperationSwitches(custom) { actions = it.actions; replies = it.replies; clearing = it.clearing }
-        } else item {
-            Text(stringResource(R.string.effective_operations,
-                stringResource(if (effectivePermissions.actions) R.string.allowed else R.string.not_allowed),
-                stringResource(if (effectivePermissions.replies) R.string.allowed else R.string.not_allowed),
-                stringResource(if (effectivePermissions.clearing) R.string.allowed else R.string.not_allowed)))
+        // Choosing the custom mode swaps the effective-permission summary for the three switches, so
+        // the block cross fades and the list resizes with it.
+        item {
+            AnimatedContent(
+                targetState = mode == ApplicationOperationMode.CUSTOM,
+                transitionSpec = {
+                    fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
+                        fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
+                },
+                label = "application-operation-detail",
+            ) { customMode ->
+                if (customMode) {
+                    OperationSwitches(custom) { actions = it.actions; replies = it.replies; clearing = it.clearing }
+                } else {
+                    Text(stringResource(R.string.effective_operations,
+                        stringResource(if (effectivePermissions.actions) R.string.allowed else R.string.not_allowed),
+                        stringResource(if (effectivePermissions.replies) R.string.allowed else R.string.not_allowed),
+                        stringResource(if (effectivePermissions.clearing) R.string.allowed else R.string.not_allowed)))
+                }
+            }
         }
         item {
             if (failed) Text(stringResource(R.string.settings_save_failed), color = MaterialTheme.colorScheme.error)
@@ -641,13 +762,15 @@ private fun RecipientSelectionScreen(
                 leadingContent = {
                     Checkbox(checked = checked, onCheckedChange = null)
                 },
-                modifier = Modifier.toggleable(
-                    value = checked,
-                    role = Role.Checkbox,
-                    onValueChange = { value ->
-                        draft = if (value) draft + device.key else draft - device.key
-                    },
-                ),
+                modifier = Modifier
+                    .toggleable(
+                        value = checked,
+                        role = Role.Checkbox,
+                        onValueChange = { value ->
+                            draft = if (value) draft + device.key else draft - device.key
+                        },
+                    )
+                    .animateItem(),
             )
         }
         item {

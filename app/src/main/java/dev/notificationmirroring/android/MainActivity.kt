@@ -10,6 +10,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -342,80 +348,98 @@ private fun SevenMirrorApp(
     )
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        // Onboarding steps are hosted directly instead of inside the main Scaffold, so they have to
-        // declare their own window insets. Without this the application selection step draws under
-        // the navigation bar and its save button becomes untappable. The main screen keeps using the
-        // Scaffold padding, so each inset is applied exactly once.
-        val contentModifier = if (stage == OnboardingStage.COMPLETE) {
-            Modifier.fillMaxSize()
-        } else {
-            Modifier.fillMaxSize().safeDrawingPadding()
-        }
-        Box(contentModifier) {
-            when (stage) {
-                OnboardingStage.WELCOME -> WelcomeScreen(onContinue = onCompleteWelcome)
-                OnboardingStage.LOADING -> LoadingScreen()
-                OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
-                OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
-                    onRetry = transportCoordinator::retryConnection,
+        // An onboarding step is the next step of a sequence rather than a page pushed onto a stack,
+        // so it rises into place instead of sliding sideways the way the product pages do.
+        AnimatedContent(
+            targetState = stage,
+            transitionSpec = {
+                (
+                    fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) +
+                        slideInVertically(
+                            tween(AndroidMotion.PAGE_MILLIS, easing = AndroidMotion.enterEasing),
+                        ) { height -> (height * AndroidMotion.STEP_TRAVEL_FRACTION).toInt() }
+                    ) togetherWith fadeOut(
+                    tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing),
                 )
-                OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
-                    onOpenSettings = onOpenNotificationAccess,
-                    onCheckAgain = onRefreshNotificationAccess,
-                )
-                OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
-                    applications = applications,
-                    applicationsLoaded = applicationsLoaded,
-                    applicationsLoadFailed = applicationsLoadFailed,
-                    initialSelection = selectedPackages,
-                    onboarding = true,
-                    onSave = {
-                        try { onSaveOnboardingApplicationSelection(it); true } catch (_: RuntimeException) { false }
-                    },
-                    onReload = onReloadApplications,
-                    onConfigure = null,
-                    onDirtyChange = null,
-                )
-                OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
-                    statusNotificationAllowed = foregroundNotificationGranted,
-                    onEnable = { onDecideBackgroundSync(true) },
-                    onLater = { onDecideBackgroundSync(false) },
-                )
-                OnboardingStage.COMPLETE -> MainScreen(
-                    transportState = transportState,
-                    workspaceDevices = workspaceDevices,
-                    recipientSettings = recipientSettings,
-                    synchronizationPaused = synchronizationPaused,
-                    serverOrigin = serverOrigin,
-                    notificationAccessGranted = notificationAccessGranted,
-                    applications = applications,
-                    applicationsLoaded = applicationsLoaded,
-                    applicationsLoadFailed = applicationsLoadFailed,
-                    onReloadApplications = onReloadApplications,
-                    selectedPackages = selectedPackages,
-                    notificationSharingSettings = notificationSharingSettings,
-                    remoteOperationSettings = remoteOperationSettings,
-                    backgroundConnectionEnabled = backgroundConnectionEnabled,
-                    foregroundNotificationGranted = foregroundNotificationGranted,
-                    batteryOptimizationExempt = batteryOptimizationExempt,
-                    omittedNotificationCount = omittedNotificationCount,
-                    onSaveApplicationSelection = onSaveApplicationSelection,
-                    onSaveReceivingDevices = transportCoordinator::saveReceivingDevices,
-                    onSetSynchronizationPaused = transportCoordinator::setSynchronizationPaused,
-                    onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
-                    onSaveApplicationSettings = onSaveApplicationSettings,
-                    onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                    onOpenNotificationAccess = onOpenNotificationAccess,
-                    onReconnect = transportCoordinator::retryConnection,
-                    onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
-                    onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
-                    onOpenBatterySettings = onOpenBatterySettings,
-                    onPostDebugNotification = onPostDebugNotification,
-                )
-                OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
-                    recovery = securityRecovery,
-                    onReEnroll = transportCoordinator::reEnrollAfterRecovery,
-                )
+            },
+            label = "onboarding-stage",
+        ) { currentStage ->
+            // Onboarding steps are hosted directly instead of inside the main Scaffold, so each one
+            // has to declare its own window insets. Without this the application selection step draws
+            // under the navigation bar and its save button becomes untappable. The main screen keeps
+            // using the Scaffold padding, so every inset is still applied exactly once. The choice
+            // lives inside the transition so a leaving step keeps its insets while it animates out.
+            val contentModifier = if (currentStage == OnboardingStage.COMPLETE) {
+                Modifier.fillMaxSize()
+            } else {
+                Modifier.fillMaxSize().safeDrawingPadding()
+            }
+            Box(contentModifier) {
+                when (currentStage) {
+                    OnboardingStage.WELCOME -> WelcomeScreen(onContinue = onCompleteWelcome)
+                    OnboardingStage.LOADING -> LoadingScreen()
+                    OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
+                    OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
+                        onRetry = transportCoordinator::retryConnection,
+                    )
+                    OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
+                        onOpenSettings = onOpenNotificationAccess,
+                        onCheckAgain = onRefreshNotificationAccess,
+                    )
+                    OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
+                        applications = applications,
+                        applicationsLoaded = applicationsLoaded,
+                        applicationsLoadFailed = applicationsLoadFailed,
+                        initialSelection = selectedPackages,
+                        onboarding = true,
+                        onSave = {
+                            try { onSaveOnboardingApplicationSelection(it); true } catch (_: RuntimeException) { false }
+                        },
+                        onReload = onReloadApplications,
+                        onConfigure = null,
+                        onDirtyChange = null,
+                    )
+                    OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
+                        statusNotificationAllowed = foregroundNotificationGranted,
+                        onEnable = { onDecideBackgroundSync(true) },
+                        onLater = { onDecideBackgroundSync(false) },
+                    )
+                    OnboardingStage.COMPLETE -> MainScreen(
+                        transportState = transportState,
+                        workspaceDevices = workspaceDevices,
+                        recipientSettings = recipientSettings,
+                        synchronizationPaused = synchronizationPaused,
+                        serverOrigin = serverOrigin,
+                        notificationAccessGranted = notificationAccessGranted,
+                        applications = applications,
+                        applicationsLoaded = applicationsLoaded,
+                        applicationsLoadFailed = applicationsLoadFailed,
+                        onReloadApplications = onReloadApplications,
+                        selectedPackages = selectedPackages,
+                        notificationSharingSettings = notificationSharingSettings,
+                        remoteOperationSettings = remoteOperationSettings,
+                        backgroundConnectionEnabled = backgroundConnectionEnabled,
+                        foregroundNotificationGranted = foregroundNotificationGranted,
+                        batteryOptimizationExempt = batteryOptimizationExempt,
+                        omittedNotificationCount = omittedNotificationCount,
+                        onSaveApplicationSelection = onSaveApplicationSelection,
+                        onSaveReceivingDevices = transportCoordinator::saveReceivingDevices,
+                        onSetSynchronizationPaused = transportCoordinator::setSynchronizationPaused,
+                        onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
+                        onSaveApplicationSettings = onSaveApplicationSettings,
+                        onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                        onOpenNotificationAccess = onOpenNotificationAccess,
+                        onReconnect = transportCoordinator::retryConnection,
+                        onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
+                        onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
+                        onOpenBatterySettings = onOpenBatterySettings,
+                        onPostDebugNotification = onPostDebugNotification,
+                    )
+                    OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
+                        recovery = securityRecovery,
+                        onReEnroll = transportCoordinator::reEnrollAfterRecovery,
+                    )
+                }
             }
         }
     }
@@ -556,12 +580,23 @@ private fun ServerSetupScreen(transportCoordinator: AndroidTransportCoordinator)
                     Text(stringResource(R.string.submit_join_request))
                 }
             }
-            message?.let { resource ->
-                item {
-                    Text(
-                        stringResource(resource),
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                    )
+            item {
+                // Submitting clears the code and reports progress, success or failure in place, so the
+                // message cross fades instead of popping in.
+                AnimatedContent(
+                    targetState = message,
+                    transitionSpec = {
+                        fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
+                            fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
+                    },
+                    label = "registration-message",
+                ) { resource ->
+                    resource?.let {
+                        Text(
+                            stringResource(it),
+                            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                        )
+                    }
                 }
             }
         }
