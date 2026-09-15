@@ -150,6 +150,8 @@ class AndroidTransportCoordinator(context: Context) {
         workspaceMembershipStore,
         credentialStore,
     )
+    private val connectivityManager =
+        applicationContext.getSystemService(ConnectivityManager::class.java)
     private val executor = Executors.newSingleThreadScheduledExecutor { task ->
         Thread(task, "notification-transport").apply { isDaemon = true }
     }
@@ -168,6 +170,10 @@ class AndroidTransportCoordinator(context: Context) {
     private val diagnostics = TransportDiagnostics(state = { mutableState.value })
 
     private var webSocket: WebSocket? = null
+    // Route the current socket, or the in-flight connection attempt, is bound to. Null means no
+    // route is recorded, or the attempt is bound to no default network at all. Read and written
+    // only on the serialized executor, the same as the rest of the connection state below.
+    private var connectionRoute: NetworkRoute? = null
     private var reconnectFuture: ScheduledFuture<*>? = null
     private var resultDrainFuture: ScheduledFuture<*>? = null
     private var membershipRefreshFuture: ScheduledFuture<*>? = null
@@ -249,41 +255,42 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     init {
-        applicationContext.getSystemService(ConnectivityManager::class.java)
-            .registerDefaultNetworkCallback(
-                object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: Network) {
-                        diagnostics.record(
-                            CoordinatorDiagnosticEvent.NETWORK_AVAILABLE,
-                            generation.get(),
-                            networkHandle = network.networkHandle,
-                        )
-                        if (mutableState.value == AndroidTransportState.OFFLINE) {
-                            retryConnection()
-                        }
-                    }
+        connectivityManager.registerDefaultNetworkCallback(
+            object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    diagnostics.record(
+                        CoordinatorDiagnosticEvent.NETWORK_AVAILABLE,
+                        generation.get(),
+                        networkHandle = network.networkHandle,
+                    )
+                    executor.execute { considerNetworkRoute(currentNetworkRoute()) }
+                }
 
-                    override fun onLost(network: Network) {
-                        diagnostics.record(
-                            CoordinatorDiagnosticEvent.NETWORK_LOST,
-                            generation.get(),
-                            networkHandle = network.networkHandle,
-                        )
-                    }
+                override fun onLost(network: Network) {
+                    diagnostics.record(
+                        CoordinatorDiagnosticEvent.NETWORK_LOST,
+                        generation.get(),
+                        networkHandle = network.networkHandle,
+                    )
+                    executor.execute { considerNetworkRoute(currentNetworkRoute()) }
+                }
 
-                    override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                        diagnostics.record(
-                            CoordinatorDiagnosticEvent.NETWORK_CAPABILITIES_CHANGED,
-                            generation.get(),
-                            networkHandle = network.networkHandle,
-                            wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
-                            cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
-                            vpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
-                            validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
-                        )
-                    }
-                },
-            )
+                override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
+                    diagnostics.record(
+                        CoordinatorDiagnosticEvent.NETWORK_CAPABILITIES_CHANGED,
+                        generation.get(),
+                        networkHandle = network.networkHandle,
+                        wifi = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI),
+                        cellular = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR),
+                        vpn = capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN),
+                        validated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED),
+                    )
+                    // A route can be replaced without a network arriving or departing, so this
+                    // callback decides a retirement too. See considerNetworkRoute.
+                    executor.execute { considerNetworkRoute(currentNetworkRoute()) }
+                }
+            },
+        )
     }
 
     /** Each visible Activity or running foreground Service holds its own connection ownership. */
@@ -315,6 +322,70 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
+    /**
+     * A socket's route belongs to whatever the default network was when its TCP connection was
+     * opened. Android does not close it when that route changes: the socket stays open on a path
+     * that no longer carries traffic, and neither the socket nor the platform reports it for tens
+     * of seconds. The controlled Wi-Fi recovery trace waited 72.25 s after the transport moved back
+     * to Wi-Fi, while reconnecting once the change is seen takes under a second.
+     *
+     * Decide on the route's identity rather than on the socket. That identity is the default
+     * network's handle together with its transports, because a handle alone is not enough when a
+     * VPN owns the default network: the VPN keeps one handle while the transport underneath it
+     * changes. The same trace showed exactly that, one VPN handle across a Wi-Fi to cellular
+     * switch while its transports flipped from WIFI|VPN to CELLULAR|VPN.
+     *
+     * Signal strength, bandwidth estimates, metering and validation are deliberately not part of
+     * the identity. They change on an unchanged route, and treating them as route changes would
+     * retire a healthy connection.
+     */
+    private fun considerNetworkRoute(route: NetworkRoute?) {
+        if (!hasConnectionOwner()) return
+        val current = mutableState.value
+        if (current != AndroidTransportState.ONLINE &&
+            current != AndroidTransportState.CONNECTING &&
+            current != AndroidTransportState.OFFLINE
+        ) return
+        if (route == connectionRoute) return
+        connectionRoute = route
+        if (current == AndroidTransportState.OFFLINE) {
+            // Nothing is bound to the route that went away, so a route that exists is simply a
+            // reason to try again. Adopting it keeps a repeat callback from asking twice.
+            if (route != null) retryConnection()
+            return
+        }
+        diagnostics.record(
+            CoordinatorDiagnosticEvent.CONNECTION_NETWORK_REPLACED,
+            generation.get(),
+            networkHandle = route?.handle,
+            wifi = route?.hasTransport(TRANSPORT_WIFI),
+            cellular = route?.hasTransport(TRANSPORT_CELLULAR),
+            vpn = route?.hasTransport(TRANSPORT_VPN),
+        )
+        // Retiring through the ordinary request path keeps everything an existing reconnect
+        // already guarantees: the generation is superseded, a pending reconnect is canceled, the
+        // backoff restarts for the new route, the connection-owner requirement still applies, and
+        // the superseded socket is closed.
+        retryConnection()
+    }
+
+    /** The route a new connection would use right now, or null when no default network is up. */
+    private fun currentNetworkRoute(): NetworkRoute? {
+        val network = connectivityManager.activeNetwork ?: return null
+        val capabilities = connectivityManager.getNetworkCapabilities(network)
+        return NetworkRoute(network.networkHandle, capabilities?.let(::transportMask) ?: 0)
+    }
+
+    private fun transportMask(capabilities: NetworkCapabilities): Int {
+        var mask = 0
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) mask = mask or TRANSPORT_WIFI
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) mask = mask or TRANSPORT_CELLULAR
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) mask = mask or TRANSPORT_ETHERNET
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) mask = mask or TRANSPORT_BLUETOOTH
+        if (capabilities.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) mask = mask or TRANSPORT_VPN
+        return mask
+    }
+
     private fun disconnect() {
         generation.incrementAndGet()
         executor.execute {
@@ -322,6 +393,7 @@ class AndroidTransportCoordinator(context: Context) {
             cancelMembershipRefresh()
             webSocket?.close(1000, "connection owners released")
             webSocket = null
+            connectionRoute = null
             if (mutableState.value != AndroidTransportState.NOT_CONFIGURED &&
                 mutableState.value != AndroidTransportState.SECURITY_ERROR
             ) {
@@ -568,6 +640,10 @@ class AndroidTransportCoordinator(context: Context) {
                 handlers.clearIdentities()
                 return
             }
+            // Bind this attempt to the route its TCP connection will use. Recorded after the
+            // routing work above, so an attempt that failed before reaching the socket does not
+            // claim a route it never used.
+            connectionRoute = currentNetworkRoute()
             mutableState.value = AndroidTransportState.CONNECTING
             val receivedSno1 = AtomicBoolean(false)
             // Bind observations to this attempt, including callbacks arriving after replacement.

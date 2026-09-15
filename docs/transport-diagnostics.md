@@ -23,10 +23,19 @@ client's connection pool/dispatcher and keeps the existing redirect restrictions
 ## Interpreting a recovery
 
 - `NETWORK_AVAILABLE`, `NETWORK_LOST`, `NETWORK_CAPABILITIES_CHANGED` are default
-  network callbacks for this application. Capabilities are taken from the
-  callback, not queried synchronously during `onAvailable`. These callbacks do
-  not enumerate every physical network. In particular, VPN flags are not proof
-  of an underlying route's exact transition time.
+  network callbacks for this application. These callbacks do not enumerate every
+  physical network, and a VPN that owns the default network keeps its handle while
+  the transport underneath it changes. The route identity used for retirement is
+  therefore a handle plus its transports; see `background-connection.md`.
+- `CONNECTION_NETWORK_REPLACED` is recorded when the route a live connection is
+  bound to no longer matches the current one, and the connection is retired for
+  that reason. It can be the only event reporting a transition: when a VPN owns the
+  default network the handle never changes, and the preceding
+  `NETWORK_CAPABILITIES_CHANGED` carries the `network`, `wifi`, `cellular` and
+  `vpn` fields that show it. The `network` field is absent when no default network
+  remains. Detection time is the gap from the callback reporting the change to this
+  event; the gap from here to the following `CONNECTION_READY` is an ordinary
+  reconnect and is not part of it.
 - `CONNECTION_REQUESTED` to `CONNECTION_ATTEMPT` with the same `gen` measures the
   wait before a requested attempt begins on the serialized executor. A request
   superseded by a newer generation may have no attempt.
@@ -54,8 +63,10 @@ client's connection pool/dispatcher and keeps the existing redirect restrictions
 
 Use differences of `t_ms` within the same device boot, not uncalibrated timestamps
 from another machine. Absence of a callback alone does not establish the cause
-of an outage. This instrumentation does not change network retry eligibility,
-heartbeat/timeouts, backoff, executor ownership, or membership behavior.
+of an outage. The recording API adds no retry eligibility, heartbeat/timeout,
+backoff, executor ownership, or membership behavior of its own. Default network
+identity does retire a stale connection, but that rule lives in the coordinator
+and is described in `background-connection.md`, not in this instrumentation.
 
 ## Capture and acceptance
 
