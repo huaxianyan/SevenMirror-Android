@@ -113,6 +113,8 @@
     <string name="security_error_recovery">Ask the server administrator to remove this device from the workspace, then reopen SevenMirror.</string>
     <string name="device_removed_title">This device has been removed</string>
     <string name="device_removed_body">The server administrator removed this device. Register it again and obtain approval to continue using SevenMirror.</string>
+    <string name="unreadable_credential_title">Saved access information cannot be read</string>
+    <string name="unreadable_credential_body">SevenMirror cannot decrypt the workspace access information saved on this device, because the system key that protected it is no longer available. This happens when the application data is cleared. Register this device again to continue; if the workspace still lists this device, ask the administrator to remove the old entry.</string>
     <string name="re_enroll_device">Register this device again</string>
     <string name="re_enroll_confirmation_title">Register this device again?</string>
     <string name="re_enroll_confirmation_body">SevenMirror will remove the workspace access information saved on this device. Your application selection and remote operation settings will remain. You will need a new joining code and administrator approval.</string>

@@ -103,6 +103,7 @@ enum class AndroidTransportState {
 enum class AndroidSecurityRecovery {
     NONE,
     CERTIFIED_DEVICE_REMOVAL,
+    UNREADABLE_LOCAL_CREDENTIAL,
 }
 
 internal fun securityRecoveryForLocalMembership(
@@ -112,6 +113,17 @@ internal fun securityRecoveryForLocalMembership(
 } else {
     AndroidSecurityRecovery.NONE
 }
+
+/**
+ * Recovery for stored credential material that this device can no longer read or decrypt.
+ *
+ * The Android Keystore wrapping key lives outside the application data directory, so it is not part
+ * of any data backup and cannot be restored. Once the credential can no longer be decrypted the
+ * device can never revalidate itself, and it cannot contact the server to observe a removal either.
+ * Registering the device again is the only exit.
+ */
+internal fun securityRecoveryForUnreadableCredential(): AndroidSecurityRecovery =
+    AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL
 
 /** Process-lifetime transport owner with serialized, fail-closed encrypted action dispatch. */
 class AndroidTransportCoordinator(context: Context) {
@@ -368,8 +380,15 @@ class AndroidTransportCoordinator(context: Context) {
         }
     }
 
-    fun reEnrollAfterCertifiedRemoval() {
+    /**
+     * User-initiated exit from a security error. The local workspace credential is discarded and
+     * enrollment restarts, which still requires a server-issued joining code and administrator
+     * approval, so it grants no local privilege. It is offered for every security-error recovery
+     * because none of them can be repaired on this device alone.
+     */
+    fun reEnrollAfterRecovery() {
         val requestedGeneration = generation.incrementAndGet()
+        val wasSecurityError = mutableState.value == AndroidTransportState.SECURITY_ERROR
         mutableState.value = AndroidTransportState.INITIALIZING
         executor.execute {
             cancelReconnect()
@@ -377,9 +396,7 @@ class AndroidTransportCoordinator(context: Context) {
             webSocket?.close(1000, "device re-enrollment")
             webSocket = null
             try {
-                check(mutableSecurityRecovery.value == AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL) {
-                    "Re-enrollment requires a certified device removal"
-                }
+                check(wasSecurityError) { "Re-enrollment requires a security error on this device" }
                 productPreferences.beginCertifiedReEnrollmentReset()
                 completeCertifiedReEnrollmentReset()
                 connectInternal(requestedGeneration)
@@ -460,6 +477,10 @@ class AndroidTransportCoordinator(context: Context) {
         val candidate = try {
             credentialStore.loadConnectionCandidate(preferCurrentFallback)
         } catch (_: Throwable) {
+            // Stored credential material cannot be read or decrypted on this device, for example
+            // because the Keystore wrapping key disappeared together with the application data.
+            // Such a key is not part of any data backup, so this device can never revalidate itself.
+            mutableSecurityRecovery.value = securityRecoveryForUnreadableCredential()
             mutableState.value = AndroidTransportState.SECURITY_ERROR
             return
         }

@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Base64
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import java.security.KeyStore
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -94,6 +96,36 @@ class AndroidTransportCredentialStoreInstrumentedTest {
 
             check(preferences.edit().putString("rotation_phase", "ATTEMPTED").commit())
             assertThrows(IllegalStateException::class.java) { reconstructed.load() }
+        } finally {
+            store.clear()
+        }
+    }
+
+    @Test
+    fun deletedWrappingKeyMakesStoredCredentialUnreadable() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "instrumented-missing-key-${System.nanoTime()}"
+        val store = AndroidTransportCredentialStore(context, name)
+        val alias = "syncnotifications.transport.wrap.$name"
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        store.clear()
+        val credential = StoredTransportCredential(
+            serverOrigin = "https://notify.example",
+            workspaceId = ByteArray(16) { 1 },
+            deviceId = ByteArray(16) { 2 },
+            authToken = ByteArray(32) { 3 },
+            identityKeyId = ByteArray(32) { 4 },
+        )
+        try {
+            store.saveNew(credential)
+            assertArrayEquals(credential.authToken, store.load()?.authToken)
+
+            // Clearing the application data removes this key while leaving the credential files
+            // behind, which is the state that used to strand the client without a way to register.
+            assertTrue(keyStore.containsAlias(alias))
+            keyStore.deleteEntry(alias)
+            assertThrows(IllegalStateException::class.java) { store.load() }
+            assertThrows(IllegalStateException::class.java) { store.loadConnectionCandidate() }
         } finally {
             store.clear()
         }

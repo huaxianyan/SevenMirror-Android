@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
@@ -341,70 +342,81 @@ private fun SevenMirrorApp(
     )
 
     Surface(modifier = Modifier.fillMaxSize()) {
-        when (stage) {
-            OnboardingStage.WELCOME -> WelcomeScreen(onContinue = onCompleteWelcome)
-            OnboardingStage.LOADING -> LoadingScreen()
-            OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
-            OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
-                onRetry = transportCoordinator::retryConnection,
-            )
-            OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
-                onOpenSettings = onOpenNotificationAccess,
-                onCheckAgain = onRefreshNotificationAccess,
-            )
-            OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
-                applications = applications,
-                applicationsLoaded = applicationsLoaded,
-                applicationsLoadFailed = applicationsLoadFailed,
-                initialSelection = selectedPackages,
-                onboarding = true,
-                onSave = {
-                    try { onSaveOnboardingApplicationSelection(it); true } catch (_: RuntimeException) { false }
-                },
-                onReload = onReloadApplications,
-                onConfigure = null,
-                onDirtyChange = null,
-            )
-            OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
-                statusNotificationAllowed = foregroundNotificationGranted,
-                onEnable = { onDecideBackgroundSync(true) },
-                onLater = { onDecideBackgroundSync(false) },
-            )
-            OnboardingStage.COMPLETE -> MainScreen(
-                transportState = transportState,
-                workspaceDevices = workspaceDevices,
-                recipientSettings = recipientSettings,
-                synchronizationPaused = synchronizationPaused,
-                serverOrigin = serverOrigin,
-                notificationAccessGranted = notificationAccessGranted,
-                applications = applications,
-                applicationsLoaded = applicationsLoaded,
-                applicationsLoadFailed = applicationsLoadFailed,
-                onReloadApplications = onReloadApplications,
-                selectedPackages = selectedPackages,
-                notificationSharingSettings = notificationSharingSettings,
-                remoteOperationSettings = remoteOperationSettings,
-                backgroundConnectionEnabled = backgroundConnectionEnabled,
-                foregroundNotificationGranted = foregroundNotificationGranted,
-                batteryOptimizationExempt = batteryOptimizationExempt,
-                omittedNotificationCount = omittedNotificationCount,
-                onSaveApplicationSelection = onSaveApplicationSelection,
-                onSaveReceivingDevices = transportCoordinator::saveReceivingDevices,
-                onSetSynchronizationPaused = transportCoordinator::setSynchronizationPaused,
-                onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
-                onSaveApplicationSettings = onSaveApplicationSettings,
-                onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
-                onOpenNotificationAccess = onOpenNotificationAccess,
-                onReconnect = transportCoordinator::retryConnection,
-                onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
-                onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
-                onOpenBatterySettings = onOpenBatterySettings,
-                onPostDebugNotification = onPostDebugNotification,
-            )
-            OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
-                recovery = securityRecovery,
-                onReEnroll = transportCoordinator::reEnrollAfterCertifiedRemoval,
-            )
+        // Onboarding steps are hosted directly instead of inside the main Scaffold, so they have to
+        // declare their own window insets. Without this the application selection step draws under
+        // the navigation bar and its save button becomes untappable. The main screen keeps using the
+        // Scaffold padding, so each inset is applied exactly once.
+        val contentModifier = if (stage == OnboardingStage.COMPLETE) {
+            Modifier.fillMaxSize()
+        } else {
+            Modifier.fillMaxSize().safeDrawingPadding()
+        }
+        Box(contentModifier) {
+            when (stage) {
+                OnboardingStage.WELCOME -> WelcomeScreen(onContinue = onCompleteWelcome)
+                OnboardingStage.LOADING -> LoadingScreen()
+                OnboardingStage.SERVER -> ServerSetupScreen(transportCoordinator)
+                OnboardingStage.WAITING_FOR_APPROVAL -> ApprovalScreen(
+                    onRetry = transportCoordinator::retryConnection,
+                )
+                OnboardingStage.NOTIFICATION_ACCESS -> NotificationAccessScreen(
+                    onOpenSettings = onOpenNotificationAccess,
+                    onCheckAgain = onRefreshNotificationAccess,
+                )
+                OnboardingStage.APPLICATIONS -> ApplicationSelectionScreen(
+                    applications = applications,
+                    applicationsLoaded = applicationsLoaded,
+                    applicationsLoadFailed = applicationsLoadFailed,
+                    initialSelection = selectedPackages,
+                    onboarding = true,
+                    onSave = {
+                        try { onSaveOnboardingApplicationSelection(it); true } catch (_: RuntimeException) { false }
+                    },
+                    onReload = onReloadApplications,
+                    onConfigure = null,
+                    onDirtyChange = null,
+                )
+                OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
+                    statusNotificationAllowed = foregroundNotificationGranted,
+                    onEnable = { onDecideBackgroundSync(true) },
+                    onLater = { onDecideBackgroundSync(false) },
+                )
+                OnboardingStage.COMPLETE -> MainScreen(
+                    transportState = transportState,
+                    workspaceDevices = workspaceDevices,
+                    recipientSettings = recipientSettings,
+                    synchronizationPaused = synchronizationPaused,
+                    serverOrigin = serverOrigin,
+                    notificationAccessGranted = notificationAccessGranted,
+                    applications = applications,
+                    applicationsLoaded = applicationsLoaded,
+                    applicationsLoadFailed = applicationsLoadFailed,
+                    onReloadApplications = onReloadApplications,
+                    selectedPackages = selectedPackages,
+                    notificationSharingSettings = notificationSharingSettings,
+                    remoteOperationSettings = remoteOperationSettings,
+                    backgroundConnectionEnabled = backgroundConnectionEnabled,
+                    foregroundNotificationGranted = foregroundNotificationGranted,
+                    batteryOptimizationExempt = batteryOptimizationExempt,
+                    omittedNotificationCount = omittedNotificationCount,
+                    onSaveApplicationSelection = onSaveApplicationSelection,
+                    onSaveReceivingDevices = transportCoordinator::saveReceivingDevices,
+                    onSetSynchronizationPaused = transportCoordinator::setSynchronizationPaused,
+                    onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
+                    onSaveApplicationSettings = onSaveApplicationSettings,
+                    onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,
+                    onOpenNotificationAccess = onOpenNotificationAccess,
+                    onReconnect = transportCoordinator::retryConnection,
+                    onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
+                    onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
+                    onOpenBatterySettings = onOpenBatterySettings,
+                    onPostDebugNotification = onPostDebugNotification,
+                )
+                OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
+                    recovery = securityRecovery,
+                    onReEnroll = transportCoordinator::reEnrollAfterRecovery,
+                )
+            }
         }
     }
 }
@@ -655,12 +667,21 @@ private fun BackgroundSyncScreen(
 }
 
 @Composable
-private fun SecurityErrorScreen(
+internal fun SecurityErrorScreen(
     recovery: AndroidSecurityRecovery,
     onReEnroll: () -> Unit,
 ) {
     var showReEnrollmentConfirmation by rememberSaveable { mutableStateOf(false) }
-    val certifiedRemoval = recovery == AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL
+    val title = when (recovery) {
+        AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL -> R.string.device_removed_title
+        AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL -> R.string.unreadable_credential_title
+        AndroidSecurityRecovery.NONE -> R.string.security_error_title
+    }
+    val body = when (recovery) {
+        AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL -> R.string.device_removed_body
+        AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL -> R.string.unreadable_credential_body
+        AndroidSecurityRecovery.NONE -> R.string.stored_state_security_error
+    }
 
     Page { modifier ->
         Column(
@@ -668,27 +689,20 @@ private fun SecurityErrorScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                stringResource(
-                    if (certifiedRemoval) R.string.device_removed_title
-                    else R.string.security_error_title,
-                ),
+                stringResource(title),
                 modifier = Modifier.semantics { heading() },
                 style = MaterialTheme.typography.headlineMedium,
             )
-            Text(
-                stringResource(
-                    if (certifiedRemoval) R.string.device_removed_body
-                    else R.string.stored_state_security_error,
-                ),
-            )
-            if (certifiedRemoval) {
-                Button(onClick = { showReEnrollmentConfirmation = true }) {
-                    Text(stringResource(R.string.re_enroll_device))
-                }
-            } else {
+            Text(stringResource(body))
+            if (recovery == AndroidSecurityRecovery.NONE) {
                 Card {
                     Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp))
                 }
+            }
+            // Registering again always stays available: no security error can be repaired on this
+            // device alone, and it still needs a joining code plus administrator approval.
+            Button(onClick = { showReEnrollmentConfirmation = true }) {
+                Text(stringResource(R.string.re_enroll_device))
             }
         }
     }

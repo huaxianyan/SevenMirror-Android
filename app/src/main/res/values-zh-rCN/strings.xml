@@ -109,6 +109,8 @@
     <string name="security_error_recovery">请让服务器管理员先从工作区移除这台设备，然后重新打开 SevenMirror。</string>
     <string name="device_removed_title">这台设备已被移除</string>
     <string name="device_removed_body">服务器管理员已移除这台设备。再次使用 SevenMirror 需要重新注册并获得批准。</string>
+    <string name="unreadable_credential_title">保存的访问资料无法解读</string>
+    <string name="unreadable_credential_body">SevenMirror 无法用这台设备的系统密钥解开已保存的工作区访问资料，通常是因为应用数据被清除后系统密钥不再存在。继续使用需要重新注册此设备。如果工作区里仍然列着这台设备，请让管理员先移除旧记录。</string>
     <string name="re_enroll_device">重新注册此设备</string>
     <string name="re_enroll_confirmation_title">重新注册此设备？</string>
     <string name="re_enroll_confirmation_body">SevenMirror 将移除这台设备保存的工作区访问资料。应用选择和远程操作设置会保留。接下来需要新的加入码和管理员批准。</string>

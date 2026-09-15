@@ -296,13 +296,21 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
-    fun `only certified device removal offers re-enrollment`() {
+    fun `local membership decides between certified removal and the generic security error`() {
         assertEquals(
             AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL,
             securityRecoveryForLocalMembership(false),
         )
         assertEquals(AndroidSecurityRecovery.NONE, securityRecoveryForLocalMembership(true))
         assertEquals(AndroidSecurityRecovery.NONE, securityRecoveryForLocalMembership(null))
+    }
+
+    @Test
+    fun `credential material this device cannot decrypt has its own recovery`() {
+        assertEquals(
+            AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL,
+            securityRecoveryForUnreadableCredential(),
+        )
     }
 
     @Test
