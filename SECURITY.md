@@ -1,8 +1,10 @@
 # Security policy
 
 SevenMirror Android has no production release or supported stable version. The
-current `0.1.x-dev` code is provisional, and real third-party notification
-transport remains disabled.
+current `0.1.x-dev` code is provisional. Third-party notification transport is
+implemented but is not approved by any reviewed release: it transmits content
+only for packages the phone user explicitly selects, and the documented release
+gates and independent security review remain outstanding.
 
 Do not open a public issue, discussion, or pull request for a suspected
 vulnerability. Submit an [Android private vulnerability report](https://github.com/huaxianyan/SevenMirror-Android/security/advisories/new).
