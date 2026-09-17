@@ -80,6 +80,48 @@ class WorkspaceMembershipClientTest {
     }
 
     @Test
+    fun adoptsTheRenamedLocalCertificatePublishedInTheRoster() {
+        val vector = Vector.load()
+        val server = MockWebServer()
+        server.enqueue(jsonResponse(200, """{
+            "state":"approved","authority_public_key":"${b64(vector.authority)}","authority_transitions":[],
+            "signed_certificate":"${b64(vector.certificate)}","rosters":["${b64(vector.initialRoster)}"],
+            "latest_roster_epoch":"1"
+        }"""))
+        server.enqueue(jsonResponse(200, """{
+            "state":"approved","authority_public_key":"${b64(vector.authority)}","authority_transitions":[],
+            "signed_certificate":"${b64(vector.renamedCertificate)}","rosters":["${b64(vector.renameRoster)}"],
+            "latest_roster_epoch":"2"
+        }"""))
+        server.start()
+        val store = FakeTrustStore(vector)
+        try {
+            store.pinAuthority(vector.workspaceId, vector.deviceId, vector.authority)
+            val credential = StoredTransportCredential(
+                server.url("/").toString().removeSuffix("/"),
+                vector.workspaceId,
+                vector.deviceId,
+                ByteArray(32) { 8 },
+                vector.identityKeyId,
+            )
+            val client = WorkspaceMembershipClient(OkHttpClient(), store, FakePendingStore())
+            assertTrue(checkNotNull(client.refreshActive(credential)).transportEligible)
+            assertEquals(1, store.proposedCertificates.size)
+            assertArrayEquals(vector.certificate, store.proposedCertificates.last())
+
+            val renamed = checkNotNull(client.refreshActive(credential))
+            assertTrue(renamed.transportEligible)
+            assertEquals(2L, renamed.state.rosterEpoch)
+            assertTrue(server.takeRequest().body.readUtf8().contains("\"after_roster_epoch\":\"0\""))
+            assertTrue(server.takeRequest().body.readUtf8().contains("\"after_roster_epoch\":\"1\""))
+            assertArrayEquals(vector.renamedCertificate, store.proposedCertificates.last())
+            assertArrayEquals(vector.renamedCertificate, renamed.state.signedCertificate)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun exactProofResumesAfterAmbiguousAttempt() {
         val vector = Vector.load()
         val server = MockWebServer()
@@ -137,6 +179,7 @@ class WorkspaceMembershipClientTest {
 
     private class FakeTrustStore(private val vector: Vector) : WorkspaceMembershipTrustStore {
         var state: AndroidWorkspaceMembershipStore.State? = null
+        val proposedCertificates = mutableListOf<ByteArray>()
         override fun pinAuthority(workspaceId: ByteArray, deviceId: ByteArray, authorityPublicKey: ByteArray): AndroidWorkspaceMembershipStore.PinResult {
             val current = state
             if (current != null) {
@@ -148,16 +191,18 @@ class WorkspaceMembershipClientTest {
         }
         override fun reconcileApproved(workspaceId: ByteArray, deviceId: ByteArray, signedCertificate: ByteArray, signedRoster: ByteArray): AndroidWorkspaceMembershipStore.ReconcileResult {
             val current = checkNotNull(state)
-            val epoch = when {
-                signedRoster.contentEquals(vector.initialRoster) -> 1L
-                signedRoster.contentEquals(vector.revokedRoster) -> 2L
+            val (epoch, active) = when {
+                signedRoster.contentEquals(vector.initialRoster) -> 1L to true
+                signedRoster.contentEquals(vector.renameRoster) -> 2L to true
+                signedRoster.contentEquals(vector.revokedRoster) -> 2L to false
                 else -> error("Unexpected test roster")
             }
+            proposedCertificates += signedCertificate.copyOf()
             state = AndroidWorkspaceMembershipStore.State(
                 workspaceId.copyOf(), deviceId.copyOf(), current.authorityPublicKey.copyOf(),
                 current.authorityEpoch, current.authorityTransitionDigest.copyOf(),
                 signedCertificate.copyOf(), epoch, ByteArray(32) { epoch.toByte() },
-                signedRoster.copyOf(), epoch == 1L,
+                signedRoster.copyOf(), active,
             )
             return AndroidWorkspaceMembershipStore.ReconcileResult.APPLIED
         }
@@ -182,6 +227,7 @@ class WorkspaceMembershipClientTest {
         val certificate: ByteArray, val initialRoster: ByteArray, val revokedRoster: ByteArray,
         val newAuthority: ByteArray, val authorityTransition: ByteArray, val transitionDigest: ByteArray,
         val activationCertificate: ByteArray, val activationRoster: ByteArray, val activationRosterDigest: ByteArray,
+        val renamedCertificate: ByteArray, val renameRoster: ByteArray,
     ) {
         companion object {
             fun load(): Vector {
@@ -189,7 +235,8 @@ class WorkspaceMembershipClientTest {
                 fun hex(name: String): ByteArray { val value = checkNotNull(Regex("\\\"$name\\\"\\s*:\\s*\\\"([0-9a-f]+)\\\"").find(text)?.groupValues?.get(1)); return value.chunked(2).map { it.toInt(16).toByte() }.toByteArray() }
                 return Vector(hex("authorityPublicKeyHex"), hex("workspaceIdHex"), hex("deviceIdHex"), hex("identityPrivateScalarHex"), hex("identityPublicKeyHex"), hex("identityKeyIdHex"), hex("possessionHpkeEncapsulatedKeyHex"), hex("possessionHpkeCiphertextHex"), hex("proofEncodedHex"), hex("certificateEncodedHex"), hex("initialRosterEncodedHex"), hex("revokedRosterEncodedHex"),
                     hex("newAuthorityPublicKeyHex"), hex("authorityTransitionEncodedHex"), hex("authorityTransitionDigestHex"),
-                    hex("authorityActivationCertificateEncodedHex"), hex("authorityActivationRosterEncodedHex"), hex("authorityActivationRosterDigestHex"))
+                    hex("authorityActivationCertificateEncodedHex"), hex("authorityActivationRosterEncodedHex"), hex("authorityActivationRosterDigestHex"),
+                    hex("renamedCertificateEncodedHex"), hex("renameRosterEncodedHex"))
             }
         }
     }

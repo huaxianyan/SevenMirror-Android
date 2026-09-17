@@ -3,6 +3,7 @@ package dev.notificationmirroring.crypto
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -25,6 +26,32 @@ class WorkspaceMembershipV1Test {
         assertArrayEquals(vector.proofEncoded, WorkspaceMembershipV1.createProof(vector.challengeEncoded))
         assertArrayEquals(vector.proofEncoded, proof.toByteArray())
         assertArrayEquals(challenge.challengeSecret.toByteArray(), proof.challengeSecret.toByteArray())
+    }
+
+    @Test
+    fun inspectsTheLocalCertificateCarriedByARoster() {
+        assertArrayEquals(
+            vector.certificateEncoded,
+            WorkspaceMembershipV1.inspectRosterLocalCertificate(
+                vector.initialRosterEncoded,
+                vector.deviceId,
+            ),
+        )
+        assertArrayEquals(
+            vector.renamedCertificateEncoded,
+            WorkspaceMembershipV1.inspectRosterLocalCertificate(
+                vector.renameRosterEncoded,
+                vector.deviceId,
+            ),
+        )
+        assertEquals(1L, WorkspaceMembershipV1.inspectRosterEpoch(vector.initialRosterEncoded))
+        assertEquals(2L, WorkspaceMembershipV1.inspectRosterEpoch(vector.renameRosterEncoded))
+        assertNull(
+            WorkspaceMembershipV1.inspectRosterLocalCertificate(
+                vector.initialRosterEncoded,
+                ByteArray(16) { 7 },
+            ),
+        )
     }
 
     @Test

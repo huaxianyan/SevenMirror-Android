@@ -139,6 +139,22 @@ object WorkspaceMembershipV1 {
         }.roster.rosterEpoch
     }
 
+    /**
+     * Returns this device's own certificate as carried by [encoded], without verifying the roster
+     * signature: the caller must propose it to an authority-checked reconcile step, which is what
+     * admits an administrator display-name replacement.
+     */
+    fun inspectRosterLocalCertificate(encoded: ByteArray, deviceId: ByteArray): ByteArray? {
+        validateSize(encoded)
+        validateWire(encoded, Wire.SIGNED_ROSTER)
+        val roster = SignedWorkspaceRoster.parseFrom(encoded).also {
+            require(it.toByteArray().contentEquals(encoded)) { "Roster is not canonically encoded" }
+        }
+        return roster.roster.activeCertificatesList.singleOrNull {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), deviceId)
+        }?.toByteArray()
+    }
+
     fun requireTransportCertificateBinding(
         encoded: ByteArray,
         authorityPublicKey: ByteArray,

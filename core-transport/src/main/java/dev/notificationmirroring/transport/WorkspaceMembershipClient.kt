@@ -216,10 +216,18 @@ class WorkspaceMembershipClient(
                         pending.workspaceId, pending.deviceId, transition.first, roster,
                     )
                 } else {
+                    // Adopt this epoch's own certificate from the roster: an administrator rename
+                    // replaces it, and the trust store accepts the replacement only through an exact
+                    // display-name transition verified against the durable predecessor roster.
+                    // Absent from the roster means keep the old certificate.
+                    val proposed = WorkspaceMembershipV1.inspectRosterLocalCertificate(
+                        roster,
+                        pending.deviceId,
+                    ) ?: current.signedCertificate ?: certificate
                     trustStore.reconcileApproved(
                         pending.workspaceId,
                         pending.deviceId,
-                        current.signedCertificate ?: certificate,
+                        proposed,
                         roster,
                     )
                 }
