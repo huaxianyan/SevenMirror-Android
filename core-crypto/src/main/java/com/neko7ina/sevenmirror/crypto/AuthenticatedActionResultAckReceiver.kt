@@ -1,7 +1,7 @@
 package com.neko7ina.sevenmirror.crypto
 
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
 
 class ActionResultAckRejectedException(val code: Code) : Exception(code.name) {

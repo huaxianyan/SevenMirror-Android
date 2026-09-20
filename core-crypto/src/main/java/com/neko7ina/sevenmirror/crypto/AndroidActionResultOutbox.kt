@@ -5,7 +5,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
 
 /** Durable canonical results waiting for bounded recipient-specific encryption/send attempts. */

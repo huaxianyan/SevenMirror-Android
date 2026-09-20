@@ -14,7 +14,7 @@ import com.neko7ina.sevenmirror.crypto.EnvelopeRecipientContext
 import com.neko7ina.sevenmirror.crypto.EnvelopeRejectedException
 import com.neko7ina.sevenmirror.protocol.EncryptedEnvelopeCodecV1
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
 
 class ActionSenderNotAuthorizedException : Exception("ACTION_SENDER_NOT_AUTHORIZED")

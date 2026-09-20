@@ -5,9 +5,9 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.ByteString
 import com.neko7ina.sevenmirror.crypto.AndroidWorkspaceMembershipStore
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
-import dev.notificationmirroring.protocol.generated.membership.v1.SignedDeviceCertificate
-import dev.notificationmirroring.protocol.generated.membership.v1.SignedWorkspaceRoster
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceType
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.SignedDeviceCertificate
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.SignedWorkspaceRoster
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.UUID

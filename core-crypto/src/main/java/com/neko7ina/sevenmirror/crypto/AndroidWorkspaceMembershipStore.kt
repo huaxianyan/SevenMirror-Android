@@ -4,9 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceCertificate
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceRole
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceType
 import java.security.MessageDigest
 
 data class WorkspaceNotificationRecipient(

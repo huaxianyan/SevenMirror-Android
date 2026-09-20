@@ -25,9 +25,9 @@ import com.neko7ina.sevenmirror.notification.NotificationMediaMimeType
 import com.neko7ina.sevenmirror.notification.NotificationSnapshot
 import com.neko7ina.sevenmirror.notification.RemoteOperationAuthorizer
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor as ProtocolNotificationActionDescriptor
-import dev.notificationmirroring.protocol.generated.v1.NotificationMedia as ProtocolNotificationMedia
-import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType as ProtocolNotificationMediaMimeType
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationActionDescriptor as ProtocolNotificationActionDescriptor
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationMedia as ProtocolNotificationMedia
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationMediaMimeType as ProtocolNotificationMediaMimeType
 import com.neko7ina.sevenmirror.transport.AndroidMembershipRegistration
 import com.neko7ina.sevenmirror.transport.AndroidTransportCredentialStore
 import com.neko7ina.sevenmirror.transport.AndroidPendingMembershipStore

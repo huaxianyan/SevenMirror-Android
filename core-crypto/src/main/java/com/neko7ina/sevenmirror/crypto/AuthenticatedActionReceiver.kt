@@ -2,10 +2,10 @@ package com.neko7ina.sevenmirror.crypto
 
 import com.google.protobuf.ByteString
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
-import dev.notificationmirroring.protocol.generated.v1.ActionResult
-import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionInvoke
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResult
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultStatus
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 
 class ActionRejectedException(val code: Code) : Exception(code.name) {
     enum class Code { OPERATION_CAPACITY_EXCEEDED, RESULT_OUTBOX_CAPACITY_EXCEEDED }

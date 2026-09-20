@@ -5,9 +5,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.protobuf.ByteString
 import com.neko7ina.sevenmirror.protocol.EncryptedEnvelopeCodecV1
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.ActionResult
-import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResult
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultStatus
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import java.util.UUID
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

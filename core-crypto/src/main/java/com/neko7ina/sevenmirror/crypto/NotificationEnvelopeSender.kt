@@ -1,13 +1,13 @@
 package com.neko7ina.sevenmirror.crypto
 
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
-import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
-import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
-import dev.notificationmirroring.protocol.generated.v1.NotificationRemoved
-import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotEntry
-import dev.notificationmirroring.protocol.generated.v1.NotificationSnapshotManifest
-import dev.notificationmirroring.protocol.generated.v1.NotificationUpsert
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationActionDescriptor
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationMedia
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationRemoved
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationSnapshotEntry
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationSnapshotManifest
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationUpsert
 import java.security.SecureRandom
 
 /** Online sender for revisioned notification state and active-set snapshots. */

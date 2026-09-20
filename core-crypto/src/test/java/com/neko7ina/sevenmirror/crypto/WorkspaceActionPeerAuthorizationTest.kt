@@ -1,9 +1,9 @@
 package com.neko7ina.sevenmirror.crypto
 
 import com.google.protobuf.ByteString
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceCertificate
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceRole
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceCertificate
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceRole
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceType
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

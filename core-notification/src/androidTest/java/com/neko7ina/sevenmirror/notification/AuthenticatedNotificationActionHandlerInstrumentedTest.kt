@@ -26,10 +26,10 @@ import com.neko7ina.sevenmirror.protocol.EncryptedEnvelopePartsV1
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
 import com.neko7ina.sevenmirror.protocol.RoutingHeaderCodecV1
 import com.neko7ina.sevenmirror.protocol.RoutingHeaderV1
-import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
-import dev.notificationmirroring.protocol.generated.v1.ActionResultAck
-import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionInvoke
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultAck
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultStatus
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit

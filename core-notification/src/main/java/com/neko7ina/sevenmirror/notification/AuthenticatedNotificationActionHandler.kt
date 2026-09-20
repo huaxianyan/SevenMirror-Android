@@ -8,9 +8,9 @@ import com.neko7ina.sevenmirror.crypto.AndroidReplayLedger
 import com.neko7ina.sevenmirror.crypto.AuthenticatedActionReceiver
 import com.neko7ina.sevenmirror.crypto.EnvelopeRecipientContext
 import com.neko7ina.sevenmirror.crypto.OpenedEnvelope
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
-import dev.notificationmirroring.protocol.generated.v1.ActionResult
-import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResult
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultStatus
 
 /** Bridges an authenticated encrypted action to Android's process-local capability table. */
 object AuthenticatedNotificationActionHandler {
@@ -68,7 +68,7 @@ object AuthenticatedNotificationActionHandler {
 
     private fun execute(
         androidContext: Context,
-        request: dev.notificationmirroring.protocol.generated.v1.ActionInvoke,
+        request: com.neko7ina.sevenmirror.protocol.generated.v1.ActionInvoke,
         operationAuthorizer: RemoteOperationAuthorizer,
     ): ActionResult {
         val localResult = if (request.dismissNotification) {

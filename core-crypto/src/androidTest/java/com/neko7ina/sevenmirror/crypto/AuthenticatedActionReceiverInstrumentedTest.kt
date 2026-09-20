@@ -8,10 +8,10 @@ import com.neko7ina.sevenmirror.protocol.EncryptedEnvelopePartsV1
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
 import com.neko7ina.sevenmirror.protocol.RoutingHeaderCodecV1
 import com.neko7ina.sevenmirror.protocol.RoutingHeaderV1
-import dev.notificationmirroring.protocol.generated.v1.ActionInvoke
-import dev.notificationmirroring.protocol.generated.v1.ActionResult
-import dev.notificationmirroring.protocol.generated.v1.ActionResultStatus
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionInvoke
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResult
+import com.neko7ina.sevenmirror.protocol.generated.v1.ActionResultStatus
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue

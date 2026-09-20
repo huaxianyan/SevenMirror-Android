@@ -2,7 +2,7 @@ package com.neko7ina.sevenmirror.crypto
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import dev.notificationmirroring.protocol.generated.membership.v1.DeviceType
+import com.neko7ina.sevenmirror.protocol.generated.membership.v1.DeviceType
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test

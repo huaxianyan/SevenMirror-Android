@@ -5,10 +5,10 @@ import com.google.protobuf.ByteString
 import com.neko7ina.sevenmirror.protocol.EncryptedEnvelopeCodecV1
 import com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1
 import com.neko7ina.sevenmirror.protocol.RoutingHeaderCodecV1
-import dev.notificationmirroring.protocol.generated.v1.EncryptedPayload
-import dev.notificationmirroring.protocol.generated.v1.NotificationActionDescriptor
-import dev.notificationmirroring.protocol.generated.v1.NotificationMedia
-import dev.notificationmirroring.protocol.generated.v1.NotificationMediaMimeType
+import com.neko7ina.sevenmirror.protocol.generated.v1.EncryptedPayload
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationActionDescriptor
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationMedia
+import com.neko7ina.sevenmirror.protocol.generated.v1.NotificationMediaMimeType
 import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicLong
 import org.junit.Assert.assertEquals
