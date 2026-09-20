@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.notificationmirroring.crypto"
+    namespace = "com.neko7ina.sevenmirror.crypto"
     compileSdk = 35
     defaultConfig {
         minSdk = 29

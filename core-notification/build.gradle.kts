@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.notificationmirroring.notification"
+    namespace = "com.neko7ina.sevenmirror.notification"
     compileSdk = 35
 
     defaultConfig {

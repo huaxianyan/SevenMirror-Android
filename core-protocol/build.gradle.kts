@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.notificationmirroring.protocol"
+    namespace = "com.neko7ina.sevenmirror.protocol"
     compileSdk = 35
     defaultConfig { minSdk = 29 }
     compileOptions {

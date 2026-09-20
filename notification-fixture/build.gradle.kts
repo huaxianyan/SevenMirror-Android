@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.sevenmirror.notificationfixture"
+    namespace = "com.neko7ina.sevenmirror.fixture"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.sevenmirror.notificationfixture"
+        applicationId = "com.neko7ina.sevenmirror.fixture"
         minSdk = 29
         targetSdk = 35
         versionCode = 1

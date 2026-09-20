@@ -1,6 +1,6 @@
 # Third-party notification fixture
 
-`notification-fixture` is a development-only Android application used for repeatable SevenMirror end-to-end acceptance. Its application ID is `dev.sevenmirror.notificationfixture`; it runs in a separate process and does not depend on any SevenMirror module.
+`notification-fixture` is a development-only Android application used for repeatable SevenMirror end-to-end acceptance. Its application ID is `com.neko7ina.sevenmirror.fixture`; it runs in a separate process and does not depend on any SevenMirror module.
 
 Build and install it with:
 

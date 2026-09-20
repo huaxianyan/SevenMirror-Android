@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "dev.notificationmirroring.transport"
+    namespace = "com.neko7ina.sevenmirror.transport"
     compileSdk = 35
     defaultConfig {
         minSdk = 29

@@ -42,7 +42,7 @@ require(fixedSigningValues.none { it != null } || hasFixedSigningIdentity) {
 }
 
 android {
-    namespace = "dev.notificationmirroring.android"
+    namespace = "com.neko7ina.sevenmirror"
     compileSdk {
         version = release(37) { minorApiLevel = 2 }
     }
