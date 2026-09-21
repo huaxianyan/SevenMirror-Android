@@ -2,10 +2,12 @@ package com.neko7ina.sevenmirror.transport
 
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import java.net.URI
 import java.nio.ByteBuffer
+import java.security.GeneralSecurityException
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -38,6 +40,20 @@ interface TransportCredentialStore {
     fun load(): StoredTransportCredential?
     fun saveNew(credential: StoredTransportCredential)
 }
+
+/**
+ * Stored credential material cannot be read or decrypted on this device and no retry can change
+ * that: the Keystore wrapping key is gone, the ciphertext no longer authenticates against it, or
+ * the persisted metadata is incomplete or malformed.
+ *
+ * Only this type may park a device on the security recovery page. Every other failure, in
+ * particular a Keystore or Binder call that is merely unavailable right now, must stay retryable:
+ * treating one such failure as permanent strands a healthy device, because the recovery page it
+ * lands on offers no retry and its advice (remove the device from the workspace) destroys a
+ * perfectly valid enrollment.
+ */
+class TransportCredentialUnreadableException(message: String, cause: Throwable? = null) :
+    IllegalStateException(message, cause)
 
 interface RotatingTransportCredentialStore : TransportCredentialStore {
     fun loadRotation(): StoredCredentialRotation?
@@ -306,16 +322,46 @@ class AndroidTransportCredentialStore(
         )
         val pendingPresent = pendingValues.count { it != null }
         if (currentPresent == 0) {
-            check(pendingPresent == 0) { "Pending credential exists without current; refusing recovery" }
+            if (pendingPresent != 0) {
+                throw TransportCredentialUnreadableException(
+                    "Pending credential exists without current; refusing recovery",
+                )
+            }
             return null
         }
-        check(currentPresent == currentValues.size) {
-            "Partial transport credential state; refusing recovery"
+        if (currentPresent != currentValues.size) {
+            throw TransportCredentialUnreadableException(
+                "Partial transport credential state; refusing recovery",
+            )
         }
-        check(pendingPresent == 0 || pendingPresent == pendingValues.size) {
-            "Partial transport rotation state; refusing recovery"
+        if (pendingPresent != 0 && pendingPresent != pendingValues.size) {
+            throw TransportCredentialUnreadableException(
+                "Partial transport rotation state; refusing recovery",
+            )
         }
+        return try {
+            decodeState(currentValues, pendingValues, pendingPresent)
+        } catch (error: IllegalArgumentException) {
+            // Malformed persisted metadata stays malformed, so no retry can repair it.
+            throw TransportCredentialUnreadableException(
+                "Stored transport credential metadata is invalid; refusing recovery",
+                error,
+            )
+        } catch (error: IllegalStateException) {
+            if (error is TransportCredentialUnreadableException) throw error
+            throw TransportCredentialUnreadableException(
+                "Stored transport credential state is inconsistent; refusing recovery",
+                error,
+            )
+        }
+    }
 
+    /** Decodes one consistent snapshot, or fails closed without exposing a partial credential. */
+    private fun decodeState(
+        currentValues: List<String?>,
+        pendingValues: List<String?>,
+        pendingPresent: Int,
+    ): CredentialState {
         val serverOrigin = normalizeServerOrigin(currentValues[0]!!)
         val workspaceId = currentValues[1]!!.decodeBase64()
         val deviceId = currentValues[2]!!.decodeBase64()
@@ -340,7 +386,11 @@ class AndroidTransportCredentialStore(
                     "Pending credential must differ from current"
                 }
                 runCatching { CredentialRotationPhase.valueOf(pendingValues[2]!!) }
-                    .getOrElse { error("Transport credential rotation phase is invalid") }
+                    .getOrElse {
+                        throw TransportCredentialUnreadableException(
+                            "Transport credential rotation phase is invalid",
+                        )
+                    }
             }
             return CredentialState(
                 StoredTransportCredential(
@@ -369,14 +419,32 @@ class AndroidTransportCredentialStore(
 
     private fun unwrap(ciphertext: ByteArray, iv: ByteArray, aad: ByteArray): ByteArray {
         val key = androidKeyStore().getKey(keyAlias, null) as? SecretKey
-            ?: error("Transport wrapping key is missing; refusing credential loss")
+            ?: throw TransportCredentialUnreadableException(
+                "Transport wrapping key is missing; refusing credential loss",
+            )
         val cipher = Cipher.getInstance(TRANSFORMATION)
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        try {
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_BITS, iv))
+        } catch (error: KeyPermanentlyInvalidatedException) {
+            // The platform invalidated this key for good, so no retry can decrypt the ciphertext.
+            throw TransportCredentialUnreadableException(
+                "Transport wrapping key is permanently invalid",
+                error,
+            )
+        }
         cipher.updateAAD(aad)
-        val token = cipher.doFinal(ciphertext)
+        val token = try {
+            cipher.doFinal(ciphertext)
+        } catch (error: GeneralSecurityException) {
+            // GCM authentication failing here means the ciphertext does not belong to this key.
+            throw TransportCredentialUnreadableException(
+                "Stored transport token does not authenticate; refusing credential loss",
+                error,
+            )
+        }
         if (token.size != DeviceAuthFrameCodecV1.AUTH_TOKEN_SIZE) {
             token.fill(0)
-            error("Stored transport token has invalid length")
+            throw TransportCredentialUnreadableException("Stored transport token has invalid length")
         }
         return token
     }

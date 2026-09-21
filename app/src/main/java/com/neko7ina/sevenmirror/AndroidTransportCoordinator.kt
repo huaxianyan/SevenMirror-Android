@@ -39,6 +39,7 @@ import com.neko7ina.sevenmirror.transport.MembershipTransportPromotionCoordinato
 import com.neko7ina.sevenmirror.transport.RelayDeliveryCodecV1
 import com.neko7ina.sevenmirror.transport.RelayServerMessageV1
 import com.neko7ina.sevenmirror.transport.TransportCredentialRotationClient
+import com.neko7ina.sevenmirror.transport.TransportCredentialUnreadableException
 import com.neko7ina.sevenmirror.transport.WorkspaceMembershipClient
 import java.io.IOException
 import java.security.MessageDigest
@@ -124,6 +125,21 @@ internal fun securityRecoveryForLocalMembership(
  */
 internal fun securityRecoveryForUnreadableCredential(): AndroidSecurityRecovery =
     AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL
+
+/**
+ * Recovery for a failed credential read.
+ *
+ * Only [TransportCredentialUnreadableException] proves the wrapping key is gone or the ciphertext
+ * no longer authenticates, which re-enrollment alone can resolve. Everything else, in particular a
+ * Keystore or Binder call that is merely unavailable right now, must stay retryable: the recovery
+ * page offers no retry, so classifying one such failure as permanent strands a healthy device.
+ */
+internal fun securityRecoveryForCredentialReadFailure(error: Throwable): AndroidSecurityRecovery =
+    if (error is TransportCredentialUnreadableException) {
+        securityRecoveryForUnreadableCredential()
+    } else {
+        AndroidSecurityRecovery.NONE
+    }
 
 /** Process-lifetime transport owner with serialized, fail-closed encrypted action dispatch. */
 class AndroidTransportCoordinator(context: Context) {
@@ -298,7 +314,20 @@ class AndroidTransportCoordinator(context: Context) {
     fun acquireConnection(owner: Any) {
         val wasEmpty = connectionOwners.isEmpty()
         connectionOwners.add(owner)
-        if (wasEmpty) retryConnection()
+        if (wasEmpty) {
+            retryConnection()
+            return
+        }
+        // The background service holds a long-lived ownership, so `wasEmpty` stays false while a
+        // visible Activity comes and goes. A failure that parked the transport would then survive
+        // every reopen and be cleared only by killing the process, which is exactly what a device
+        // observed on 2026-09-21 did for 18 hours. Re-entering the foreground re-arms a failure
+        // that nothing has proven to be permanent; the two proven states stay terminal.
+        if (mutableState.value == AndroidTransportState.SECURITY_ERROR &&
+            mutableSecurityRecovery.value == AndroidSecurityRecovery.NONE
+        ) {
+            retryConnection()
+        }
     }
 
     @Synchronized
@@ -472,8 +501,8 @@ class AndroidTransportCoordinator(context: Context) {
                 productPreferences.beginCertifiedReEnrollmentReset()
                 completeCertifiedReEnrollmentReset()
                 connectInternal(requestedGeneration)
-            } catch (_: Throwable) {
-                mutableState.value = AndroidTransportState.SECURITY_ERROR
+            } catch (error: Throwable) {
+                enterSecurityError(requestedGeneration, error, AndroidSecurityRecovery.NONE)
             }
         }
     }
@@ -519,8 +548,8 @@ class AndroidTransportCoordinator(context: Context) {
         if (productPreferences.isCertifiedReEnrollmentResetPending()) {
             try {
                 completeCertifiedReEnrollmentReset()
-            } catch (_: Throwable) {
-                mutableState.value = AndroidTransportState.SECURITY_ERROR
+            } catch (error: Throwable) {
+                enterSecurityError(requestedGeneration, error, AndroidSecurityRecovery.NONE)
                 return
             }
         }
@@ -537,8 +566,8 @@ class AndroidTransportCoordinator(context: Context) {
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
             return
-        } catch (_: Throwable) {
-            mutableState.value = AndroidTransportState.SECURITY_ERROR
+        } catch (error: Throwable) {
+            enterSecurityError(requestedGeneration, error, AndroidSecurityRecovery.NONE)
             return
         }
         if (!membershipReady) {
@@ -548,12 +577,11 @@ class AndroidTransportCoordinator(context: Context) {
         }
         val candidate = try {
             credentialStore.loadConnectionCandidate(preferCurrentFallback)
-        } catch (_: Throwable) {
-            // Stored credential material cannot be read or decrypted on this device, for example
-            // because the Keystore wrapping key disappeared together with the application data.
-            // Such a key is not part of any data backup, so this device can never revalidate itself.
-            mutableSecurityRecovery.value = securityRecoveryForUnreadableCredential()
-            mutableState.value = AndroidTransportState.SECURITY_ERROR
+        } catch (error: Throwable) {
+            // Only damage that no retry can repair may park the device. The recovery page offers
+            // no retry at all, so classifying a temporary Keystore or Binder failure as permanent
+            // leaves a healthy device unusable until its process dies.
+            handleLocalFailure(requestedGeneration, error, securityRecoveryForCredentialReadFailure(error))
             return
         }
         if (candidate == null) {
@@ -580,13 +608,16 @@ class AndroidTransportCoordinator(context: Context) {
             mutableState.value = AndroidTransportState.OFFLINE
             scheduleReconnect(requestedGeneration)
             return
-        } catch (_: Throwable) {
-            mutableSecurityRecovery.value = certifiedRemovalRecovery(
-                credential.workspaceId,
-                credential.deviceId,
+        } catch (error: Throwable) {
+            enterSecurityError(
+                requestedGeneration,
+                error,
+                certifiedRemovalRecovery(
+                    credential.workspaceId,
+                    credential.deviceId,
+                ),
             )
             credential.authToken.fill(0)
-            mutableState.value = AndroidTransportState.SECURITY_ERROR
             return
         }
         try {
@@ -698,13 +729,13 @@ class AndroidTransportCoordinator(context: Context) {
                                             accepted = accepted,
                                         )
                                     }
-                            } catch (_: Throwable) {
+                            } catch (error: Throwable) {
                                 terminalGeneration = requestedGeneration
                                 cancelResultDrain()
                                 if (this@AndroidTransportCoordinator.webSocket === webSocket) {
                                     this@AndroidTransportCoordinator.webSocket = null
                                 }
-                                mutableState.value = AndroidTransportState.SECURITY_ERROR
+                                enterSecurityError(requestedGeneration, error, AndroidSecurityRecovery.NONE)
                                 webSocket.close(1008, "connection initialization failed")
                             }
                         }
@@ -836,10 +867,23 @@ class AndroidTransportCoordinator(context: Context) {
                 return
             }
             webSocket = socket
-        } catch (_: Throwable) {
+        } catch (error: Throwable) {
             if (generation.get() == requestedGeneration) {
-                // Local credential/identity/endpoint failures require explicit recovery.
-                mutableState.value = AndroidTransportState.SECURITY_ERROR
+                if (error is IOException) {
+                    // The endpoint could not be reached, which is exactly what the reconnect path
+                    // exists for. Parking here would strand a device whose credentials are fine.
+                    diagnostics.recordFailure(
+                        CoordinatorDiagnosticEvent.LOCAL_FAILURE_RETRY,
+                        requestedGeneration,
+                        error,
+                    )
+                    mutableState.value = AndroidTransportState.OFFLINE
+                    scheduleReconnect(requestedGeneration)
+                } else {
+                    // A local credential or identity failure cannot be repaired by retrying on its
+                    // own, so it parks here and is re-armed when the application is opened again.
+                    enterSecurityError(requestedGeneration, error, AndroidSecurityRecovery.NONE)
+                }
             }
         } finally {
             credential.authToken.fill(0)
@@ -1066,8 +1110,12 @@ class AndroidTransportCoordinator(context: Context) {
                 ) return@schedule
                 val credential = try {
                     credentialStore.load()
-                } catch (_: Throwable) {
-                    null
+                } catch (error: Throwable) {
+                    terminalGeneration = requestedGeneration
+                    if (webSocket === socket) webSocket = null
+                    handleLocalFailure(requestedGeneration, error, securityRecoveryForCredentialReadFailure(error))
+                    socket.close(1008, "membership trust refresh failed")
+                    return@schedule
                 }
                 if (credential == null) {
                     terminalGeneration = requestedGeneration
@@ -1089,14 +1137,17 @@ class AndroidTransportCoordinator(context: Context) {
                 } catch (_: IOException) {
                     scheduleMembershipRefresh(requestedGeneration, socket)
                     return@schedule
-                } catch (_: Throwable) {
+                } catch (error: Throwable) {
                     terminalGeneration = requestedGeneration
                     if (webSocket === socket) webSocket = null
-                    mutableSecurityRecovery.value = certifiedRemovalRecovery(
-                        credential.workspaceId,
-                        credential.deviceId,
+                    enterSecurityError(
+                        requestedGeneration,
+                        error,
+                        certifiedRemovalRecovery(
+                            credential.workspaceId,
+                            credential.deviceId,
+                        ),
                     )
-                    mutableState.value = AndroidTransportState.SECURITY_ERROR
                     socket.close(1008, "membership trust refresh failed")
                     return@schedule
                 } finally {
@@ -1126,6 +1177,45 @@ class AndroidTransportCoordinator(context: Context) {
             localDeviceId,
             nowUnixMs,
         )
+    }
+
+    /**
+     * Reacts to a local failure without inventing a terminal state for it: [recovery] of
+     * [AndroidSecurityRecovery.NONE] means nothing has proven the failure permanent, so the
+     * connection is re-armed instead of parked.
+     */
+    private fun handleLocalFailure(
+        requestedGeneration: Long,
+        error: Throwable,
+        recovery: AndroidSecurityRecovery,
+    ) {
+        if (recovery == AndroidSecurityRecovery.NONE) {
+            diagnostics.recordFailure(
+                CoordinatorDiagnosticEvent.LOCAL_FAILURE_RETRY,
+                requestedGeneration,
+                error,
+            )
+            mutableState.value = AndroidTransportState.OFFLINE
+            scheduleReconnect(requestedGeneration)
+            return
+        }
+        enterSecurityError(requestedGeneration, error, recovery)
+    }
+
+    /** Parks the transport on the recovery page, recording which failure did it. */
+    private fun enterSecurityError(
+        requestedGeneration: Long,
+        error: Throwable,
+        recovery: AndroidSecurityRecovery,
+    ) {
+        diagnostics.recordFailure(
+            CoordinatorDiagnosticEvent.SECURITY_ERROR_ENTERED,
+            requestedGeneration,
+            error,
+            recovery,
+        )
+        mutableSecurityRecovery.value = recovery
+        mutableState.value = AndroidTransportState.SECURITY_ERROR
     }
 
     private fun certifiedRemovalRecovery(
@@ -1227,7 +1317,16 @@ class AndroidTransportCoordinator(context: Context) {
         } finally {
             stored?.authToken?.fill(0)
         }
-    } catch (_: Throwable) {
+    } catch (error: Throwable) {
+        // Recorded so a parked device can be diagnosed. The state stays re-armable because nothing
+        // here has proven the stored credential permanently unreadable: a later connection attempt
+        // classifies it properly.
+        diagnostics.recordFailure(
+            CoordinatorDiagnosticEvent.SECURITY_ERROR_ENTERED,
+            generation.get(),
+            error,
+            AndroidSecurityRecovery.NONE,
+        )
         AndroidTransportState.SECURITY_ERROR
     }
 

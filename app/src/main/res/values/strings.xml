@@ -110,7 +110,7 @@
     <string name="debug_post_test_notification">Developer: post test notification</string>
     <string name="security_error_title">Restore access on this device</string>
     <string name="stored_state_security_error">SevenMirror cannot continue using the access information saved on this device.</string>
-    <string name="security_error_recovery">Ask the server administrator to remove this device from the workspace, then reopen SevenMirror.</string>
+    <string name="security_error_recovery">Reopening SevenMirror retries the connection. If this page keeps coming back, use Reconnect; register this device again only if that keeps failing.</string>
     <string name="device_removed_title">This device has been removed</string>
     <string name="device_removed_body">The server administrator removed this device. Register it again and obtain approval to continue using SevenMirror.</string>
     <string name="unreadable_credential_title">Saved access information cannot be read</string>

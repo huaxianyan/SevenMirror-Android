@@ -2,6 +2,7 @@ package com.neko7ina.sevenmirror
 
 import com.neko7ina.sevenmirror.notification.NotificationSnapshot
 import com.neko7ina.sevenmirror.notification.RemoteOperationType
+import com.neko7ina.sevenmirror.transport.TransportCredentialUnreadableException
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -310,6 +311,26 @@ class AndroidProductPreferencesTest {
         assertEquals(
             AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL,
             securityRecoveryForUnreadableCredential(),
+        )
+    }
+
+    @Test
+    fun `only a proven unreadable credential parks the device`() {
+        assertEquals(
+            AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL,
+            securityRecoveryForCredentialReadFailure(
+                TransportCredentialUnreadableException("wrapping key is missing"),
+            ),
+        )
+        // A Keystore or Binder call that is merely unavailable right now must stay retryable: the
+        // recovery page offers no retry, so parking here would strand a healthy device.
+        assertEquals(
+            AndroidSecurityRecovery.NONE,
+            securityRecoveryForCredentialReadFailure(IllegalStateException("keystore is busy")),
+        )
+        assertEquals(
+            AndroidSecurityRecovery.NONE,
+            securityRecoveryForCredentialReadFailure(RuntimeException("binder transaction failed")),
         )
     }
 

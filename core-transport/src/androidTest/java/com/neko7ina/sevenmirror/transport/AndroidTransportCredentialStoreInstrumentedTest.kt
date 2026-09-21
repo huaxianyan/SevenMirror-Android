@@ -95,7 +95,7 @@ class AndroidTransportCredentialStoreInstrumentedTest {
             assertArrayEquals(pending, reconstructed.load()?.authToken)
 
             check(preferences.edit().putString("rotation_phase", "ATTEMPTED").commit())
-            assertThrows(IllegalStateException::class.java) { reconstructed.load() }
+            assertThrows(TransportCredentialUnreadableException::class.java) { reconstructed.load() }
         } finally {
             store.clear()
         }
@@ -122,10 +122,14 @@ class AndroidTransportCredentialStoreInstrumentedTest {
 
             // Clearing the application data removes this key while leaving the credential files
             // behind, which is the state that used to strand the client without a way to register.
+            // The failure has to carry this exact type: it is the only one allowed to park a device
+            // on the recovery page, while a Keystore that is merely unavailable stays retryable.
             assertTrue(keyStore.containsAlias(alias))
             keyStore.deleteEntry(alias)
-            assertThrows(IllegalStateException::class.java) { store.load() }
-            assertThrows(IllegalStateException::class.java) { store.loadConnectionCandidate() }
+            assertThrows(TransportCredentialUnreadableException::class.java) { store.load() }
+            assertThrows(TransportCredentialUnreadableException::class.java) {
+                store.loadConnectionCandidate()
+            }
         } finally {
             store.clear()
         }

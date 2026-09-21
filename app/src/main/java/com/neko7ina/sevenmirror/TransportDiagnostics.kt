@@ -19,7 +19,15 @@ internal enum class CoordinatorDiagnosticEvent {
     MEMBERSHIP_REFRESH,
     STARTUP_SNAPSHOT,
     STARTUP_SNAPSHOT_SUBMITTED,
+
+    /** A local failure parked the device on the recovery page, which no retry can leave. */
+    SECURITY_ERROR_ENTERED,
+
+    /** A local failure re-armed the connection instead of parking the device. */
+    LOCAL_FAILURE_RETRY,
 }
+
+private const val MAX_FAILURE_LABEL_LENGTH = 120
 
 /** Code-defined enums and scalar metadata only: never accept payloads or exception messages. */
 internal class TransportDiagnostics(
@@ -50,6 +58,32 @@ internal class TransportDiagnostics(
             accepted?.let { append(" accepted=$it") }
         })
     }
+
+    /**
+     * Records the failure that parked or re-armed the transport.
+     *
+     * Only the exception's class name is written, never its message: the message may carry
+     * payload, while the class name alone is what tells a transient Keystore, Binder, identity or
+     * endpoint failure apart from a genuinely permanent local one. Without it a parked device can
+     * only be diagnosed by guessing which of the coordinator's catch blocks fired.
+     */
+    fun recordFailure(
+        event: Enum<*>,
+        generation: Long,
+        error: Throwable,
+        recovery: AndroidSecurityRecovery? = null,
+    ) {
+        if (!enabled) return
+        emit(event, generation, buildString {
+            recovery?.let { append(" recovery=${it.name}") }
+            append(" failure=")
+            append(failureLabel(error))
+        })
+    }
+
+    private fun failureLabel(error: Throwable): String = error.javaClass.name
+        .filter { it.isLetterOrDigit() || it == '.' || it == '$' }
+        .take(MAX_FAILURE_LABEL_LENGTH)
 
     fun <T> measure(event: CoordinatorDiagnosticEvent, generation: Long, operation: () -> T): T {
         if (!enabled) return operation()
