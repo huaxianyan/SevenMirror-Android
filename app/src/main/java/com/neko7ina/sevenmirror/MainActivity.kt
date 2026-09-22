@@ -341,6 +341,7 @@ private fun SevenMirrorApp(
     val stage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
+        securityRecovery = securityRecovery,
         enrollmentPending = enrollmentPending,
         notificationAccessGranted = notificationAccessGranted,
         applicationSelectionConfirmed = applicationSelectionConfirmed,
@@ -732,22 +733,20 @@ internal fun SecurityErrorScreen(
             )
             Text(stringResource(body))
             if (recovery == AndroidSecurityRecovery.NONE) {
-                Card {
-                    Text(stringResource(R.string.security_error_recovery), Modifier.padding(20.dp))
-                }
-                // An unclassified failure is usually transient, so the non-destructive action comes
-                // first: retrying costs nothing, while registering again discards a credential that
-                // is most likely still valid.
+                // Not reachable through the connection state, which re-arms instead of parking a
+                // failure it cannot classify. Kept as the non-destructive way out in case one does
+                // arrive: retrying costs nothing, while registering again discards a credential
+                // that is most likely still valid.
                 Button(onClick = onRetry) {
                     Text(stringResource(R.string.retry_connection))
                 }
                 OutlinedButton(onClick = { showReEnrollmentConfirmation = true }) {
                     Text(stringResource(R.string.re_enroll_device))
                 }
-            }
-            // Registering again always stays available: no security error can be repaired on this
-            // device alone, and it still needs a joining code plus administrator approval.
-            if (recovery != AndroidSecurityRecovery.NONE) {
+            } else {
+                // This page is only reached for a cause this device cannot repair on its own, and
+                // registering again needs a joining code plus administrator approval, so it is the
+                // single action and it grants nothing locally.
                 Button(onClick = { showReEnrollmentConfirmation = true }) {
                     Text(stringResource(R.string.re_enroll_device))
                 }

@@ -9,6 +9,7 @@
     <string name="service_and_devices">Service and devices</string>
     <string name="devices_membership_summary">View devices approved to join your private workspace.</string>
     <string name="connection_delivery_boundary">View notifications on the receiving device, or open Apps to adjust what you share.</string>
+    <string name="connection_offline_body">SevenMirror reconnects by itself when the network returns. If it stays disconnected, use Reconnect.</string>
     <string name="background_enabled_summary">Enabled for use after leaving the app</string>
     <string name="background_disabled_summary">Background sync is off. Open these settings to enable it.</string>
     <string name="settings_apply_immediately">Changes on this page are saved immediately.</string>

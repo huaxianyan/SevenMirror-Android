@@ -232,13 +232,29 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
-    fun `a security error overrides a pending background sync decision`() {
+    fun `an unrepairable security error overrides a pending background sync decision`() {
         assertEquals(
             OnboardingStage.SECURITY_ERROR,
             stage(
                 transportState = AndroidTransportState.SECURITY_ERROR,
+                securityRecovery = AndroidSecurityRecovery.UNREADABLE_LOCAL_CREDENTIAL,
                 applicationSelectionConfirmed = true,
                 backgroundSyncDecided = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `a security error with no local cause keeps the main screen`() {
+        // The transport re-arms this one, so it must never take over the screen the way a removed
+        // device does: an interrupted connection is reported on the main screen and recovers there.
+        assertEquals(
+            OnboardingStage.COMPLETE,
+            stage(
+                transportState = AndroidTransportState.SECURITY_ERROR,
+                securityRecovery = AndroidSecurityRecovery.NONE,
+                applicationSelectionConfirmed = true,
+                backgroundSyncDecided = true,
             ),
         )
     }
@@ -335,13 +351,69 @@ class AndroidProductPreferencesTest {
     }
 
     @Test
-    fun `security error overrides normal onboarding`() {
+    fun `an unrepairable security error overrides normal onboarding`() {
         assertEquals(
             OnboardingStage.SECURITY_ERROR,
             stage(
                 welcomeCompleted = false,
                 transportState = AndroidTransportState.SECURITY_ERROR,
+                securityRecovery = AndroidSecurityRecovery.CERTIFIED_DEVICE_REMOVAL,
             ),
+        )
+    }
+
+    @Test
+    fun `the status dot reads every connection state the same three ways`() {
+        assertEquals(
+            StatusTone.POSITIVE,
+            statusTone(AndroidTransportState.ONLINE, synchronizationPaused = false),
+        )
+        assertEquals(
+            StatusTone.NEGATIVE,
+            statusTone(AndroidTransportState.OFFLINE, synchronizationPaused = false),
+        )
+        assertEquals(
+            StatusTone.NEGATIVE,
+            statusTone(AndroidTransportState.SECURITY_ERROR, synchronizationPaused = false),
+        )
+        assertEquals(
+            StatusTone.PENDING,
+            statusTone(AndroidTransportState.CONNECTING, synchronizationPaused = false),
+        )
+        // Pausing is the user's own choice, so it must not read as a failure.
+        assertEquals(
+            StatusTone.PENDING,
+            statusTone(AndroidTransportState.ONLINE, synchronizationPaused = true),
+        )
+    }
+
+    @Test
+    fun `a disconnected device is offered the reconnect instead of a pause`() {
+        assertEquals(
+            ConnectionControl.PAUSE,
+            connectionControl(AndroidTransportState.ONLINE, synchronizationPaused = false),
+        )
+        assertEquals(
+            ConnectionControl.RESUME,
+            connectionControl(AndroidTransportState.ONLINE, synchronizationPaused = true),
+        )
+        assertEquals(
+            ConnectionControl.RECONNECT,
+            connectionControl(AndroidTransportState.OFFLINE, synchronizationPaused = false),
+        )
+        assertEquals(
+            ConnectionControl.RECONNECT,
+            connectionControl(AndroidTransportState.CONNECTING, synchronizationPaused = false),
+        )
+        assertEquals(
+            ConnectionControl.RECONNECT,
+            connectionControl(AndroidTransportState.SECURITY_ERROR, synchronizationPaused = false),
+        )
+        // Undoing a pause stays available while the connection is down, because that is the only
+        // way back to the state the user left.
+        assertEquals(
+            ConnectionControl.RESUME,
+            connectionControl(AndroidTransportState.OFFLINE, synchronizationPaused = true),
         )
     }
 
@@ -368,6 +440,7 @@ class AndroidProductPreferencesTest {
     private fun stage(
         welcomeCompleted: Boolean = true,
         transportState: AndroidTransportState = AndroidTransportState.NOT_CONFIGURED,
+        securityRecovery: AndroidSecurityRecovery = AndroidSecurityRecovery.NONE,
         enrollmentPending: Boolean = false,
         notificationAccessGranted: Boolean = false,
         applicationSelectionConfirmed: Boolean = false,
@@ -375,6 +448,7 @@ class AndroidProductPreferencesTest {
     ): OnboardingStage = onboardingStage(
         welcomeCompleted = welcomeCompleted,
         transportState = transportState,
+        securityRecovery = securityRecovery,
         enrollmentPending = enrollmentPending,
         notificationAccessGranted = notificationAccessGranted,
         applicationSelectionConfirmed = applicationSelectionConfirmed,

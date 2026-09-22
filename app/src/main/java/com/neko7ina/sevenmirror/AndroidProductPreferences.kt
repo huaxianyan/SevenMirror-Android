@@ -31,12 +31,19 @@ internal enum class OnboardingStage {
 internal fun onboardingStage(
     welcomeCompleted: Boolean,
     transportState: AndroidTransportState,
+    securityRecovery: AndroidSecurityRecovery,
     enrollmentPending: Boolean,
     notificationAccessGranted: Boolean,
     applicationSelectionConfirmed: Boolean,
     backgroundSyncDecided: Boolean,
 ): OnboardingStage {
-    if (transportState == AndroidTransportState.SECURITY_ERROR) return OnboardingStage.SECURITY_ERROR
+    // Only an enrollment this device cannot rebuild on its own owns the whole screen, because there
+    // is nothing left to do here but register again. A failure with no such cause reconnects on its
+    // own and is reported on the main screen, so an interrupted connection never looks like a
+    // removed device.
+    if (transportState == AndroidTransportState.SECURITY_ERROR &&
+        securityRecovery != AndroidSecurityRecovery.NONE
+    ) return OnboardingStage.SECURITY_ERROR
     if (!welcomeCompleted) return OnboardingStage.WELCOME
     if (transportState == AndroidTransportState.INITIALIZING) return OnboardingStage.LOADING
     if (enrollmentPending || transportState == AndroidTransportState.REGISTERING) {
@@ -51,6 +58,47 @@ internal fun onboardingStage(
     }
     if (!backgroundSyncDecided) return OnboardingStage.BACKGROUND_SYNC
     return OnboardingStage.COMPLETE
+}
+
+/**
+ * Colour a connection state is reported with. It is the same three-way reading everywhere, so the
+ * main screen does not have to agree on a meaning per state: green works, amber is on its way or
+ * deliberately held, red needs the user.
+ */
+internal enum class StatusTone { POSITIVE, PENDING, NEGATIVE }
+
+/**
+ * The tone for the current headline. Synchronization being paused is reported as pending rather
+ * than negative: the user asked for it, so nothing is wrong, but nothing is being delivered either.
+ */
+internal fun statusTone(
+    transportState: AndroidTransportState,
+    synchronizationPaused: Boolean,
+): StatusTone = when {
+    synchronizationPaused -> StatusTone.PENDING
+    transportState == AndroidTransportState.ONLINE -> StatusTone.POSITIVE
+    transportState == AndroidTransportState.OFFLINE -> StatusTone.NEGATIVE
+    transportState == AndroidTransportState.SECURITY_ERROR -> StatusTone.NEGATIVE
+    else -> StatusTone.PENDING
+}
+
+/** What the single control under the connection headline does right now. */
+internal enum class ConnectionControl { RESUME, PAUSE, RECONNECT }
+
+/**
+ * The one action worth offering for the current headline.
+ *
+ * Pausing only means something while notifications are actually being delivered, so a device that
+ * is not connected is offered the reconnect instead: that is what the user wants at that moment,
+ * and it is the only way to act on a connection the transport has given up on.
+ */
+internal fun connectionControl(
+    transportState: AndroidTransportState,
+    synchronizationPaused: Boolean,
+): ConnectionControl = when {
+    synchronizationPaused -> ConnectionControl.RESUME
+    transportState == AndroidTransportState.ONLINE -> ConnectionControl.PAUSE
+    else -> ConnectionControl.RECONNECT
 }
 
 internal data class SelectableApplication(

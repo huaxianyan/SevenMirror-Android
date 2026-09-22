@@ -42,12 +42,13 @@ class SecurityRecoveryInstrumentedTest {
         compose.onNodeWithText(text(R.string.unreadable_credential_body)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.re_enroll_device)).assertIsDisplayed()
 
-        // The generic security error is the only one that can still be transient, so it offers the
-        // non-destructive retry before registering again, and it never tells the user to have the
-        // device removed from the workspace: that advice destroys a valid enrollment.
+        // The generic cause is not reachable through the connection state any more: the transport
+        // re-arms one it cannot classify instead of parking it, so this page only ever reports an
+        // enrollment that is gone. If it does arrive, the retry stays available rather than leaving
+        // re-enrollment as the only way out, and neither version tells the user to have the device
+        // removed from the workspace: that advice destroys a valid enrollment.
         compose.runOnIdle { recovery = AndroidSecurityRecovery.NONE }
         compose.onNodeWithText(text(R.string.security_error_title)).assertIsDisplayed()
-        compose.onNodeWithText(text(R.string.security_error_recovery)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.retry_connection)).performClick()
         compose.runOnIdle {
             assertEquals(1, retryRequests)

@@ -16,7 +16,10 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -72,6 +75,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -261,7 +265,8 @@ internal fun MainScreen(
                                                 }
                                                 // The headline carries the single state the whole screen is
                                                 // about, so it cross fades rather than snapping when the
-                                                // connection or the pause flag changes.
+                                                // connection or the pause flag changes. The dot beside it
+                                                // reads the same state at a glance.
                                                 AnimatedContent(
                                                     targetState = if (synchronizationPaused) {
                                                         stringResource(R.string.synchronization_paused)
@@ -274,40 +279,47 @@ internal fun MainScreen(
                                                     },
                                                     label = "connection-headline",
                                                 ) { headline ->
-                                                    Text(headline, style = MaterialTheme.typography.headlineSmall)
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                                    ) {
+                                                        StatusIndicator(statusTone(transportState, synchronizationPaused))
+                                                        Text(headline, style = MaterialTheme.typography.headlineSmall)
+                                                    }
                                                 }
+                                                // An interrupted connection is explained here instead of on a
+                                                // page of its own: it reconnects by itself, and saying that is
+                                                // the whole message.
                                                 Text(stringResource(
-                                                    if (synchronizationPaused) R.string.synchronization_paused_body
-                                                    else R.string.connection_delivery_boundary,
+                                                    when {
+                                                        synchronizationPaused -> R.string.synchronization_paused_body
+                                                        transportState == AndroidTransportState.ONLINE -> R.string.connection_delivery_boundary
+                                                        else -> R.string.connection_offline_body
+                                                    },
                                                 ))
+                                                // One control for the current headline rather than a pause a
+                                                // disconnected device cannot act on: pausing changes nothing
+                                                // while nothing is being delivered, so reconnecting is what the
+                                                // user needs at that moment.
                                                 AnimatedContent(
-                                                    targetState = synchronizationPaused,
+                                                    targetState = connectionControl(transportState, synchronizationPaused),
                                                     transitionSpec = {
                                                         fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
                                                             fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
                                                     },
                                                     label = "synchronization-control",
-                                                ) { paused ->
-                                                    if (paused) {
-                                                        Button(onClick = { save { onSetSynchronizationPaused(false) } }) {
-                                                            Text(stringResource(R.string.resume_synchronization))
-                                                        }
-                                                    } else {
-                                                        OutlinedButton(onClick = { save { onSetSynchronizationPaused(true) } }) {
-                                                            Text(stringResource(R.string.pause_synchronization))
+                                                ) { control ->
+                                                    when (control) {
+                                                        ConnectionControl.RESUME -> Button(
+                                                            onClick = { save { onSetSynchronizationPaused(false) } },
+                                                        ) { Text(stringResource(R.string.resume_synchronization)) }
+                                                        ConnectionControl.PAUSE -> OutlinedButton(
+                                                            onClick = { save { onSetSynchronizationPaused(true) } },
+                                                        ) { Text(stringResource(R.string.pause_synchronization)) }
+                                                        ConnectionControl.RECONNECT -> Button(onClick = onReconnect) {
+                                                            Text(stringResource(R.string.retry_connection))
                                                         }
                                                     }
-                                                }
-                                                // Retrying only makes sense while the connection is down and
-                                                // synchronization is running, so it expands into place.
-                                                AnimatedVisibility(
-                                                    visible = !synchronizationPaused && transportState == AndroidTransportState.OFFLINE,
-                                                    enter = fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) +
-                                                        expandVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)),
-                                                    exit = fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing)) +
-                                                        shrinkVertically(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.exitEasing)),
-                                                ) {
-                                                    OutlinedButton(onClick = onReconnect) { Text(stringResource(R.string.retry_connection)) }
                                                 }
                                             }
                                         }
@@ -818,6 +830,21 @@ private fun PermissionStatus(title: Int, granted: Boolean, body: Int, onOpen: ()
             OutlinedButton(onClick = onOpen) { Text(stringResource(R.string.open_system_settings)) }
         }
     }
+}
+
+/**
+ * The three-way state dot beside the connection headline. The headline states the same thing in
+ * words, so the dot only makes it readable at a glance and stays out of the accessibility tree.
+ */
+@Composable
+private fun StatusIndicator(tone: StatusTone) {
+    val dark = isSystemInDarkTheme()
+    val color = when (tone) {
+        StatusTone.POSITIVE -> if (dark) Color(0xFF7FD4A0) else Color(0xFF1E7A3C)
+        StatusTone.PENDING -> if (dark) Color(0xFFF2C55C) else Color(0xFF8A5A00)
+        StatusTone.NEGATIVE -> if (dark) Color(0xFFF2999A) else Color(0xFFB3261E)
+    }
+    Box(Modifier.size(12.dp).background(color, CircleShape))
 }
 
 @Composable

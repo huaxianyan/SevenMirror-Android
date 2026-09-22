@@ -528,8 +528,15 @@ class AndroidTransportCoordinator(context: Context) {
                     rotation.current.authToken.fill(0)
                     rotation.pendingAuthToken.fill(0)
                 }
-            } catch (_: Throwable) {
-                mutableState.value = AndroidTransportState.SECURITY_ERROR
+            } catch (error: Throwable) {
+                // Only material this device can never decrypt deserves the recovery page. Anything
+                // else is left to the connection this rotation was about to rebuild, so a Keystore
+                // or Binder call that is merely unavailable right now does not park a healthy
+                // device.
+                val recovery = securityRecoveryForCredentialReadFailure(error)
+                if (recovery != AndroidSecurityRecovery.NONE) {
+                    enterSecurityError(requestedGeneration, error, recovery)
+                }
             }
             if (mutableState.value != AndroidTransportState.SECURITY_ERROR &&
                 generation.get() == requestedGeneration
@@ -1029,6 +1036,11 @@ class AndroidTransportCoordinator(context: Context) {
         terminalGeneration = requestedGeneration
         cancelResultDrain()
         if (webSocket === socket) webSocket = null
+        // Parking is deliberate here rather than a retry: a frame this device cannot verify means
+        // the socket's trust is gone, and stopping keeps that visible instead of hiding it behind
+        // an endless reconnect. The cause is still unclassified, so the state never reaches the
+        // recovery page and the main screen keeps offering a reconnect.
+        mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
         mutableState.value = AndroidTransportState.SECURITY_ERROR
         socket.close(1008, "encrypted envelope rejected")
     }
@@ -1120,7 +1132,14 @@ class AndroidTransportCoordinator(context: Context) {
                 if (credential == null) {
                     terminalGeneration = requestedGeneration
                     if (webSocket === socket) webSocket = null
-                    mutableState.value = AndroidTransportState.SECURITY_ERROR
+                    // The credential disappeared while a connection was up, which no retry of this
+                    // socket can fix. Rebuilding the connection re-reads it and lands on the join
+                    // flow if it is really gone, so nothing here is worth parking for.
+                    enterSecurityError(
+                        requestedGeneration,
+                        IllegalStateException("Membership trust refresh lost the local credential"),
+                        AndroidSecurityRecovery.NONE,
+                    )
                     socket.close(1008, "membership trust refresh failed")
                     return@schedule
                 }
@@ -1180,9 +1199,10 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     /**
-     * Reacts to a local failure without inventing a terminal state for it: [recovery] of
+     * Reacts to a failure without inventing a terminal state for it: [recovery] of
      * [AndroidSecurityRecovery.NONE] means nothing has proven the failure permanent, so the
-     * connection is re-armed instead of parked.
+     * connection is re-armed instead of parked. It is also where [enterSecurityError] sends an
+     * unclassified cause, so every way out of a failure that is not a missing enrollment ends here.
      */
     private fun handleLocalFailure(
         requestedGeneration: Long,
@@ -1202,12 +1222,24 @@ class AndroidTransportCoordinator(context: Context) {
         enterSecurityError(requestedGeneration, error, recovery)
     }
 
-    /** Parks the transport on the recovery page, recording which failure did it. */
+    /**
+     * Parks the transport on the recovery page, recording which failure did it.
+     *
+     * Only a cause this device cannot repair alone parks here, and the page it leads to is built
+     * around that: it offers no retry at all. An unclassified failure would therefore strand a
+     * healthy device until its process dies, so it is re-armed instead. Reaching the recovery page
+     * always means the enrollment itself is gone, which is what makes it distinct from an
+     * interrupted connection rather than another way of showing one.
+     */
     private fun enterSecurityError(
         requestedGeneration: Long,
         error: Throwable,
         recovery: AndroidSecurityRecovery,
     ) {
+        if (recovery == AndroidSecurityRecovery.NONE) {
+            handleLocalFailure(requestedGeneration, error, recovery)
+            return
+        }
         diagnostics.recordFailure(
             CoordinatorDiagnosticEvent.SECURITY_ERROR_ENTERED,
             requestedGeneration,
@@ -1318,15 +1350,17 @@ class AndroidTransportCoordinator(context: Context) {
             stored?.authToken?.fill(0)
         }
     } catch (error: Throwable) {
-        // Recorded so a parked device can be diagnosed. The state stays re-armable because nothing
-        // here has proven the stored credential permanently unreadable: a later connection attempt
-        // classifies it properly.
+        // Recorded so a stuck device can be diagnosed, and classified as unclassified on purpose:
+        // nothing here has proven the stored credential permanently unreadable, and only an
+        // unclassified security error re-arms instead of parking, so a failed registration attempt
+        // never leaves the device on the recovery page.
         diagnostics.recordFailure(
             CoordinatorDiagnosticEvent.SECURITY_ERROR_ENTERED,
             generation.get(),
             error,
             AndroidSecurityRecovery.NONE,
         )
+        mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
         AndroidTransportState.SECURITY_ERROR
     }
 

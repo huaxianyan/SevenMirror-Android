@@ -9,6 +9,7 @@
     <string name="service_and_devices">服务与设备</string>
     <string name="devices_membership_summary">查看已获准加入私有空间的设备。</string>
     <string name="connection_delivery_boundary">请在接收设备查看通知，或前往「应用」调整同步范围。</string>
+    <string name="connection_offline_body">网络恢复后会自动重新连接；一直连不上时，可以点「重新连接」。</string>
     <string name="background_enabled_summary">已启用，退出应用后仍可继续同步</string>
     <string name="background_disabled_summary">后台同步已关闭，可在此重新启用</string>
     <string name="settings_apply_immediately">本页修改会立即保存生效。</string>
