@@ -228,8 +228,14 @@ object LocalNotificationController {
         ) {
             return ActionExecutionResult(ActionExecutionStatus.ACTION_NOT_FOUND)
         }
-        if (!notification.sourceSnapshot.isClearable) {
-            return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_NOT_CLEARABLE")
+        // The platform refuses a listener-initiated single cancellation only for ongoing
+        // notifications (NotificationManagerService.cancelNotificationFromListenerLocked uses
+        // FLAG_ONGOING_EVENT as its mustNotHaveFlags). isClearable is the wrong gate for this
+        // call: it also covers FLAG_NO_CLEAR, which only opts a notification out of "Clear all"
+        // and still lets the user dismiss it by hand. Gating on it made notifications the user
+        // can remove on the phone impossible to clear remotely.
+        if (notification.sourceSnapshot.isOngoing) {
+            return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "NOTIFICATION_STILL_ONGOING")
         }
         val sink = dismissSink
             ?: return ActionExecutionResult(ActionExecutionStatus.INTERNAL_ERROR, "LISTENER_NOT_CONNECTED")

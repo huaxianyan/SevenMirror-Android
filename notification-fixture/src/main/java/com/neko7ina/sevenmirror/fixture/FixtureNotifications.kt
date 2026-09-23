@@ -23,12 +23,14 @@ object FixtureNotifications {
     private const val DEFAULT_CHANNEL = "controlled_default"
     private const val SILENT_CHANNEL = "controlled_silent"
     private const val ONGOING_CHANNEL = "controlled_ongoing"
+    private const val NO_CLEAR_CHANNEL = "controlled_no_clear"
     private const val NORMAL_ID = 100
     private const val GROUP_SUMMARY_ID = 200
     private const val GROUP_CHILD_ONE_ID = 201
     private const val GROUP_CHILD_TWO_ID = 202
     private const val SILENT_ID = 300
     private const val ONGOING_ID = 400
+    private const val NO_CLEAR_ID = 500
     private const val GROUP_KEY = "controlled_group"
     private const val PREFS = "notification_fixture"
     private const val KEY_ACTION_GENERATION = "action_generation"
@@ -122,6 +124,24 @@ object FixtureNotifications {
                 .build(),
         )
         recordResult(context, context.getString(R.string.result_ongoing_posted))
+    }
+
+    /**
+     * Posts the notification shape a remote clear used to refuse: FLAG_NO_CLEAR opts a
+     * notification out of "Clear all" while leaving it dismissible by hand, and the platform
+     * does not apply that flag to a single listener cancellation. A remote clear of this
+     * notification must therefore succeed.
+     */
+    fun postNoClear(context: Context) {
+        ensureChannels(context)
+        val notification = Notification.Builder(context, NO_CLEAR_CHANNEL)
+            .setSmallIcon(R.drawable.ic_fixture)
+            .setContentTitle(context.getString(R.string.no_clear_title))
+            .setContentText(context.getString(R.string.notification_body))
+            .build()
+        notification.flags = notification.flags or Notification.FLAG_NO_CLEAR
+        manager(context).notify(NO_CLEAR_ID, notification)
+        recordResult(context, context.getString(R.string.result_no_clear_posted))
     }
 
     fun clearAll(context: Context) {
@@ -220,6 +240,11 @@ object FixtureNotifications {
                 NotificationChannel(
                     ONGOING_CHANNEL,
                     context.getString(R.string.channel_ongoing),
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply { setSound(null, null) },
+                NotificationChannel(
+                    NO_CLEAR_CHANNEL,
+                    context.getString(R.string.channel_no_clear),
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply { setSound(null, null) },
             ),

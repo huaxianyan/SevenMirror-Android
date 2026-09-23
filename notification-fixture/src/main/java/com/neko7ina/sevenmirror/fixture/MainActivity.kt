@@ -50,6 +50,7 @@ class MainActivity : Activity() {
         }
         content.addAction(R.string.post_silent) { FixtureNotifications.postSilent(this) }
         content.addAction(R.string.post_ongoing) { FixtureNotifications.postOngoing(this) }
+        content.addAction(R.string.post_no_clear) { FixtureNotifications.postNoClear(this) }
         content.addAction(R.string.clear_all, requiresPermission = false) {
             DelayedNotificationReceiver.cancel(this)
             FixtureNotifications.clearAll(this)

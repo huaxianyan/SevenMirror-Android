@@ -12,6 +12,7 @@
     <string name="remove_group_children">删除分组子通知</string>
     <string name="post_silent">发布静默通知</string>
     <string name="post_ongoing">发布持续通知</string>
+    <string name="post_no_clear">发布带 FLAG_NO_CLEAR 的通知</string>
     <string name="clear_all">清除全部测试通知</string>
     <string name="last_result">最近结果：%1$s</string>
     <string name="result_none">暂无</string>
@@ -23,6 +24,7 @@
     <string name="result_group_children_removed">分组子通知已删除，摘要已作为独立通知重新发布</string>
     <string name="result_silent_posted">静默通知已发布</string>
     <string name="result_ongoing_posted">持续通知已发布</string>
+    <string name="result_no_clear_posted">带 FLAG_NO_CLEAR 的通知已发布</string>
     <string name="result_cleared">全部测试通知已清除</string>
     <string name="result_action">已使用第 %1$d 代操作标记完成</string>
     <string name="result_reply">已收到回复：%1$s</string>
@@ -38,9 +40,11 @@
     <string name="group_child_two">受控子通知二</string>
     <string name="silent_title">受控静默通知</string>
     <string name="ongoing_title">受控持续通知</string>
+    <string name="no_clear_title">受控通知（排除在清除全部之外）</string>
     <string name="channel_default">受控测试通知</string>
     <string name="channel_silent">受控静默通知</string>
     <string name="channel_ongoing">受控持续通知</string>
+    <string name="channel_no_clear">受控的非全部清除通知</string>
     <string name="delayed_description">熄屏测试：依次发布、更新和删除通知。每一步在上一步之后等待 %1$d 秒，Android 可能推迟执行，深度休眠时尤其如此。开始后请熄屏，返回此页可查看实际执行时间。此测试不申请精确闹钟权限或电池豁免。</string>
     <string name="delayed_start">开始延时通知流程</string>
     <string name="delayed_cancel">取消剩余步骤</string>

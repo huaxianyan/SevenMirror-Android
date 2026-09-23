@@ -12,6 +12,7 @@
     <string name="remove_group_children">Remove group children</string>
     <string name="post_silent">Post silent notification</string>
     <string name="post_ongoing">Post ongoing notification</string>
+    <string name="post_no_clear">Post notification with FLAG_NO_CLEAR</string>
     <string name="clear_all">Clear all fixture notifications</string>
     <string name="last_result">Last result: %1$s</string>
     <string name="result_none">None</string>
@@ -23,6 +24,7 @@
     <string name="result_group_children_removed">Group children removed and summary reposted standalone</string>
     <string name="result_silent_posted">Silent notification posted</string>
     <string name="result_ongoing_posted">Ongoing notification posted</string>
+    <string name="result_no_clear_posted">Notification with FLAG_NO_CLEAR posted</string>
     <string name="result_cleared">All fixture notifications cleared</string>
     <string name="result_action">Marked complete using action generation %1$d</string>
     <string name="result_reply">Received reply: %1$s</string>
@@ -38,9 +40,11 @@
     <string name="group_child_two">Controlled child two</string>
     <string name="silent_title">Controlled silent notification</string>
     <string name="ongoing_title">Controlled ongoing notification</string>
+    <string name="no_clear_title">Controlled notification excluded from Clear all</string>
     <string name="channel_default">Controlled notifications</string>
     <string name="channel_silent">Controlled silent notifications</string>
     <string name="channel_ongoing">Controlled ongoing notifications</string>
+    <string name="channel_no_clear">Controlled non-clearable notifications</string>
     <string name="delayed_description">Screen-off test: post, update, then remove a notification. Each step is scheduled %1$d seconds after the previous one. Android may delay alarms, especially during Doze. Turn off the screen after starting. Return here to see actual execution times. No exact-alarm permission or battery exemption is requested.</string>
     <string name="delayed_start">Start delayed notification sequence</string>
     <string name="delayed_cancel">Cancel remaining steps</string>
