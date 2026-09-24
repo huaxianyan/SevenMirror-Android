@@ -2,6 +2,7 @@ package com.neko7ina.sevenmirror.transport
 
 import java.net.URI
 import java.util.Timer
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.schedule
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,12 +19,25 @@ enum class TransportDiagnosticEvent {
     SOCKET_CLOSED,
 }
 
+/**
+ * How long the client may go without hearing anything from the relay before OkHttp calls the
+ * socket dead.
+ *
+ * OkHttp arms a read timeout of this length around every ping it sends, so a socket whose TCP
+ * connection stayed open while the peer stopped producing data is detected within one interval.
+ * Without it the client only learns about such a socket through the server's own ping timing, and
+ * until then every queued notification stays in the OkHttp send buffer while the transport still
+ * reports ONLINE. Matches the relay's `pingInterval`.
+ */
+internal const val RELAY_SOCKET_PING_INTERVAL_MILLIS = 30_000L
+
 /** Sends SNA1 and validates the server's SNO1 before exposing application onOpen. */
 class AuthenticatedWebSocketFactory(
     httpClient: OkHttpClient,
-    private val observe: (TransportDiagnosticEvent) -> Unit = {},
+    private val observe: (TransportDiagnosticEvent, Throwable?) -> Unit = { _, _ -> },
 ) {
     private val webSocketClient = httpClient.newBuilder()
+        .pingInterval(RELAY_SOCKET_PING_INTERVAL_MILLIS, TimeUnit.MILLISECONDS)
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
@@ -55,7 +69,7 @@ class AuthenticatedWebSocketFactory(
                 private var acknowledgementTimer: Timer? = null
 
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    observe(TransportDiagnosticEvent.SOCKET_OPEN)
+                    observe(TransportDiagnosticEvent.SOCKET_OPEN, null)
                     if (response.request.url != request.url) {
                         authenticationFrame.fill(0)
                         webSocket.close(1008, "relay endpoint changed")
@@ -80,7 +94,7 @@ class AuthenticatedWebSocketFactory(
                         )
                         return
                     }
-                    observe(TransportDiagnosticEvent.AUTH_FRAME_SENT)
+                    observe(TransportDiagnosticEvent.AUTH_FRAME_SENT, null)
                     openingResponse = response
                     acknowledgementTimer = Timer("transport-auth-ack", true).also { timer ->
                         timer.schedule(5_000L) {
@@ -110,7 +124,7 @@ class AuthenticatedWebSocketFactory(
                         authenticated = true
                         acknowledgementTimer?.cancel()
                         acknowledgementTimer = null
-                        observe(TransportDiagnosticEvent.AUTHENTICATED)
+                        observe(TransportDiagnosticEvent.AUTHENTICATED, null)
                         listener.onOpen(webSocket, requireNotNull(openingResponse))
                     } else {
                         listener.onMessage(webSocket, bytes)
@@ -134,7 +148,7 @@ class AuthenticatedWebSocketFactory(
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     acknowledgementTimer?.cancel()
                     acknowledgementTimer = null
-                    observe(TransportDiagnosticEvent.SOCKET_CLOSED)
+                    observe(TransportDiagnosticEvent.SOCKET_CLOSED, null)
                     listener.onClosed(webSocket, code, reason)
                 }
 
@@ -142,7 +156,7 @@ class AuthenticatedWebSocketFactory(
                     acknowledgementTimer?.cancel()
                     acknowledgementTimer = null
                     if (!authenticated) authenticationFrame.fill(0)
-                    observe(TransportDiagnosticEvent.SOCKET_FAILURE)
+                    observe(TransportDiagnosticEvent.SOCKET_FAILURE, error)
                     listener.onFailure(webSocket, error, response)
                 }
                 },

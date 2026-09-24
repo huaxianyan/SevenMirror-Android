@@ -14,6 +14,7 @@ import okio.ByteString.Companion.toByteString
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -29,7 +30,7 @@ class AuthenticatedWebSocketTest {
         val events = mutableListOf<TransportDiagnosticEvent>()
         val client = OkHttpClient()
         try {
-            AuthenticatedWebSocketFactory(client) { events += it }.open(
+            AuthenticatedWebSocketFactory(client) { event, _ -> events += event }.open(
                 credential(server),
                 object : WebSocketListener() {
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -75,8 +76,8 @@ class AuthenticatedWebSocketTest {
         )
         val client = OkHttpClient()
         try {
-            val socket = AuthenticatedWebSocketFactory(client) {
-                synchronized(events) { events += it.name }
+            val socket = AuthenticatedWebSocketFactory(client) { event, _ ->
+                synchronized(events) { events += event.name }
             }.open(
                 credential,
                 object : WebSocketListener() {
@@ -155,6 +156,45 @@ class AuthenticatedWebSocketTest {
                 // The asserted client failure above is the security boundary. MockWebServer can
                 // still race its internal WebSocket upgrade task while shutting the fixture down.
             }
+        }
+    }
+
+    @Test
+    fun reportsTheErrorTypeAlongsideTheSocketFailureEvent() {
+        val server = MockWebServer()
+        server.enqueue(MockResponse().setResponseCode(500))
+        server.start()
+        val observed = mutableListOf<Pair<TransportDiagnosticEvent, Throwable?>>()
+        val failed = CountDownLatch(1)
+        val client = OkHttpClient()
+        try {
+            AuthenticatedWebSocketFactory(client) { event, error ->
+                synchronized(observed) { observed += event to error }
+            }.open(
+                credential(server),
+                object : WebSocketListener() {
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        failed.countDown()
+                    }
+                },
+            )
+            assertTrue(failed.await(5, TimeUnit.SECONDS))
+            val collected = synchronized(observed) { observed.toList() }
+            val failure = collected.firstOrNull { it.first == TransportDiagnosticEvent.SOCKET_FAILURE }
+            assertNotNull("SOCKET_FAILURE must be observed", failure)
+            assertNotNull(
+                "SOCKET_FAILURE must carry the error that ended the socket",
+                failure!!.second,
+            )
+            assertTrue(
+                "only SOCKET_FAILURE carries an error",
+                collected
+                    .filter { it.first != TransportDiagnosticEvent.SOCKET_FAILURE }
+                    .all { it.second == null },
+            )
+        } finally {
+            client.dispatcher.executorService.shutdown()
+            server.shutdown()
         }
     }
 

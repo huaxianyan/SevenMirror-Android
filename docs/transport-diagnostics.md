@@ -8,17 +8,24 @@ operator diagnostic, not product UI or a telemetry upload channel.
 
 Each line contains `t_ms` (Android elapsed realtime, including sleep), `gen`
 (process-local connection generation), a code-defined `event`, and the observed
-coordinator `state`. Optional fields are numeric delay/network handles and
-boolean network flags or outcomes. No endpoint URL, IP address, SSID, membership
-identifier, notification identifier/content, token, key, or exception message is
+coordinator `state`. Optional fields are numeric delay/network handles, boolean
+network flags or outcomes, and a `failure=` label. Holding to the existing
+boundary, that label is the ending exception's class name only: messages are
+never recorded, because they can carry payload. No endpoint URL, IP address,
+SSID, membership identifier, notification identifier/content, token, or key is
 accepted by the recording API. Treat even these timings and network handles as
 local diagnostic metadata; do not publish captures without review.
 
 Socket events reuse `TransportDiagnosticEvent` and its existing factory observer.
 The observer is bound to each attempt, so a late callback retains the old `gen`.
 The reported `state` is the coordinator state at recording time, not historical
-state belonging to that old socket. A new factory shares the supplied OkHttp
-client's connection pool/dispatcher and keeps the existing redirect restrictions.
+state belonging to that old socket. `SOCKET_FAILURE` carries the ending
+exception's class name, which is what separates a socket that went silent from
+one the peer refused or reset; the other socket events carry none. A new factory
+shares the supplied OkHttp client's connection pool/dispatcher, keeps the
+existing redirect restrictions, and arms a client-side ping interval so a socket
+whose peer stopped producing data fails within one interval instead of waiting on
+the server's own ping timing to notice.
 
 ## Interpreting a recovery
 
@@ -47,6 +54,9 @@ client's connection pool/dispatcher and keeps the existing redirect restrictions
   `SOCKET_CLOSED` are observed before the coordinator's queued callback work.
   `AUTHENTICATED` to `CONNECTION_READY` includes that queue wait and connection
   initialization, including delivery resume. It is not pure authentication time.
+  The `failure=<class name>` on `SOCKET_FAILURE` names the exception that ended
+  the socket: a timeout there means the peer stopped producing data, not that the
+  peer or the network refused the connection.
 - `TERMINATION_QUEUED` to `CONNECTION_TERMINATED` shows termination processing
   delay. Obsolete or already-terminal attempts do not produce a second applied
   termination event.
@@ -63,10 +73,12 @@ client's connection pool/dispatcher and keeps the existing redirect restrictions
 
 Use differences of `t_ms` within the same device boot, not uncalibrated timestamps
 from another machine. Absence of a callback alone does not establish the cause
-of an outage. The recording API adds no retry eligibility, heartbeat/timeout,
-backoff, executor ownership, or membership behavior of its own. Default network
-identity does retire a stale connection, but that rule lives in the coordinator
-and is described in `background-connection.md`, not in this instrumentation.
+of an outage. The recording API itself adds no retry eligibility, heartbeat,
+backoff, executor ownership, or membership behavior of its own; the ping interval
+belongs to the socket factory, which is transport policy rather than
+instrumentation. Default network identity does retire a stale connection, but
+that rule lives in the coordinator and is described in `background-connection.md`,
+not in this instrumentation.
 
 ## Capture and acceptance
 

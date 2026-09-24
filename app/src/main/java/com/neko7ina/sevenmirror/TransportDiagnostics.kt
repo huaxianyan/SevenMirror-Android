@@ -60,12 +60,14 @@ internal class TransportDiagnostics(
     }
 
     /**
-     * Records the failure that parked or re-armed the transport.
+     * Records a failure that parked or re-armed the transport, or that ended a relay socket.
      *
      * Only the exception's class name is written, never its message: the message may carry
      * payload, while the class name alone is what tells a transient Keystore, Binder, identity or
-     * endpoint failure apart from a genuinely permanent local one. Without it a parked device can
-     * only be diagnosed by guessing which of the coordinator's catch blocks fired.
+     * endpoint failure apart from a genuinely permanent local one, and a socket that went silent
+     * apart from one the peer refused or reset. Without it a parked device can only be diagnosed
+     * by guessing which of the coordinator's catch blocks fired, and a dropped socket only by its
+     * event name.
      */
     fun recordFailure(
         event: Enum<*>,

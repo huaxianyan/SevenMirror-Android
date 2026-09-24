@@ -685,8 +685,12 @@ class AndroidTransportCoordinator(context: Context) {
             mutableState.value = AndroidTransportState.CONNECTING
             val receivedSno1 = AtomicBoolean(false)
             // Bind observations to this attempt, including callbacks arriving after replacement.
-            val socket = AuthenticatedWebSocketFactory(httpClient) { event ->
-                diagnostics.record(event, requestedGeneration)
+            val socket = AuthenticatedWebSocketFactory(httpClient) { event, error ->
+                if (error == null) {
+                    diagnostics.record(event, requestedGeneration)
+                } else {
+                    diagnostics.recordFailure(event, requestedGeneration, error)
+                }
             }.open(
                 credential,
                 object : WebSocketListener() {
