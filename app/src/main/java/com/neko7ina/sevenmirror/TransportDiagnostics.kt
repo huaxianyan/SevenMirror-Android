@@ -25,6 +25,9 @@ internal enum class CoordinatorDiagnosticEvent {
 
     /** A local failure re-armed the connection instead of parking the device. */
     LOCAL_FAILURE_RETRY,
+
+    /** A retryable state had no reconnect behind it, so the coordinator re-armed it. */
+    CONNECTION_REARMED,
 }
 
 private const val MAX_FAILURE_LABEL_LENGTH = 120

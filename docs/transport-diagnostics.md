@@ -70,6 +70,17 @@ the server's own ping timing to notice.
   server ACK or browser display. A missing local active snapshot produces no
   snapshot event. Ordinary notification changes and explicit history-gap
   snapshot responses are not traced by this slice.
+- `SECURITY_ERROR_ENTERED recovery=...` and `LOCAL_FAILURE_RETRY` are the two ways a
+  failure is handled: the first parks the transport on the recovery page and records
+  which recovery it was classified as, the second re-arms the connection through the
+  bounded backoff. Both carry the class of the ending exception, which is what keeps
+  the entry that refused a frame identifiable after the frame itself is gone.
+  `SECURITY_ERROR_ENTERED` with `recovery=NONE` means the cause was never classified
+  as permanent.
+- `CONNECTION_REARMED` is the periodic check noticing that a connection owner has a
+  retryable state with no reconnect scheduled, and re-arming it. It is expected to be
+  absent: every other path schedules its own retry. Its presence means one declined
+  to, and the `CONNECTION_REQUESTED` that follows it belongs to that re-arm.
 
 Use differences of `t_ms` within the same device boot, not uncalibrated timestamps
 from another machine. Absence of a callback alone does not establish the cause
@@ -78,7 +89,8 @@ backoff, executor ownership, or membership behavior of its own; the ping interva
 belongs to the socket factory, which is transport policy rather than
 instrumentation. Default network identity does retire a stale connection, but
 that rule lives in the coordinator and is described in `background-connection.md`,
-not in this instrumentation.
+not in this instrumentation. The same holds for the periodic re-arm check and for
+which failures are retried rather than parked.
 
 ## Capture and acceptance
 

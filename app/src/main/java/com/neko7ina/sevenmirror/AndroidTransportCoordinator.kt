@@ -59,6 +59,21 @@ import okio.ByteString
 
 private const val MEMBERSHIP_REFRESH_INTERVAL_MS = 60_000L
 
+/**
+ * How long a state that should be retrying may stay with no reconnect behind it before the
+ * coordinator re-arms it. See [AndroidTransportCoordinator.rearmStalledConnection].
+ */
+private const val CONNECTION_REARM_INTERVAL_MS = 60_000L
+
+/**
+ * A relay frame that no message the protocol defines decodes from.
+ *
+ * The relay sends bytes only, so a text frame is as malformed as one that fails to parse, and both
+ * are verdicts on the peer rather than on this device. Naming the refusal keeps it apart from the
+ * codec's own exception in the diagnostics, which record the class of the failure and nothing else.
+ */
+private class UnverifiableRelayFrameException(message: String) : Exception(message)
+
 private fun NotificationActionDescriptor.toProtocolOrNull(): ProtocolNotificationActionDescriptor? {
     if (title.toByteArray(Charsets.UTF_8).size !in 1..EncryptedPayloadCodecV1.MAX_NOTIFICATION_ACTION_TITLE_BYTES) return null
     return ProtocolNotificationActionDescriptor.newBuilder()
@@ -186,6 +201,10 @@ class AndroidTransportCoordinator(context: Context) {
     private val diagnostics = TransportDiagnostics(state = { mutableState.value })
 
     private var webSocket: WebSocket? = null
+    // Handlers of the current connection, held so a failure path reached from outside a socket
+    // callback can still clear the identity material they carry. Read and written only on the
+    // serialized executor, the same as the rest of the connection state below.
+    private var connectionHandlers: ConnectionHandlers? = null
     // Route the current socket, or the in-flight connection attempt, is bound to. Null means no
     // route is recorded, or the attempt is bound to no default network at all. Read and written
     // only on the serialized executor, the same as the rest of the connection state below.
@@ -307,6 +326,19 @@ class AndroidTransportCoordinator(context: Context) {
                 }
             },
         )
+        // Holds up the invariant that a connection owner with a retryable state always has a
+        // reconnect behind it. Every failure path schedules its own, but each one carries a guard
+        // that can decline, so this is what keeps a declined retry from being permanent.
+        executor.scheduleWithFixedDelay(
+            {
+                // A throw here would suppress every later run of a check whose whole purpose is to
+                // be the last resort, so nothing is allowed to escape it.
+                runCatching { rearmStalledConnection() }
+            },
+            CONNECTION_REARM_INTERVAL_MS,
+            CONNECTION_REARM_INTERVAL_MS,
+            TimeUnit.MILLISECONDS,
+        )
     }
 
     /** Each visible Activity or running foreground Service holds its own connection ownership. */
@@ -420,6 +452,7 @@ class AndroidTransportCoordinator(context: Context) {
         executor.execute {
             cancelReconnect()
             cancelMembershipRefresh()
+            clearConnectionHandlers()
             webSocket?.close(1000, "connection owners released")
             webSocket = null
             connectionRoute = null
@@ -562,6 +595,7 @@ class AndroidTransportCoordinator(context: Context) {
         }
         mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
         terminalGeneration = Long.MIN_VALUE
+        clearConnectionHandlers()
         webSocket?.close(1000, "replaced by new connection")
         webSocket = null
         cancelMembershipRefresh()
@@ -678,6 +712,9 @@ class AndroidTransportCoordinator(context: Context) {
                 handlers.clearIdentities()
                 return
             }
+            // Published before the socket exists, so a failure path reached from outside a socket
+            // callback still finds the handlers of the connection it is ending.
+            connectionHandlers = handlers
             // Bind this attempt to the route its TCP connection will use. Recorded after the
             // routing work above, so an attempt that failed before reaching the socket does not
             // claim a route it never used.
@@ -767,12 +804,24 @@ class AndroidTransportCoordinator(context: Context) {
                             }
                             try {
                                 val nowUnixMs = System.currentTimeMillis()
-                                when (val message = RelayDeliveryCodecV1.decodeServerMessage(frame)) {
+                                val message = try {
+                                    RelayDeliveryCodecV1.decodeServerMessage(frame)
+                                } catch (error: Throwable) {
+                                    // Bytes the codec refuses are a verdict on the wire, and nothing
+                                    // this device re-reads locally changes them, so this socket is
+                                    // parked rather than rebuilt.
+                                    rejectUnverifiableInbound(requestedGeneration, webSocket, error)
+                                    return@execute
+                                }
+                                when (message) {
                                     is RelayServerMessageV1.OnlineEnvelope -> {
-                                        val receipt = handlers.actionDispatcher.receiveAnyOnce(
+                                        val receipt = receiveEnvelopeOrReject(
+                                            requestedGeneration,
+                                            webSocket,
+                                            handlers.actionDispatcher,
                                             message.envelope,
                                             nowUnixMs,
-                                        )
+                                        ) ?: return@execute
                                         respondToSnapshotRequest(receipt)
                                     }
                                     is RelayServerMessageV1.Delivery -> {
@@ -787,11 +836,14 @@ class AndroidTransportCoordinator(context: Context) {
                                             cursor.committedDeliveryId,
                                             1L,
                                         )) { "Relay deliveries are not contiguous" }
-                                        val receipt = handlers.actionDispatcher.receiveAnyOnce(
+                                        val receipt = receiveEnvelopeOrReject(
+                                            requestedGeneration,
+                                            webSocket,
+                                            handlers.actionDispatcher,
                                             message.envelope,
                                             nowUnixMs,
                                             allowSnapshotRequestReplayDuplicate = true,
-                                        )
+                                        ) ?: return@execute
                                         respondToSnapshotRequest(receipt)
                                         // Dispatch returns only after the exact action result, ACK,
                                         // or complete online snapshot response is accepted locally.
@@ -839,8 +891,12 @@ class AndroidTransportCoordinator(context: Context) {
                                     webSocket,
                                     handlers.resultDrainer,
                                 )
-                            } catch (_: Throwable) {
-                                rejectInbound(requestedGeneration, webSocket)
+                            } catch (error: Throwable) {
+                                // What can still throw from here describes this device rather than
+                                // the peer: the delivery cursor assertions, the snapshot response,
+                                // and the result drain. A fresh connection re-reads every one of
+                                // them, so this is a retry rather than a verdict.
+                                abandonConnection(requestedGeneration, webSocket, error)
                             } finally {
                                 frame.fill(0)
                             }
@@ -973,8 +1029,8 @@ class AndroidTransportCoordinator(context: Context) {
         var identity: AuthenticatedHpke.KeyPair? = null
         val credential = try {
             credentialStore.load()
-        } catch (_: Throwable) {
-            rejectInbound(generation.get(), socket)
+        } catch (error: Throwable) {
+            abandonConnection(generation.get(), socket, error)
             return false
         } ?: return false
         try {
@@ -1018,8 +1074,8 @@ class AndroidTransportCoordinator(context: Context) {
             } finally {
                 frames.forEach { it.fill(0) }
             }
-        } catch (_: Throwable) {
-            rejectInbound(generation.get(), socket)
+        } catch (error: Throwable) {
+            abandonConnection(generation.get(), socket, error)
             return false
         } finally {
             sender?.clearIdentity()
@@ -1030,23 +1086,107 @@ class AndroidTransportCoordinator(context: Context) {
     }
 
     private fun enqueueInboundRejection(requestedGeneration: Long, socket: WebSocket) {
-        executor.execute { rejectInbound(requestedGeneration, socket) }
+        val error = UnverifiableRelayFrameException("Relay sent a text frame")
+        executor.execute { rejectUnverifiableInbound(requestedGeneration, socket, error) }
     }
 
-    private fun rejectInbound(requestedGeneration: Long, socket: WebSocket) {
-        if (generation.get() != requestedGeneration || terminalGeneration == requestedGeneration) {
-            return
-        }
-        terminalGeneration = requestedGeneration
-        cancelResultDrain()
-        if (webSocket === socket) webSocket = null
-        // Parking is deliberate here rather than a retry: a frame this device cannot verify means
-        // the socket's trust is gone, and stopping keeps that visible instead of hiding it behind
-        // an endless reconnect. The cause is still unclassified, so the state never reaches the
-        // recovery page and the main screen keeps offering a reconnect.
+    /**
+     * Hands one inbound envelope to the authenticated boundary, parking when the boundary refuses
+     * it.
+     *
+     * Returns null once the transport is parked, which the caller must read as "stop handling this
+     * frame". See [rejectUnverifiableInbound] for why a refusal is a verdict on the peer.
+     */
+    private fun receiveEnvelopeOrReject(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        dispatcher: AndroidActionInvokeDispatcher,
+        envelope: ByteArray,
+        nowUnixMs: Long,
+        allowSnapshotRequestReplayDuplicate: Boolean = false,
+    ): AuthenticatedInboundReceipt? = try {
+        dispatcher.receiveAnyOnce(envelope, nowUnixMs, allowSnapshotRequestReplayDuplicate)
+    } catch (error: Throwable) {
+        rejectUnverifiableInbound(requestedGeneration, socket, error)
+        null
+    }
+
+    /**
+     * Parks the transport after a frame whose trust this device cannot establish.
+     *
+     * Only a verdict on the bytes the peer sent belongs here: a frame no message decodes from, or
+     * an envelope the authenticated boundary refuses over its workspace, recipient, key id, sender
+     * authorization or signature. Those describe the socket rather than anything local, and
+     * stopping keeps them visible instead of hiding them behind a reconnect loop. The cause is
+     * still unclassified, so the state never reaches the recovery page and the main screen keeps
+     * offering a reconnect.
+     */
+    private fun rejectUnverifiableInbound(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        error: Throwable,
+    ) {
+        if (!beginTermination(requestedGeneration, socket)) return
+        // Recorded so a parked device can be told apart from one that is still retrying, and so
+        // the entry that refused the frame stays recoverable afterwards: the frame itself is gone
+        // by then, and the diagnostics carry the class of the refusal and nothing else.
+        diagnostics.recordFailure(
+            CoordinatorDiagnosticEvent.SECURITY_ERROR_ENTERED,
+            requestedGeneration,
+            error,
+            AndroidSecurityRecovery.NONE,
+        )
         mutableSecurityRecovery.value = AndroidSecurityRecovery.NONE
         mutableState.value = AndroidTransportState.SECURITY_ERROR
         socket.close(1008, "encrypted envelope rejected")
+    }
+
+    /**
+     * Ends this generation after a failure in this device's own handling of a live socket.
+     *
+     * None of these are verdicts on the peer: a credential read, an identity binding check, a send
+     * the socket refused, a delivery cursor assertion, and the result drain all describe this
+     * device, and a fresh connection re-reads every one of them. Parking them would strand a
+     * healthy device, and every notification that arrives while it is stranded is dropped instead
+     * of queued, so the retry path is used instead.
+     */
+    private fun abandonConnection(
+        requestedGeneration: Long,
+        socket: WebSocket,
+        error: Throwable,
+    ) {
+        if (!beginTermination(requestedGeneration, socket)) return
+        diagnostics.recordFailure(
+            CoordinatorDiagnosticEvent.LOCAL_FAILURE_RETRY,
+            requestedGeneration,
+            error,
+        )
+        mutableState.value = AndroidTransportState.OFFLINE
+        socket.close(1008, "local handling failed")
+        scheduleReconnect(requestedGeneration)
+    }
+
+    /**
+     * Claims this generation for termination at most once and detaches the socket that carried it.
+     *
+     * Returns whether the caller now owns the termination, so a path arriving after another one
+     * already ended this generation does nothing instead of overwriting the state that path set.
+     */
+    private fun beginTermination(requestedGeneration: Long, socket: WebSocket): Boolean {
+        if (generation.get() != requestedGeneration || terminalGeneration == requestedGeneration) {
+            return false
+        }
+        terminalGeneration = requestedGeneration
+        cancelResultDrain()
+        cancelMembershipRefresh()
+        clearConnectionHandlers()
+        if (webSocket === socket) webSocket = null
+        return true
+    }
+
+    private fun clearConnectionHandlers() {
+        connectionHandlers?.clearIdentities()
+        connectionHandlers = null
     }
 
     private fun enqueueTermination(
@@ -1092,8 +1232,8 @@ class AndroidTransportCoordinator(context: Context) {
                     durable.fill(0)
                 }
             }
-        } catch (_: Throwable) {
-            rejectInbound(requestedGeneration, socket)
+        } catch (error: Throwable) {
+            abandonConnection(requestedGeneration, socket, error)
             return
         }
         if (result.attemptedEntries > result.acceptedSends) {
@@ -1329,6 +1469,35 @@ class AndroidTransportCoordinator(context: Context) {
         reconnectFuture?.cancel(false)
         reconnectFuture = null
         cancelResultDrain()
+    }
+
+    /**
+     * Re-arms a connection that reached a retryable state with nothing scheduled behind it.
+     *
+     * Every failure path schedules its own reconnect, and each one carries a guard that can
+     * decline: a superseded generation, a released ownership, or a future that already exists. A
+     * path that declines while the state stays retryable leaves the device attempting nothing at
+     * all, and nothing else notices. A device observed on 2026-09-24 stayed that way for the rest
+     * of a day, dropping every event that arrived, until the application was reopened by hand.
+     *
+     * The check is deliberately weaker than a retry: it only acts where nothing else will, so an
+     * attempt that is connecting, backing off, registering, rotating or enrolling is left alone.
+     */
+    private fun rearmStalledConnection() {
+        if (!hasConnectionOwner()) return
+        if (reconnectFuture != null) return
+        val retryable = when (mutableState.value) {
+            AndroidTransportState.OFFLINE -> true
+            // Both proven states stay terminal. Every other way onto the recovery page is
+            // unclassified and is already re-armed when the application is opened, so leaving it
+            // without a reconnect is exactly what made it permanent.
+            AndroidTransportState.SECURITY_ERROR ->
+                mutableSecurityRecovery.value == AndroidSecurityRecovery.NONE
+            else -> false
+        }
+        if (!retryable) return
+        diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_REARMED, generation.get())
+        retryConnection()
     }
 
     private fun cancelResultDrain() {
