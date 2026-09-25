@@ -60,13 +60,15 @@ fun interface WorkspaceActionPeerResolver {
      * Separates the two meanings of a null [resolveActionPeer]: a recipient that is authoritatively
      * gone, and one this device merely cannot authorize right now.
      *
-     * True only when the local roster was readable, the local device is active and current in it,
-     * and no active certificate carries this exact device/key pair. Only then can no later attempt
-     * ever encrypt to that recipient, so a durable result bound to it is dead weight.
+     * True only when the local roster was readable, the local device is an active, current
+     * notification sender in it, and no active certificate carries this exact device/key pair. Only
+     * then can no later attempt ever encrypt to that recipient, so a durable result bound to it is
+     * dead weight.
      *
-     * False for an unreadable or absent roster, an inactive local device, and a recipient that is
-     * still on the roster but not currently authorized. Those are all conditions that can clear on
-     * their own, so the durable result must survive to be retried.
+     * False for an unreadable or absent roster, a local device that is inactive, no longer a
+     * sender, or not current, and a recipient that is still on the roster but not currently
+     * authorized. Those are all conditions that can clear on their own, so the durable result must
+     * survive to be retried.
      *
      * The default is false: a resolver that cannot answer keeps the conservative behavior.
      */
@@ -425,12 +427,16 @@ class AndroidWorkspaceMembershipStore(
             // An unreadable roster proves nothing about the peer, so the result must survive.
             return false
         }
-        // The local certificate is what makes this roster ours rather than a stale or foreign one.
+        // A roster only proves what it says about the peer while this device is still a valid sender
+        // in it. Otherwise the local membership itself is in question, and nothing is discarded.
         val local = active.singleOrNull {
             MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), localDeviceId) &&
                 MessageDigest.isEqual(it.toByteArray(), state.signedCertificate)
         }?.certificate ?: return false
-        if (!certificateIsCurrent(local, nowUnixMs)) return false
+        if (local.deviceType != DeviceType.DEVICE_TYPE_ANDROID ||
+            DeviceRole.DEVICE_ROLE_SEND_NOTIFICATIONS !in local.rolesList ||
+            !certificateIsCurrent(local, nowUnixMs)
+        ) return false
         return active.none {
             MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), peerDeviceId) &&
                 MessageDigest.isEqual(it.certificate.identityKeyId.toByteArray(), peerKeyId)

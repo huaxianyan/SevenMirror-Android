@@ -123,8 +123,8 @@ over `shell cat`: a pty would rewrite `\n` to `\r\n`.
   the only path that removes a completed result without an acknowledgement, so it is
   what separates "the browser never got the result" from "the sender threw it away".
   The drain deliberately discards nothing when the roster is unreadable, the local
-  device is inactive, or the recipient is still listed but not currently authorized,
-  so this event never appears for those conditions.
+  device is no longer a current sender, or the recipient is still listed but not
+  currently authorized, so this event never appears for those conditions.
 
 Use differences of `t_ms` within the same device boot, not uncalibrated timestamps
 from another machine. Absence of a callback alone does not establish the cause
