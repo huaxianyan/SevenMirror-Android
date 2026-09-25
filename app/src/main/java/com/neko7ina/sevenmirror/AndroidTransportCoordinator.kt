@@ -6,6 +6,7 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import com.neko7ina.sevenmirror.crypto.AndroidActionResultOutbox
 import com.neko7ina.sevenmirror.crypto.AndroidHpkeIdentityStore
 import com.neko7ina.sevenmirror.crypto.AndroidOperationLedger
@@ -41,6 +42,7 @@ import com.neko7ina.sevenmirror.transport.RelayServerMessageV1
 import com.neko7ina.sevenmirror.transport.TransportCredentialRotationClient
 import com.neko7ina.sevenmirror.transport.TransportCredentialUnreadableException
 import com.neko7ina.sevenmirror.transport.WorkspaceMembershipClient
+import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -198,7 +200,17 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableSynchronizationPaused = MutableStateFlow(productPreferences.isSynchronizationPaused())
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
     private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
-    private val diagnostics = TransportDiagnostics(state = { mutableState.value })
+    private val diagnosticsRing = TransportDiagnosticsRing(
+        File(applicationContext.filesDir, TransportDiagnosticsRing.FILE_NAME),
+    )
+    // Recorded in both build types: Release writes no logcat, and logcat's 256 KiB main buffer
+    // evicts the timeline within hours, so the app-private ring is the only sink that makes a field
+    // failure diagnosable after the fact. Logcat stays Debug-only.
+    private val diagnostics = TransportDiagnostics(
+        state = { mutableState.value },
+        enabled = true,
+        write = ::recordDiagnostic,
+    )
 
     private var webSocket: WebSocket? = null
     // Handlers of the current connection, held so a failure path reached from outside a socket
@@ -369,6 +381,15 @@ class AndroidTransportCoordinator(context: Context) {
 
     @Synchronized
     private fun hasConnectionOwner(): Boolean = connectionOwners.isNotEmpty()
+
+    /**
+     * Diagnostic sink shared by the app-private ring and, in Debug builds only, logcat. Reached from
+     * socket callbacks and the serialized executor; the ring synchronizes its own writes.
+     */
+    private fun recordDiagnostic(line: String) {
+        diagnosticsRing.append(line)
+        if (BuildConfig.DEBUG) Log.d(TransportDiagnostics.LOGCAT_TAG, line)
+    }
 
     /** UI and network retries can use an existing demand, never create a new owner. */
     @Synchronized

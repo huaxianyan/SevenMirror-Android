@@ -32,12 +32,19 @@ internal enum class CoordinatorDiagnosticEvent {
 
 private const val MAX_FAILURE_LABEL_LENGTH = 120
 
-/** Code-defined enums and scalar metadata only: never accept payloads or exception messages. */
+/**
+ * Code-defined enums and scalar metadata only: never accept payloads or exception messages.
+ *
+ * The default sink is logcat, and the default `enabled` follows `BuildConfig.DEBUG`. The transport
+ * coordinator deliberately overrides both: it records in Release too, sending the same lines to the
+ * app-private [TransportDiagnosticsRing] while logcat stays Debug-only. See
+ * `docs/transport-diagnostics.md`.
+ */
 internal class TransportDiagnostics(
     private val state: () -> AndroidTransportState,
     private val enabled: Boolean = BuildConfig.DEBUG,
     private val clock: () -> Long = SystemClock::elapsedRealtime,
-    private val write: (String) -> Unit = { Log.d("SevenMirrorTransport", it) },
+    private val write: (String) -> Unit = { Log.d(LOGCAT_TAG, it) },
 ) {
     fun record(
         event: Enum<*>,
@@ -103,5 +110,9 @@ internal class TransportDiagnostics(
 
     private fun emit(event: Enum<*>, generation: Long, fields: String) {
         write("t_ms=${clock()} gen=$generation event=${event.name} state=${state().name}$fields")
+    }
+
+    companion object {
+        const val LOGCAT_TAG = "SevenMirrorTransport"
     }
 }

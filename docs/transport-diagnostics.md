@@ -1,8 +1,17 @@
-# Debug transport timeline
+# Transport timeline
 
-The `SevenMirrorTransport` logcat tag is enabled by default only in Debug builds.
-Release defaults are covered by `TransportDiagnosticsReleaseTest`. This is an
-operator diagnostic, not product UI or a telemetry upload channel.
+The coordinator records the transport timeline in both build types, and gives it
+two sinks with different reachability:
+
+- an app-private ring file in `filesDir/transport-diagnostics.log`, written in
+  Debug and Release alike;
+- the `SevenMirrorTransport` logcat tag, written in Debug only.
+
+`TransportDiagnostics` itself still defaults to `enabled = BuildConfig.DEBUG` and
+to logcat, so `TransportDiagnosticsReleaseTest` keeps pinning that default; the
+coordinator overrides both because the ring is the only sink that survives a
+field failure. This is an operator diagnostic, not product UI or a telemetry
+upload channel, and nothing leaves the device.
 
 ## Recorded data
 
@@ -26,6 +35,33 @@ shares the supplied OkHttp client's connection pool/dispatcher, keeps the
 existing redirect restrictions, and arms a client-side ping interval so a socket
 whose peer stopped producing data fails within one interval instead of waiting on
 the server's own ping timing to notice.
+
+## The ring file
+
+logcat alone cannot answer a field question: its main buffer is roughly 256 KiB,
+so it evicts hours of history, and Release builds never write it at all. The ring
+is what makes an outage diagnosable after the fact, so it is the primary artifact
+and logcat is the convenience one.
+
+The ring holds the same lines, byte for byte, that logcat would receive. It
+appends each line as UTF-8, and once the file passes 256 KiB it drops the oldest
+lines until about three quarters of the budget remains, always at a line boundary
+so a reader never sees a torn record. Trimming stages a sibling `.trim` file and
+renames it over the target, falling back to an in-place rewrite if the rename is
+refused. All of it is best-effort: a failed write or trim is swallowed, because
+instrumentation must never change transport behavior.
+
+The ring is bounded but not small, and it outlives the process, so treat it the
+same way as a logcat capture: read it during an explicitly authorized session,
+and review it before sharing. Read it with
+
+```text
+adb exec-out run-as <package> cat files/transport-diagnostics.log
+```
+
+`run-as` only works for a debuggable application, so reading the ring of an
+installed Release build needs an equivalent privileged read. Prefer `exec-out`
+over `shell cat`: a pty would rewrite `\n` to `\r\n`.
 
 ## Interpreting a recovery
 
@@ -94,7 +130,14 @@ which failures are retried rather than parked.
 
 ## Capture and acceptance
 
-Use the installed Debug application's PID and filter only this tag, for example:
+The ring needs no capture to be set up: it is already there when the failure
+happens. Read it after the fact with the `adb exec-out` command above. It holds
+the most recent window only, and its `t_ms` values are on the same
+Android elapsed-realtime clock as logcat, so a line can be correlated with a
+logcat capture from the same boot.
+
+For a live Debug capture, use the installed Debug application's PID and filter
+only this tag, for example:
 
 ```text
 adb logcat --pid=<app-pid> -v threadtime SevenMirrorTransport:D *:S
