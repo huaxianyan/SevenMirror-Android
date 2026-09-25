@@ -15,6 +15,8 @@ class ActionResultOutboxDrainer(
         val acceptedSends: Int,
         val attemptedEntries: Int,
         val nextWakeDelayMs: Long?,
+        /** Results dropped because their recipient is authoritatively gone from the roster. */
+        val discardedEntries: Int = 0,
     )
 
     private val workspaceId = workspaceId.copyOf()
@@ -46,6 +48,7 @@ class ActionResultOutboxDrainer(
         require(nowUnixMs >= 0) { "nowUnixMs must be non-negative" }
         var accepted = 0
         var attempted = 0
+        var discarded = 0
         var nextWakeDelayMs: Long? = null
         outbox.due(nowUnixMs).forEach { entry ->
             val recipientPublicKey = actionPeers.resolveActionPeer(
@@ -54,7 +57,24 @@ class ActionResultOutboxDrainer(
                 peerDeviceId = entry.recipientDeviceId,
                 peerKeyId = entry.recipientKeyId,
                 nowUnixMs = nowUnixMs,
-            )?.identityPublicKey ?: return@forEach // Revocation must immediately prevent further encryption.
+            )?.identityPublicKey
+            if (recipientPublicKey == null) {
+                // Revocation must immediately prevent further encryption, whether or not the roster
+                // could be read. Only a recipient that is authoritatively gone is discarded: every
+                // other reason for a null resolution can clear on its own, so those results stay.
+                if (actionPeers.isActionPeerRevoked(
+                        workspaceId = workspaceId,
+                        localDeviceId = senderDeviceId,
+                        peerDeviceId = entry.recipientDeviceId,
+                        peerKeyId = entry.recipientKeyId,
+                        nowUnixMs = nowUnixMs,
+                    )
+                ) {
+                    outbox.discard(entry.rowId)
+                    discarded += 1
+                }
+                return@forEach
+            }
             attempted += 1
             val frame = ActionResultEnvelopeSender.create(
                 ActionResultEnvelopeContext(
@@ -93,6 +113,7 @@ class ActionResultOutboxDrainer(
             acceptedSends = accepted,
             attemptedEntries = attempted,
             nextWakeDelayMs = nextWakeDelayMs,
+            discardedEntries = discarded,
         )
     }
 

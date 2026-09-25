@@ -17,8 +17,9 @@ upload channel, and nothing leaves the device.
 
 Each line contains `t_ms` (Android elapsed realtime, including sleep), `gen`
 (process-local connection generation), a code-defined `event`, and the observed
-coordinator `state`. Optional fields are numeric delay/network handles, boolean
-network flags or outcomes, and a `failure=` label. Holding to the existing
+coordinator `state`. Optional fields are numeric delay/network handles, a
+`count=` for events that report how many items they acted on, boolean network
+flags or outcomes, and a `failure=` label. Holding to the existing
 boundary, that label is the ending exception's class name only: messages are
 never recorded, because they can carry payload. No endpoint URL, IP address,
 SSID, membership identifier, notification identifier/content, token, or key is
@@ -117,6 +118,13 @@ over `shell cat`: a pty would rewrite `\n` to `\r\n`.
   retryable state with no reconnect scheduled, and re-arming it. It is expected to be
   absent: every other path schedules its own retry. Its presence means one declined
   to, and the `CONNECTION_REQUESTED` that follows it belongs to that re-arm.
+- `RESULT_DISCARDED_REVOKED count=...` is the drain finding durable action results
+  whose recipient is authoritatively gone from the roster, and dropping them. It is
+  the only path that removes a completed result without an acknowledgement, so it is
+  what separates "the browser never got the result" from "the sender threw it away".
+  The drain deliberately discards nothing when the roster is unreadable, the local
+  device is inactive, or the recipient is still listed but not currently authorized,
+  so this event never appears for those conditions.
 
 Use differences of `t_ms` within the same device boot, not uncalibrated timestamps
 from another machine. Absence of a callback alone does not establish the cause

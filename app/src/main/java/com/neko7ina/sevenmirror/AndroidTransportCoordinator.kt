@@ -1257,6 +1257,13 @@ class AndroidTransportCoordinator(context: Context) {
             abandonConnection(requestedGeneration, socket, error)
             return
         }
+        if (result.discardedEntries > 0) {
+            diagnostics.record(
+                CoordinatorDiagnosticEvent.RESULT_DISCARDED_REVOKED,
+                requestedGeneration,
+                count = result.discardedEntries,
+            )
+        }
         if (result.attemptedEntries > result.acceptedSends) {
             socket.cancel()
             enqueueTermination(requestedGeneration, socket)

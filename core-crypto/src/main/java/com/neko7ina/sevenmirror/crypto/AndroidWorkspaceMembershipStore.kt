@@ -55,6 +55,28 @@ fun interface WorkspaceActionPeerResolver {
         peerKeyId: ByteArray,
         nowUnixMs: Long,
     ): WorkspaceActionPeer?
+
+    /**
+     * Separates the two meanings of a null [resolveActionPeer]: a recipient that is authoritatively
+     * gone, and one this device merely cannot authorize right now.
+     *
+     * True only when the local roster was readable, the local device is active and current in it,
+     * and no active certificate carries this exact device/key pair. Only then can no later attempt
+     * ever encrypt to that recipient, so a durable result bound to it is dead weight.
+     *
+     * False for an unreadable or absent roster, an inactive local device, and a recipient that is
+     * still on the roster but not currently authorized. Those are all conditions that can clear on
+     * their own, so the durable result must survive to be retried.
+     *
+     * The default is false: a resolver that cannot answer keeps the conservative behavior.
+     */
+    fun isActionPeerRevoked(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        peerDeviceId: ByteArray,
+        peerKeyId: ByteArray,
+        nowUnixMs: Long,
+    ): Boolean = false
 }
 
 interface WorkspaceMembershipTrustStore {
@@ -383,6 +405,36 @@ class AndroidWorkspaceMembershipStore(
                 MessageDigest.isEqual(it.certificate.identityKeyId.toByteArray(), peerKeyId)
         }?.certificate ?: return null
         return authorizeWorkspaceActionPeer(local, peer, nowUnixMs)
+    }
+
+    override fun isActionPeerRevoked(
+        workspaceId: ByteArray,
+        localDeviceId: ByteArray,
+        peerDeviceId: ByteArray,
+        peerKeyId: ByteArray,
+        nowUnixMs: Long,
+    ): Boolean {
+        require(nowUnixMs > 0) { "Current time is invalid" }
+        val state = load(workspaceId, localDeviceId) ?: return false
+        if (!state.localDeviceActive) return false
+        val signedRoster = state.signedRoster ?: return false
+        val active = try {
+            WorkspaceMembershipV1.decodeRoster(signedRoster, state.authorityPublicKey)
+                .roster.activeCertificatesList
+        } catch (_: Exception) {
+            // An unreadable roster proves nothing about the peer, so the result must survive.
+            return false
+        }
+        // The local certificate is what makes this roster ours rather than a stale or foreign one.
+        val local = active.singleOrNull {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), localDeviceId) &&
+                MessageDigest.isEqual(it.toByteArray(), state.signedCertificate)
+        }?.certificate ?: return false
+        if (!certificateIsCurrent(local, nowUnixMs)) return false
+        return active.none {
+            MessageDigest.isEqual(it.certificate.deviceId.toByteArray(), peerDeviceId) &&
+                MessageDigest.isEqual(it.certificate.identityKeyId.toByteArray(), peerKeyId)
+        }
     }
 
     fun clear() {

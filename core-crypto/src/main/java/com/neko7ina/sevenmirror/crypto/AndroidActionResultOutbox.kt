@@ -336,6 +336,27 @@ class AndroidActionResultOutbox(
     }
 
     /**
+     * Drops a durable result whose recipient binding can never be encrypted to again.
+     *
+     * This is the only path that discards a completed result without an acknowledgement, so the
+     * caller must have established that the recipient is authoritatively gone; see
+     * [WorkspaceActionPeerResolver.isActionPeerRevoked]. A row that is already absent is not an
+     * error, matching [purgeExpired], because the retention deadline may have passed first.
+     */
+    @Synchronized
+    fun discard(rowId: Long) {
+        require(rowId > 0) { "rowId must be positive" }
+        val database = helper.writableDatabase
+        database.beginTransaction()
+        try {
+            database.delete(OUTBOX_TABLE, "rowid = ?", arrayOf(rowId.toString()))
+            database.setTransactionSuccessful()
+        } finally {
+            database.endTransaction()
+        }
+    }
+
+    /**
      * Atomically verifies the recipient binding and exact result digest before deleting the live
      * result. A bounded tombstone makes a valid duplicate ACK idempotent without weakening sender
      * or digest checks.

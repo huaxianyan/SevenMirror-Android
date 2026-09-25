@@ -28,6 +28,9 @@ internal enum class CoordinatorDiagnosticEvent {
 
     /** A retryable state had no reconnect behind it, so the coordinator re-armed it. */
     CONNECTION_REARMED,
+
+    /** Durable action results were dropped because their recipient left the roster. */
+    RESULT_DISCARDED_REVOKED,
 }
 
 private const val MAX_FAILURE_LABEL_LENGTH = 120
@@ -56,6 +59,7 @@ internal class TransportDiagnostics(
         vpn: Boolean? = null,
         validated: Boolean? = null,
         accepted: Boolean? = null,
+        count: Int? = null,
     ) {
         if (!enabled) return
         emit(event, generation, buildString {
@@ -66,6 +70,7 @@ internal class TransportDiagnostics(
             vpn?.let { append(" vpn=$it") }
             validated?.let { append(" validated=$it") }
             accepted?.let { append(" accepted=$it") }
+            count?.let { append(" count=$it") }
         })
     }
 
