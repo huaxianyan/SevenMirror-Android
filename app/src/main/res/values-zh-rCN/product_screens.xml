@@ -30,7 +30,7 @@
     <string name="status_notification_body">用于显示持续同步状态。SevenMirror 需要允许状态通知，才能保持后台同步。</string>
     <string name="open_system_settings">打开系统设置</string>
     <string name="background_recommendations">后台运行建议</string>
-    <string name="battery_recommendation_body">如果熄屏后同步经常中断，可以检查后台限制。完成设置无需一律关闭电池优化。</string>
+    <string name="battery_recommendation_body">熄屏期间，若未允许 SevenMirror 不受电池限制，Android 可能暂停后台同步，直到设备被唤醒。随时可以在系统设置中更改。</string>
     <string name="developer_diagnostics">开发诊断</string>
     <string name="receiving_devices">接收设备</string>
     <string name="receiving_devices_summary">选择接收本手机通知的浏览器</string>

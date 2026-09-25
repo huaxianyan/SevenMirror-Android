@@ -65,7 +65,7 @@
     <string name="background_sync_later_note">While background sync is off, selected apps keep syncing only while SevenMirror is open. You can enable it later in Settings.</string>
     <string name="battery_usage_unrestricted">Battery usage: unrestricted</string>
     <string name="battery_usage_system_managed">Battery usage: managed by Android</string>
-    <string name="review_battery_settings">Review battery settings</string>
+    <string name="allow_unrestricted_battery">Allow unrestricted battery use</string>
     <string name="background_connection_channel">Sync status</string>
     <string name="background_connection_channel_description">Shows notification sync and background activity status.</string>
     <string name="background_connection_notification_title">SevenMirror notification sync</string>

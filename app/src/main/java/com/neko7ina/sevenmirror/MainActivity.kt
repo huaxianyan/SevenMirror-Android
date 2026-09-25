@@ -2,6 +2,7 @@ package com.neko7ina.sevenmirror
 
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -198,9 +199,7 @@ class MainActivity : ComponentActivity() {
                     onOpenStatusNotificationSettings = {
                         startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
                     },
-                    onOpenBatterySettings = {
-                        startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    },
+                    onRequestBatteryExemption = ::requestBatteryExemption,
                     onPostDebugNotification =
                     if (ProductDebugActions.available) ::postDebugNotification else null,
                 )
@@ -243,6 +242,26 @@ class MainActivity : ComponentActivity() {
         foregroundNotificationGranted = canShowForegroundStatus(this)
         batteryOptimizationExempt =
             getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
+    }
+
+    /**
+     * Walks down from the one-tap exemption dialog to the battery-optimization list and finally to
+     * this app's own settings page. A device that refuses one step still has to leave the user
+     * somewhere the exemption can be granted. The declared REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+     * permission is what makes the first step legal; a platform can also reject it at runtime, so
+     * each step is attempted instead of assumed.
+     */
+    private fun requestBatteryExemption() {
+        val candidates = listOf(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                .setData(Uri.fromParts("package", packageName, null)),
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                .setData(Uri.fromParts("package", packageName, null)),
+        )
+        for (candidate in candidates) {
+            if (runCatching { startActivity(candidate) }.isSuccess) return
+        }
     }
 
     private fun reconcileBackgroundConnection() {
@@ -327,7 +346,7 @@ private fun SevenMirrorApp(
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
     onOpenStatusNotificationSettings: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     val transportState by transportCoordinator.state.collectAsState()
@@ -402,8 +421,10 @@ private fun SevenMirrorApp(
                     )
                     OnboardingStage.BACKGROUND_SYNC -> BackgroundSyncScreen(
                         statusNotificationAllowed = foregroundNotificationGranted,
+                        batteryOptimizationExempt = batteryOptimizationExempt,
                         onEnable = { onDecideBackgroundSync(true) },
                         onLater = { onDecideBackgroundSync(false) },
+                        onRequestBatteryExemption = onRequestBatteryExemption,
                     )
                     OnboardingStage.COMPLETE -> MainScreen(
                         transportState = transportState,
@@ -433,7 +454,7 @@ private fun SevenMirrorApp(
                         onReconnect = transportCoordinator::retryConnection,
                         onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
                         onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
-                        onOpenBatterySettings = onOpenBatterySettings,
+                        onRequestBatteryExemption = onRequestBatteryExemption,
                         onPostDebugNotification = onPostDebugNotification,
                     )
                     OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(
@@ -660,8 +681,10 @@ private fun NotificationAccessScreen(
 @Composable
 private fun BackgroundSyncScreen(
     statusNotificationAllowed: Boolean,
+    batteryOptimizationExempt: Boolean,
     onEnable: () -> Unit,
     onLater: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
 ) {
     Page { modifier ->
         Column(
@@ -692,6 +715,10 @@ private fun BackgroundSyncScreen(
                     )
                 }
             }
+            // Offered before the choice rather than after it: an exemption granted later would have
+            // to survive the same screen-off window this step exists to cover, and the reader who
+            // enables background sync without it never sees the cost until notifications stop.
+            BatteryExemptionCard(batteryOptimizationExempt, onRequestBatteryExemption)
             Button(onClick = onEnable, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.keep_connection_active))
             }

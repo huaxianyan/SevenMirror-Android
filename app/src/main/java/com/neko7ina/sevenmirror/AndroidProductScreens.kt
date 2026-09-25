@@ -148,7 +148,7 @@ internal fun MainScreen(
     onReconnect: () -> Unit,
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
     onOpenStatusNotificationSettings: () -> Unit,
-    onOpenBatterySettings: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
     onReloadApplications: () -> Unit,
     onPostDebugNotification: (() -> Unit)?,
 ) {
@@ -425,7 +425,7 @@ internal fun MainScreen(
                                 )
                                 ProductPage.PERMISSIONS -> PermissionsScreen(
                                     notificationAccessGranted, foregroundNotificationGranted, batteryOptimizationExempt,
-                                    onOpenNotificationAccess, onOpenStatusNotificationSettings, onOpenBatterySettings,
+                                    onOpenNotificationAccess, onOpenStatusNotificationSettings, onRequestBatteryExemption,
                                 )
                                 ProductPage.DEVICES -> ProductList {
                                     item { SectionHeading(R.string.private_service); SelectionContainer { Text(serverOrigin ?: stringResource(R.string.not_available)) } }
@@ -802,7 +802,7 @@ private fun PermissionsScreen(
     batteryExempt: Boolean,
     onOpenAccess: () -> Unit,
     onOpenStatus: () -> Unit,
-    onOpenBattery: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
 ) {
     ProductList {
         item { Text(stringResource(R.string.permissions_recovery_hint)) }
@@ -812,10 +812,37 @@ private fun PermissionsScreen(
         }
         item { PermissionStatus(R.string.status_notification_title, statusNotifications, R.string.status_notification_body, onOpenStatus) }
         item { SectionHeading(R.string.background_recommendations) }
-        item {
-            Text(stringResource(if (batteryExempt) R.string.battery_usage_unrestricted else R.string.battery_usage_system_managed))
-            Text(stringResource(R.string.battery_recommendation_body), style = MaterialTheme.typography.bodySmall)
-            OutlinedButton(onClick = onOpenBattery) { Text(stringResource(R.string.review_battery_settings)) }
+        item { BatteryExemptionCard(batteryExempt, onRequestBatteryExemption) }
+    }
+}
+
+/**
+ * The battery-optimization exemption, used by both the onboarding step that enables background sync
+ * and the permissions page that reports it afterwards.
+ *
+ * Which of the two states is in force is the headline, because a reader who already granted the
+ * exemption needs no action while a reader who did not has to know what leaving it that way costs.
+ * The action is only offered in the second case, so the card never asks for something already true.
+ */
+@Composable
+internal fun BatteryExemptionCard(
+    exempt: Boolean,
+    onRequestExemption: () -> Unit,
+) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                stringResource(
+                    if (exempt) R.string.battery_usage_unrestricted else R.string.battery_usage_system_managed,
+                ),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(stringResource(R.string.battery_recommendation_body))
+            if (!exempt) {
+                OutlinedButton(onClick = onRequestExemption) {
+                    Text(stringResource(R.string.allow_unrestricted_battery))
+                }
+            }
         }
     }
 }

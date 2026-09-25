@@ -63,7 +63,7 @@
     <string name="background_sync_later_note">后台同步关闭时，所选应用只在 SevenMirror 打开期间继续同步。你可以稍后在设置中启用。</string>
     <string name="battery_usage_unrestricted">电池用量：不受限制</string>
     <string name="battery_usage_system_managed">电池用量：由 Android 管理</string>
-    <string name="review_battery_settings">查看电池设置</string>
+    <string name="allow_unrestricted_battery">允许不受电池限制</string>
     <string name="background_connection_channel">同步状态</string>
     <string name="background_connection_channel_description">显示通知同步和后台运行状态。</string>
     <string name="background_connection_notification_title">SevenMirror 通知同步</string>

@@ -30,7 +30,7 @@
     <string name="status_notification_body">Show the ongoing sync status. SevenMirror requires status notifications to keep background sync enabled.</string>
     <string name="open_system_settings">Open system settings</string>
     <string name="background_recommendations">Background activity recommendations</string>
-    <string name="battery_recommendation_body">If sync often stops while the screen is off, review background restrictions. An exemption is not required for setup.</string>
+    <string name="battery_recommendation_body">While the screen is off, Android can pause background sync until the device wakes. Unrestricted battery use keeps it running, and you can change this again in system settings at any time.</string>
     <string name="developer_diagnostics">Developer diagnostics</string>
     <string name="receiving_devices">Receiving devices</string>
     <string name="receiving_devices_summary">Choose browsers that receive notifications from this phone</string>

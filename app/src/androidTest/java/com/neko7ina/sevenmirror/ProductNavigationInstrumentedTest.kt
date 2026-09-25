@@ -84,6 +84,7 @@ class ProductNavigationInstrumentedTest {
         )
         var paused by mutableStateOf(false)
         var background by mutableStateOf(false)
+        var batteryExemptionRequests = 0
         compose.setContent {
             MaterialTheme {
                 MainScreen(
@@ -121,7 +122,7 @@ class ProductNavigationInstrumentedTest {
                     onReconnect = {},
                     onSetBackgroundConnectionEnabled = { background = it },
                     onOpenStatusNotificationSettings = {},
-                    onOpenBatterySettings = {},
+                    onRequestBatteryExemption = { batteryExemptionRequests++ },
                     onReloadApplications = {},
                     onPostDebugNotification = null,
                 )
@@ -165,5 +166,13 @@ class ProductNavigationInstrumentedTest {
         compose.onAllNodesWithText(text(R.string.open_system_settings))[0].performClick()
         compose.runOnIdle { assertEquals(true, access) }
         compose.onNodeWithText(text(R.string.notification_access_title)).assertIsDisplayed()
+
+        // The card states the state that is in force and offers the action only while it is missing,
+        // so an already-exempt reader is never asked for something Android already granted.
+        compose.onNode(hasScrollToIndexAction())
+            .performScrollToNode(hasText(text(R.string.allow_unrestricted_battery)))
+        compose.onNodeWithText(text(R.string.battery_usage_system_managed)).assertIsDisplayed()
+        compose.onNodeWithText(text(R.string.allow_unrestricted_battery)).performClick()
+        compose.runOnIdle { assertEquals(1, batteryExemptionRequests) }
     }
 }
