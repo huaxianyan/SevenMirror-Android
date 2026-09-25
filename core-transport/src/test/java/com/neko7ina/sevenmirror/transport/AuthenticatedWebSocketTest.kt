@@ -198,6 +198,157 @@ class AuthenticatedWebSocketTest {
         }
     }
 
+    @Test
+    fun answersTheHeartbeatAtTheTransportBoundaryOnly() {
+        val server = MockWebServer()
+        val heartbeatReceived = CountDownLatch(1)
+        var heartbeatFrame: ByteArray? = null
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        if (bytes.size == TransportHeartbeatV1.ENCODED_SIZE) {
+                            heartbeatFrame = bytes.toByteArray()
+                            // The canonical SNH2, sent back only for the heartbeat.
+                            webSocket.send(byteArrayOf(0x53, 0x4e, 0x48, 0x32).toByteString())
+                            heartbeatReceived.countDown()
+                        } else {
+                            webSocket.send(
+                                TransportAuthenticationSuccessV1.encode().toByteString(),
+                            )
+                        }
+                    }
+                },
+            ),
+        )
+        server.start()
+        val applicationMessages = mutableListOf<ByteArray>()
+        val applicationFailed = CountDownLatch(1)
+        val client = OkHttpClient()
+        try {
+            AuthenticatedWebSocketFactory(
+                client,
+                heartbeatIntervalMillis = 50,
+                heartbeatResponseTimeoutMillis = 5_000,
+            ).open(
+                credential(server),
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        synchronized(applicationMessages) {
+                            applicationMessages += bytes.toByteArray()
+                        }
+                    }
+
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        applicationFailed.countDown()
+                    }
+                },
+            )
+            assertTrue(heartbeatReceived.await(5, TimeUnit.SECONDS))
+            assertArrayEquals(
+                TransportHeartbeatV1.encodeRequest(),
+                requireNotNull(heartbeatFrame),
+            )
+            // Let several intervals pass: a heartbeat that leaked to the application, or an SNH2
+            // that was not consumed, would show up as a message or a failure well inside this.
+            applicationFailed.await(300, TimeUnit.MILLISECONDS)
+            assertFalse(
+                "an answered heartbeat must not fail the socket",
+                applicationFailed.count == 0L,
+            )
+            synchronized(applicationMessages) {
+                assertTrue(
+                    "the application listener must never see a heartbeat frame",
+                    applicationMessages.isEmpty(),
+                )
+            }
+        } finally {
+            client.dispatcher.executorService.shutdown()
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun failsTheSocketWhenTheHeartbeatGoesUnanswered() {
+        val server = MockWebServer()
+        val heartbeatReceived = CountDownLatch(1)
+        val serverClosed = CountDownLatch(1)
+        server.enqueue(
+            MockResponse().withWebSocketUpgrade(
+                object : WebSocketListener() {
+                    override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                        if (bytes.size == TransportHeartbeatV1.ENCODED_SIZE) {
+                            // Deliberately unanswered: this is the half-dead relay.
+                            heartbeatReceived.countDown()
+                        } else {
+                            webSocket.send(
+                                TransportAuthenticationSuccessV1.encode().toByteString(),
+                            )
+                        }
+                    }
+
+                    override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                        serverClosed.countDown()
+                    }
+
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        serverClosed.countDown()
+                    }
+                },
+            ),
+        )
+        server.start()
+        val failed = CountDownLatch(1)
+        val observed = mutableListOf<Pair<TransportDiagnosticEvent, Throwable?>>()
+        var failure: Throwable? = null
+        val client = OkHttpClient()
+        try {
+            AuthenticatedWebSocketFactory(
+                client,
+                observe = { event, error -> synchronized(observed) { observed += event to error } },
+                heartbeatIntervalMillis = 50,
+                heartbeatResponseTimeoutMillis = 150,
+            ).open(
+                credential(server),
+                object : WebSocketListener() {
+                    override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                        failure = t
+                        failed.countDown()
+                    }
+                },
+            )
+            assertTrue(
+                "an unanswered heartbeat must end the connection",
+                failed.await(5, TimeUnit.SECONDS),
+            )
+            assertTrue(heartbeatReceived.await(1, TimeUnit.SECONDS))
+            assertTrue(
+                "the failure must be its own type so diagnostics can name it",
+                failure is TransportHeartbeatTimeoutException,
+            )
+            val collected = synchronized(observed) { observed.toList() }
+            val socketFailure = collected.firstOrNull {
+                it.first == TransportDiagnosticEvent.SOCKET_FAILURE
+            }
+            assertTrue(
+                "SOCKET_FAILURE must carry the heartbeat failure itself",
+                socketFailure?.second is TransportHeartbeatTimeoutException,
+            )
+            // Teardown synchronization only. The peer that stopped answering is exactly the one
+            // whose close handshake may never complete, so this must not gate the assertions.
+            serverClosed.await(5, TimeUnit.SECONDS)
+        } finally {
+            client.dispatcher.executorService.shutdown()
+            try {
+                server.shutdown()
+            } catch (_: IOException) {
+                // Same MockWebServer shutdown race the malformed-acknowledgement case documents:
+                // the asserted client failure is the boundary under test, and the fixture can
+                // still be tearing its own WebSocket task down.
+            }
+        }
+    }
+
     private fun credential(server: MockWebServer) = StoredTransportCredential(
         serverOrigin = server.url("/").toString().removeSuffix("/"),
         workspaceId = ByteArray(16) { 1 },

@@ -93,7 +93,10 @@ over `shell cat`: a pty would rewrite `\n` to `\r\n`.
   initialization, including delivery resume. It is not pure authentication time.
   The `failure=<class name>` on `SOCKET_FAILURE` names the exception that ended
   the socket: a timeout there means the peer stopped producing data, not that the
-  peer or the network refused the connection.
+  peer or the network refused the connection. A `TransportHeartbeatTimeoutException`
+  narrows that further: the peer authenticated and then stopped answering the
+  application-layer heartbeat, which is the shape of a relay whose socket
+  implementation is still alive while its routing loop is not.
 - `TERMINATION_QUEUED` to `CONNECTION_TERMINATED` shows termination processing
   delay. Obsolete or already-terminal attempts do not produce a second applied
   termination event.
@@ -130,7 +133,8 @@ Use differences of `t_ms` within the same device boot, not uncalibrated timestam
 from another machine. Absence of a callback alone does not establish the cause
 of an outage. The recording API itself adds no retry eligibility, heartbeat,
 backoff, executor ownership, or membership behavior of its own; the ping interval
-belongs to the socket factory, which is transport policy rather than
+and the `SNH1`/`SNH2` transport heartbeat both belong to the socket
+factory, which is transport policy rather than
 instrumentation. Default network identity does retire a stale connection, but
 that rule lives in the coordinator and is described in `background-connection.md`,
 not in this instrumentation. The same holds for the periodic re-arm check and for

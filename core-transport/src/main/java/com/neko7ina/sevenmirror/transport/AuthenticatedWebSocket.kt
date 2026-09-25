@@ -2,6 +2,7 @@ package com.neko7ina.sevenmirror.transport
 
 import java.net.URI
 import java.util.Timer
+import java.util.TimerTask
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.schedule
 import okhttp3.OkHttpClient
@@ -31,9 +32,28 @@ enum class TransportDiagnosticEvent {
  */
 internal const val RELAY_SOCKET_PING_INTERVAL_MILLIS = 30_000L
 
-/** Sends SNA1 and validates the server's SNO1 before exposing application onOpen. */
+/**
+ * How often the client makes the relay's application layer answer, and how long it waits for it.
+ *
+ * [RELAY_SOCKET_PING_INTERVAL_MILLIS] only reaches the peer's WebSocket implementation: a relay
+ * whose routing loop stopped progressing still answers protocol pings, so a socket can look healthy
+ * from below while nothing above it moves. `SNH1`/`SNH2` is answered by the application layer
+ * itself, which is what closes that gap. The cadence is the protocol's, and the same one the Chrome
+ * extension already uses.
+ */
+internal const val TRANSPORT_HEARTBEAT_INTERVAL_MILLIS = 20_000L
+internal const val TRANSPORT_HEARTBEAT_RESPONSE_TIMEOUT_MILLIS = 10_000L
+
+/**
+ * Sends SNA1 and validates the server's SNO1 before exposing application onOpen.
+ *
+ * `observe` stays the last parameter so existing call sites keep passing it as a trailing lambda.
+ * The heartbeat timings sit in front of it and are only overridden in tests.
+ */
 class AuthenticatedWebSocketFactory(
     httpClient: OkHttpClient,
+    private val heartbeatIntervalMillis: Long = TRANSPORT_HEARTBEAT_INTERVAL_MILLIS,
+    private val heartbeatResponseTimeoutMillis: Long = TRANSPORT_HEARTBEAT_RESPONSE_TIMEOUT_MILLIS,
     private val observe: (TransportDiagnosticEvent, Throwable?) -> Unit = { _, _ -> },
 ) {
     private val webSocketClient = httpClient.newBuilder()
@@ -67,6 +87,8 @@ class AuthenticatedWebSocketFactory(
                 private var openingResponse: Response? = null
                 @Volatile private var authenticated = false
                 private var acknowledgementTimer: Timer? = null
+                @Volatile private var heartbeatTimer: Timer? = null
+                @Volatile private var heartbeatDeadline: TimerTask? = null
 
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     observe(TransportDiagnosticEvent.SOCKET_OPEN, null)
@@ -125,11 +147,88 @@ class AuthenticatedWebSocketFactory(
                         acknowledgementTimer?.cancel()
                         acknowledgementTimer = null
                         observe(TransportDiagnosticEvent.AUTHENTICATED, null)
+                        startHeartbeat(webSocket)
                         listener.onOpen(webSocket, requireNotNull(openingResponse))
+                    } else if (isHeartbeatResponse(bytes)) {
+                        // Consumed at the transport boundary, as the protocol requires: the
+                        // envelope decoder would read these four bytes as a malformed frame.
+                        heartbeatDeadline?.cancel()
+                        heartbeatDeadline = null
                     } else {
                         listener.onMessage(webSocket, bytes)
                     }
                 }
+
+                /**
+                 * Starts the periodic `SNH1`. The first one goes out after a full interval, so a
+                 * connection that just authenticated is not asked to prove itself twice at once.
+                 */
+                private fun startHeartbeat(webSocket: WebSocket) {
+                    val timer = Timer("transport-heartbeat", true)
+                    heartbeatTimer = timer
+                    timer.scheduleAtFixedRate(
+                        object : TimerTask() {
+                            override fun run() = sendHeartbeat(webSocket)
+                        },
+                        heartbeatIntervalMillis,
+                        heartbeatIntervalMillis,
+                    )
+                }
+
+                private fun sendHeartbeat(webSocket: WebSocket) {
+                    // At most one outstanding heartbeat: a tick landing while the previous one is
+                    // still unanswered must not arm a second, later deadline over the first.
+                    if (!authenticated || heartbeatDeadline != null) return
+                    val accepted = try {
+                        webSocket.send(TransportHeartbeatV1.encodeRequest().toByteString())
+                    } catch (_: Throwable) {
+                        false
+                    }
+                    if (!accepted) {
+                        failHeartbeat(webSocket, "heartbeat send failed")
+                        return
+                    }
+                    val deadline = object : TimerTask() {
+                        override fun run() {
+                            heartbeatDeadline = null
+                            failHeartbeat(webSocket, "heartbeat response timeout")
+                        }
+                    }
+                    heartbeatDeadline = deadline
+                    try {
+                        heartbeatTimer?.schedule(deadline, heartbeatResponseTimeoutMillis)
+                    } catch (_: IllegalStateException) {
+                        // Teardown cancelled the timer between the send and this line. Nothing is
+                        // left to arm, and there is no connection left to fail.
+                        heartbeatDeadline = null
+                    }
+                }
+
+                /**
+                 * Ends a connection whose liveness proof failed.
+                 *
+                 * The failure is reported to the application listener rather than left to arrive
+                 * through `onClosed`: the peer is exactly the one that stopped answering, so the
+                 * close handshake may never complete and the reconnect path must not wait for it.
+                 */
+                private fun failHeartbeat(webSocket: WebSocket, reason: String) {
+                    clearHeartbeat()
+                    val error = TransportHeartbeatTimeoutException(reason)
+                    observe(TransportDiagnosticEvent.SOCKET_FAILURE, error)
+                    webSocket.close(1008, reason)
+                    listener.onFailure(webSocket, error, openingResponse)
+                }
+
+                private fun clearHeartbeat() {
+                    heartbeatDeadline?.cancel()
+                    heartbeatDeadline = null
+                    heartbeatTimer?.cancel()
+                    heartbeatTimer = null
+                }
+
+                private fun isHeartbeatResponse(bytes: okio.ByteString): Boolean =
+                    bytes.size == TransportHeartbeatV1.ENCODED_SIZE &&
+                        TransportHeartbeatV1.isResponse(bytes.toByteArray())
 
                 private fun rejectInvalidAcknowledgement(webSocket: WebSocket) {
                     acknowledgementTimer?.cancel()
@@ -142,12 +241,18 @@ class AuthenticatedWebSocketFactory(
                     )
                 }
 
-                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) =
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    // A peer that is already closing must not be asked to prove itself again; a
+                    // tick landing here would be reported as a heartbeat failure on a connection
+                    // that is merely shutting down.
+                    clearHeartbeat()
                     listener.onClosing(webSocket, code, reason)
+                }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     acknowledgementTimer?.cancel()
                     acknowledgementTimer = null
+                    clearHeartbeat()
                     observe(TransportDiagnosticEvent.SOCKET_CLOSED, null)
                     listener.onClosed(webSocket, code, reason)
                 }
@@ -155,6 +260,7 @@ class AuthenticatedWebSocketFactory(
                 override fun onFailure(webSocket: WebSocket, error: Throwable, response: Response?) {
                     acknowledgementTimer?.cancel()
                     acknowledgementTimer = null
+                    clearHeartbeat()
                     if (!authenticated) authenticationFrame.fill(0)
                     observe(TransportDiagnosticEvent.SOCKET_FAILURE, error)
                     listener.onFailure(webSocket, error, response)
