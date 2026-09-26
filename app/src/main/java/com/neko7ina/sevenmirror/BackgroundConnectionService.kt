@@ -125,6 +125,20 @@ class BackgroundConnectionService : Service() {
         private const val NOTIFICATION_ID = 20_001
         private const val ACTION_STOP = "com.neko7ina.sevenmirror.action.STOP_BACKGROUND_CONNECTION"
 
+        /**
+         * Starts the persistent connection after a full device restart.
+         *
+         * The gate is the explicit background-sync decision rather than the saved preference alone:
+         * the preference defaults to the application-selection answer, and a device that never
+         * reached that step has never been told what keeping a service running costs.
+         */
+        fun reconcileAfterBoot(context: Context) {
+            val appContext = context.applicationContext
+            if (!AndroidProductPreferences(appContext).isBackgroundSyncDecided()) return
+            reconcile(appContext, canShowForegroundStatus(appContext))
+        }
+
+        /** Applies the saved background-sync preference to the running state of the service. */
         fun reconcile(context: Context, canShowStatusNotification: Boolean) {
             val appContext = context.applicationContext
             if (AndroidProductPreferences(appContext).isBackgroundConnectionEnabled() &&
