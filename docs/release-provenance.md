@@ -122,6 +122,23 @@ Manual dispatch may create release-candidate evidence without claiming a
 production release. GitHub artifact retention is 30 days; durable hosting remains
 undecided.
 
+## Published release
+
+The `publish-release` job runs only for a tag and only after the build job
+succeeds. It downloads the verified three-file artifact set, assembles the
+release body from `docs/release-notes/<tag>.md` plus a generated `## 构建信息`
+table, and creates the GitHub Release with `gh release create --verify-tag`.
+Assets are the APK, `release-manifest.json` and `SHA256SUMS`.
+
+`docs/release-notes/<tag>.md` is short by design: one summary paragraph, a
+`## 主要更新` section, and a link to this document under the tag. Usage,
+validation evidence and build ranges belong here or in the README, not in the
+release body. `scripts/verify_release_notes.py` enforces that shape, and
+`scripts/test_verify_release_notes.py` runs it as part of CI.
+
+The release title is the tag alone. A product-name prefix turns the Release list
+into a column of identical truncated names and hides which version each entry is.
+
 GitHub provenance does not prove control of a future app-store account, store
 processing, staged rollout, served APK/App Bundle, or Play App Signing identity.
 Those require separate channel evidence. Introducing an upload key or Play App

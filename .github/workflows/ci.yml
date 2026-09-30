@@ -64,6 +64,8 @@ jobs:
         run: bash .github/scripts/gradle-step.sh verifyKotlinKaptAdvisoryGuard
       - name: Verify OSV evidence parser
         run: python3 scripts/test_android_osv_evidence.py
+      - name: Verify release note format
+        run: python3 scripts/test_verify_release_notes.py
       - name: Verify dependency inventories
         run: |
           bash .github/scripts/gradle-step.sh \

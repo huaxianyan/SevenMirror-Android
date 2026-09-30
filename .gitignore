@@ -11,3 +11,4 @@
 .externalNativeBuild/
 .cxx/
 .DS_Store
+__pycache__/
