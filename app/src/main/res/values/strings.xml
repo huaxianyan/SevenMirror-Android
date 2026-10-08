@@ -118,4 +118,19 @@
     <string name="re_enroll_confirmation_title">Register this device again?</string>
     <string name="re_enroll_confirmation_body">SevenMirror will remove the workspace access information saved on this device. Your application selection and remote operation settings will remain. You will need a new joining code and administrator approval.</string>
     <string name="re_enroll_confirm">Continue registration</string>
+    <string name="test_notification">Test notification</string>
+    <string name="test_notification_summary">Check browser delivery and notification card appearance</string>
+    <string name="test_notification_help">Send a real phone notification through your existing sync settings. Check the selected browser for delivery, then open the extension to inspect its card. The phone notification expires after five minutes.</string>
+    <string name="send_test_notification">Send test notification</string>
+    <string name="test_notification_title">SevenMirror test notification</string>
+    <string name="test_notification_body">This is a test notification from your phone. Check your selected browser.</string>
+    <string name="test_notification_expanded">This is a test notification from your phone. Check your selected browser.\nSent at: %1$s</string>
+    <string name="test_notification_posted">The phone has generated a test notification. Check the receiving browser to confirm delivery.</string>
+    <string name="test_notification_permission_required">Allow notification permission to generate the test notification.</string>
+    <string name="test_notification_blocked">System notifications are blocked. Enable notifications for the app and its Test notification channel in system settings.</string>
+    <string name="test_notification_access_required">Grant notification access under Permissions and runtime first.</string>
+    <string name="test_notification_paused">Sync is paused. Resume sync on the home screen first.</string>
+    <string name="test_notification_recipient_required">Select a receiving browser first.</string>
+    <string name="test_notification_offline">The service is not connected. Reconnect on the home screen first.</string>
+    <string name="open_system_notification_settings">Open system notification settings</string>
 </resources>

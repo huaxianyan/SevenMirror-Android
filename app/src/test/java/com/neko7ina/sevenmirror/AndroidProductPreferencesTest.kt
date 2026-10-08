@@ -42,7 +42,7 @@ class AndroidProductPreferencesTest {
             prepareNotificationForMirroring(
                 snapshot = notification,
                 ownPackageName = "com.neko7ina.sevenmirror",
-                debugFixtureEnabled = false,
+                selfNotificationAllowed = false,
                 applicationSelectionConfirmed = true,
                 selectedPackages = selected,
                 sharingSettings = NotificationSharingSettings(),
@@ -53,7 +53,7 @@ class AndroidProductPreferencesTest {
             prepareNotificationForMirroring(
                 snapshot = notification.copy(isOngoing = true),
                 ownPackageName = "com.neko7ina.sevenmirror",
-                debugFixtureEnabled = false,
+                selfNotificationAllowed = false,
                 applicationSelectionConfirmed = true,
                 selectedPackages = selected,
                 sharingSettings = NotificationSharingSettings(),
@@ -64,7 +64,7 @@ class AndroidProductPreferencesTest {
             prepareNotificationForMirroring(
                 snapshot = notification.copy(isSilent = true),
                 ownPackageName = "com.neko7ina.sevenmirror",
-                debugFixtureEnabled = false,
+                selfNotificationAllowed = false,
                 applicationSelectionConfirmed = true,
                 selectedPackages = selected,
                 sharingSettings = NotificationSharingSettings(syncSilent = false),
@@ -73,7 +73,7 @@ class AndroidProductPreferencesTest {
         val hidden = prepareNotificationForMirroring(
             snapshot = notification.copy(containsContentImage = true),
             ownPackageName = "com.neko7ina.sevenmirror",
-            debugFixtureEnabled = false,
+            selfNotificationAllowed = false,
             applicationSelectionConfirmed = true,
             selectedPackages = selected,
             sharingSettings = NotificationSharingSettings(
@@ -85,6 +85,33 @@ class AndroidProductPreferencesTest {
         assertEquals(null, hidden?.text)
         assertEquals(false, hidden?.containsContentImage)
         assertEquals(0, hidden?.actions?.size)
+    }
+
+    @Test
+    fun `only the dedicated non ongoing self test channel bypasses app selection`() {
+        val test = notificationSnapshot(BuildConfig.APPLICATION_ID).copy(
+            channelId = TestNotificationPublisher.CHANNEL_ID,
+        )
+        fun prepare(snapshot: NotificationSnapshot) = prepareNotificationForMirroring(
+            snapshot = snapshot,
+            ownPackageName = BuildConfig.APPLICATION_ID,
+            selfNotificationAllowed = TestNotificationPublisher.isTestNotification(snapshot),
+            applicationSelectionConfirmed = true,
+            selectedPackages = setOf(BuildConfig.APPLICATION_ID),
+            sharingSettings = NotificationSharingSettings(syncSilent = false),
+        )
+        assertEquals(test, prepare(test))
+        assertEquals(null, prepare(test.copy(channelId = "background-sync-status")))
+        assertEquals(null, prepare(test.copy(isOngoing = true)))
+        assertEquals(null, prepare(test.copy(packageName = "com.example.other")))
+        assertEquals(test, prepareNotificationForMirroring(
+            snapshot = test,
+            ownPackageName = BuildConfig.APPLICATION_ID,
+            selfNotificationAllowed = TestNotificationPublisher.isTestNotification(test),
+            applicationSelectionConfirmed = false,
+            selectedPackages = emptySet(),
+            sharingSettings = NotificationSharingSettings(),
+        ))
     }
 
     @Test

@@ -102,7 +102,8 @@ private enum class ProductPage(val title: Int) {
     DEFAULTS(R.string.sync_defaults), APP_SETTINGS(R.string.application_settings_title),
     APP_DETAIL(R.string.application_settings_title), PERMISSIONS(R.string.permissions_and_runtime),
     RECIPIENTS(R.string.receiving_devices), DEVICES(R.string.service_and_devices), PRIVACY(R.string.data_and_privacy),
-    ABOUT(R.string.about), DIAGNOSTICS(R.string.developer_diagnostics);
+    ABOUT(R.string.about), TEST_NOTIFICATION(R.string.test_notification),
+    DIAGNOSTICS(R.string.developer_diagnostics);
 
     val primary: ProductPage
         get() = if (this == SYNC || this == APPLICATIONS) this else SETTINGS
@@ -150,6 +151,8 @@ internal fun MainScreen(
     onOpenStatusNotificationSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onReloadApplications: () -> Unit,
+    onPostTestNotification: () -> Unit,
+    testNotificationResult: TestNotificationResult?,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     var page by rememberSaveable(stateSaver = productPageSaver) { mutableStateOf(ProductPage.SYNC) }
@@ -369,6 +372,7 @@ internal fun MainScreen(
                                     item { SettingsLink(R.string.receiving_devices, R.string.receiving_devices_summary) { navigate(ProductPage.RECIPIENTS) } }
                                     item { SettingsLink(R.string.permissions_and_runtime, R.string.permissions_recovery_hint) { navigate(ProductPage.PERMISSIONS) } }
                                     item { SettingsLink(R.string.service_and_devices, R.string.devices_membership_summary) { navigate(ProductPage.DEVICES) } }
+                                    item { SettingsLink(R.string.test_notification, R.string.test_notification_summary) { navigate(ProductPage.TEST_NOTIFICATION) } }
                                     item { SettingsLink(R.string.data_and_privacy) { navigate(ProductPage.PRIVACY) } }
                                     item { SettingsLink(R.string.about) { navigate(ProductPage.ABOUT) } }
                                     if (onPostDebugNotification != null) item { SettingsLink(R.string.developer_diagnostics) { navigate(ProductPage.DIAGNOSTICS) } }
@@ -449,6 +453,32 @@ internal fun MainScreen(
                                 ProductPage.ABOUT -> ProductList {
                                     item { Text(stringResource(R.string.version_value, BuildConfig.VERSION_NAME)) }
                                     item { Text(stringResource(R.string.license_value)) }
+                                }
+                                ProductPage.TEST_NOTIFICATION -> ProductList {
+                                    item { Text(stringResource(R.string.test_notification_help)) }
+                                    val unavailableReason = when {
+                                        !notificationAccessGranted -> R.string.test_notification_access_required
+                                        synchronizationPaused -> R.string.test_notification_paused
+                                        recipientSettings.devices.none { it.selected } -> R.string.test_notification_recipient_required
+                                        transportState != AndroidTransportState.ONLINE -> R.string.test_notification_offline
+                                        else -> null
+                                    }
+                                    unavailableReason?.let { reason -> item { Text(stringResource(reason)) } }
+                                    item {
+                                        Button(onClick = onPostTestNotification, enabled = unavailableReason == null) {
+                                            Text(stringResource(R.string.send_test_notification))
+                                        }
+                                    }
+                                    testNotificationResult?.let { result ->
+                                        item {
+                                            Text(stringResource(result.message), Modifier.semantics {
+                                                liveRegion = LiveRegionMode.Polite
+                                            })
+                                        }
+                                    }
+                                    item { SettingsLink(R.string.receiving_devices) { navigate(ProductPage.RECIPIENTS) } }
+                                    item { SettingsLink(R.string.permissions_and_runtime) { navigate(ProductPage.PERMISSIONS) } }
+                                    item { SettingsLink(R.string.open_system_notification_settings, onClick = onOpenStatusNotificationSettings) }
                                 }
                                 ProductPage.DIAGNOSTICS -> ProductList {
                                     onPostDebugNotification?.let { post -> item { OutlinedButton(onClick = post) { Text(stringResource(R.string.debug_post_test_notification)) } } }

@@ -18,6 +18,7 @@ data class NotificationSnapshot(
     val groupKey: String?,
     val isGroupSummary: Boolean,
     val actions: List<NotificationActionDescriptor>,
+    val channelId: String? = null,
 )
 
 enum class NotificationMediaMimeType {

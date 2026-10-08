@@ -83,6 +83,8 @@ class MainActivity : ComponentActivity() {
     private var backgroundConnectionEnabled by mutableStateOf(false)
     private var batteryOptimizationExempt by mutableStateOf(false)
     private var pendingDebugNotification = false
+    private var pendingTestNotification = false
+    private var testNotificationResult by mutableStateOf<TestNotificationResult?>(null)
     private var welcomeCompleted by mutableStateOf(false)
     private var backgroundSyncDecided by mutableStateOf(false)
     private var applicationSelectionConfirmed by mutableStateOf(false)
@@ -101,7 +103,12 @@ class MainActivity : ComponentActivity() {
         if (granted && pendingDebugNotification && ProductDebugActions.available) {
             ProductDebugActions.postNotification(this)
         }
+        if (pendingTestNotification) {
+            testNotificationResult = if (granted) TestNotificationPublisher.post(this)
+            else TestNotificationResult.PERMISSION_REQUIRED
+        }
         pendingDebugNotification = false
+        pendingTestNotification = false
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -200,6 +207,8 @@ class MainActivity : ComponentActivity() {
                         startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, packageName))
                     },
                     onRequestBatteryExemption = ::requestBatteryExemption,
+                    onPostTestNotification = ::postTestNotification,
+                    testNotificationResult = testNotificationResult,
                     onPostDebugNotification =
                     if (ProductDebugActions.available) ::postDebugNotification else null,
                 )
@@ -269,6 +278,16 @@ class MainActivity : ComponentActivity() {
         // start the service from the default preference and skip the onboarding explanation.
         if (!backgroundSyncDecided) return
         BackgroundConnectionService.reconcile(this, foregroundNotificationGranted)
+    }
+
+    private fun postTestNotification() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !canShowForegroundStatus(this)) {
+            pendingTestNotification = true
+            testNotificationResult = TestNotificationResult.PERMISSION_REQUIRED
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            testNotificationResult = TestNotificationPublisher.post(this)
+        }
     }
 
     private fun requestForegroundNotificationAndReconcile() {
@@ -347,6 +366,8 @@ private fun SevenMirrorApp(
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
     onOpenStatusNotificationSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
+    onPostTestNotification: () -> Unit,
+    testNotificationResult: TestNotificationResult?,
     onPostDebugNotification: (() -> Unit)?,
 ) {
     val transportState by transportCoordinator.state.collectAsState()
@@ -455,6 +476,8 @@ private fun SevenMirrorApp(
                         onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
                         onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
                         onRequestBatteryExemption = onRequestBatteryExemption,
+                        onPostTestNotification = onPostTestNotification,
+                        testNotificationResult = testNotificationResult,
                         onPostDebugNotification = onPostDebugNotification,
                     )
                     OnboardingStage.SECURITY_ERROR -> SecurityErrorScreen(

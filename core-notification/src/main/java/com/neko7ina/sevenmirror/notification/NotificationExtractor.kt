@@ -57,6 +57,7 @@ internal object NotificationExtractor {
             groupKey = sbn.groupKey,
             isGroupSummary = notification.flags and Notification.FLAG_GROUP_SUMMARY != 0,
             actions = actions,
+            channelId = notification.channelId,
         )
     }
 

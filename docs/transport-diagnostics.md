@@ -189,5 +189,19 @@ otherwise working connection.
 This diagnosis does not require reading notification text or credentials. The
 observed call site proves the missing-field check, not the particular source app.
 The diagnostic upgrade alone is not a fix: startup succeeded once and a later
-notification reproduced the same failure. The protocol check remains unchanged;
-source-notification normalization needs a separate repair and regression test.
+notification reproduced the same failure. Content-hiding preferences also remove
+both fields, so extractor-only normalization would miss that valid user setting.
+
+The sender repair uses the source application name as title only when
+both title and body are absent. It does not restore hidden text or loosen protocol
+validation. Both startup snapshots and live updates use this sender. An encrypted
+round-trip regression covers absent fields and unchanged existing text.
+
+Full local validation passed: advisory guard, unit tests, lint, Release APK and
+instrumented-test compilation. A same-signature `adb install -r` upgrade retained
+pairing and user settings. The live device submitted its startup snapshot and
+remained ONLINE on the same connection for approximately 120 seconds afterward.
+The user-facing test-notification entry successfully generated a system
+notification. Browser receipt and card appearance must be checked separately on
+the receiving browser; phone-side success alone is not delivery evidence.
+Required CI and cross-component acceptance are recorded in the project status.

@@ -124,6 +124,8 @@ class ProductNavigationInstrumentedTest {
                     onOpenStatusNotificationSettings = {},
                     onRequestBatteryExemption = { batteryExemptionRequests++ },
                     onReloadApplications = {},
+                    onPostTestNotification = {},
+                    testNotificationResult = null,
                     onPostDebugNotification = null,
                 )
             }

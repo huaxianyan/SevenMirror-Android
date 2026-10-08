@@ -20,7 +20,8 @@ class NotificationMirroringApplication : Application() {
                 prepareNotificationForMirroring(
                     snapshot = snapshot,
                     ownPackageName = context.packageName,
-                    debugFixtureEnabled = ProductDebugActions.isFixtureNotification(snapshot),
+                    selfNotificationAllowed = TestNotificationPublisher.isTestNotification(snapshot) ||
+                        ProductDebugActions.isFixtureNotification(snapshot),
                     applicationSelectionConfirmed =
                         productPreferences.isApplicationSelectionConfirmed(),
                     selectedPackages = productPreferences.selectedPackages(),

@@ -330,6 +330,7 @@ object LocalNotificationController {
     private fun NotificationSnapshot.sameMirroredContent(other: NotificationSnapshot): Boolean =
         key == other.key &&
             packageName == other.packageName &&
+            channelId == other.channelId &&
             appName == other.appName &&
             title == other.title &&
             text == other.text &&

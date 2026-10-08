@@ -178,12 +178,14 @@ internal fun backgroundConnectionEnabled(
 internal fun prepareNotificationForMirroring(
     snapshot: NotificationSnapshot,
     ownPackageName: String,
-    debugFixtureEnabled: Boolean,
+    selfNotificationAllowed: Boolean,
     applicationSelectionConfirmed: Boolean,
     selectedPackages: Set<String>,
     sharingSettings: NotificationSharingSettings,
 ): NotificationSnapshot? {
-    if (debugFixtureEnabled && snapshot.packageName == ownPackageName) return snapshot
+    if (snapshot.packageName == ownPackageName) {
+        return snapshot.takeIf { selfNotificationAllowed }
+    }
     if (!applicationSelectionConfirmed || snapshot.packageName !in selectedPackages) return null
     return sharingSettings.prepare(snapshot)
 }

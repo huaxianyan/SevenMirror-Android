@@ -45,7 +45,11 @@ class NotificationEnvelopeSender(
             .setNotificationRevision(revision)
             .setSourceApplicationId(sourceApplicationId)
             .setSourceApplicationName(sourceApplicationName)
-            .also { builder -> title?.let(builder::setTitle) }
+            // Platform notifications and content-hiding preferences may omit both fields.
+            // Keep the notification representable without restoring any hidden content.
+            .also { builder ->
+                (title ?: sourceApplicationName.takeIf { body == null })?.let(builder::setTitle)
+            }
             .also { builder -> body?.let(builder::setBody) }
             .also { builder -> appIcon?.let(builder::setAppIcon) }
             .also { builder -> avatar?.let(builder::setAvatar) }

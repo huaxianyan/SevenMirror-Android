@@ -114,4 +114,19 @@
     <string name="re_enroll_confirmation_title">重新注册此设备？</string>
     <string name="re_enroll_confirmation_body">SevenMirror 将移除这台设备保存的工作区访问资料。应用选择和远程操作设置会保留。接下来需要新的加入码和管理员批准。</string>
     <string name="re_enroll_confirm">继续重新注册</string>
+    <string name="test_notification">测试通知</string>
+    <string name="test_notification_summary">检查浏览器接收情况和通知卡片样式</string>
+    <string name="test_notification_help">通过当前同步设置发送一条真实手机通知。请在所选浏览器确认是否收到，再打开扩展查看通知卡片。手机通知将在 5 分钟后自动结束。</string>
+    <string name="send_test_notification">发送测试通知</string>
+    <string name="test_notification_title">SevenMirror 测试通知</string>
+    <string name="test_notification_body">这是一条来自手机的测试通知，请在所选浏览器中查看。</string>
+    <string name="test_notification_expanded">这是一条来自手机的测试通知，请在所选浏览器中查看。\n发送时间：%1$s</string>
+    <string name="test_notification_posted">手机已生成测试通知，请在接收浏览器确认是否收到。</string>
+    <string name="test_notification_permission_required">请允许通知权限，以生成测试通知。</string>
+    <string name="test_notification_blocked">系统通知已关闭，请在系统设置中开启本应用通知和「测试通知」频道。</string>
+    <string name="test_notification_access_required">请先在「权限与运行条件」中授予通知使用权。</string>
+    <string name="test_notification_paused">同步已暂停，请先回到首页恢复同步。</string>
+    <string name="test_notification_recipient_required">请先选择接收浏览器。</string>
+    <string name="test_notification_offline">服务尚未连接，请先在首页重新连接。</string>
+    <string name="open_system_notification_settings">打开系统通知设置</string>
 </resources>
