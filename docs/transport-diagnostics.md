@@ -20,8 +20,11 @@ Each line contains `t_ms` (Android elapsed realtime, including sleep), `gen`
 coordinator `state`. Optional fields are numeric delay/network handles, a
 `count=` for events that report how many items they acted on, boolean network
 flags or outcomes, and a `failure=` label. Holding to the existing
-boundary, that label is the ending exception's class name only: messages are
-never recorded, because they can carry payload. No endpoint URL, IP address,
+boundary, `failure` is the ending exception's class name. Optional `origin`
+records at most three project-owned class/method names and line numbers, capped
+at 512 characters, to locate a failed check without exposing its input. Exception
+messages and source file paths are never recorded, because they can carry payload
+or local machine details. No endpoint URL, IP address,
 SSID, membership identifier, notification identifier/content, token, or key is
 accepted by the recording API. Treat even these timings and network handles as
 local diagnostic metadata; do not publish captures without review.
@@ -30,8 +33,9 @@ Socket events reuse `TransportDiagnosticEvent` and its existing factory observer
 The observer is bound to each attempt, so a late callback retains the old `gen`.
 The reported `state` is the coordinator state at recording time, not historical
 state belonging to that old socket. `SOCKET_FAILURE` carries the ending
-exception's class name, which is what separates a socket that went silent from
-one the peer refused or reset; the other socket events carry none. A new factory
+exception's class name and any available project-owned call sites, which separate
+a socket that went silent from one the peer refused or reset; the other socket
+events carry none. A new factory
 shares the supplied OkHttp client's connection pool/dispatcher, keeps the
 existing redirect restrictions, and arms a client-side ping interval so a socket
 whose peer stopped producing data fails within one interval instead of waiting on
@@ -166,3 +170,24 @@ application-selection settings. Reconnection timing still requires a separate,
 explicitly authorized network experiment, correlated with actual default-route
 observations and the controlled notification fixture. Do not read personal
 notifications or change VPN/mobile-data settings as part of collecting logs.
+
+## Located incident: notification with no text
+
+A real device repeatedly authenticated, reached ONLINE, then recorded
+`LOCAL_FAILURE_RETRY` with `IllegalArgumentException`. A same-signature diagnostic
+upgrade added bounded call sites and located the failure at
+`EncryptedPayloadCodecV1.validateNotificationUpsert:134`, the check requiring a
+notification upsert to have a title or body.
+
+The extractor converts blank or absent platform title/body extras to null. It
+still includes the notification in the mirror set, so `NotificationEnvelopeSender`
+builds an upsert with neither field. The coordinator catches the encoding error,
+ends the live socket and schedules a reconnect. A persistent notification can
+then poison every startup snapshot; a newly posted notification can also end an
+otherwise working connection.
+
+This diagnosis does not require reading notification text or credentials. The
+observed call site proves the missing-field check, not the particular source app.
+The diagnostic upgrade alone is not a fix: startup succeeded once and a later
+notification reproduced the same failure. The protocol check remains unchanged;
+source-notification normalization needs a separate repair and regression test.

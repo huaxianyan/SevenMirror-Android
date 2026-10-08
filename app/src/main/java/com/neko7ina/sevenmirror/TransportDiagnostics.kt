@@ -77,8 +77,9 @@ internal class TransportDiagnostics(
     /**
      * Records a failure that parked or re-armed the transport, or that ended a relay socket.
      *
-     * Only the exception's class name is written, never its message: the message may carry
-     * payload, while the class name alone is what tells a transient Keystore, Binder, identity or
+     * The exception's class and up to three project-owned call sites are written, never its
+     * message or source file path. The message may carry payload, while the class identifies a
+     * transient Keystore, Binder, identity or
      * endpoint failure apart from a genuinely permanent local one, and a socket that went silent
      * apart from one the peer refused or reset. Without it a parked device can only be diagnosed
      * by guessing which of the coordinator's catch blocks fired, and a dropped socket only by its
@@ -95,6 +96,15 @@ internal class TransportDiagnostics(
             recovery?.let { append(" recovery=${it.name}") }
             append(" failure=")
             append(failureLabel(error))
+            val origins = error.stackTrace.asSequence()
+                .filter { it.className.startsWith("com.neko7ina.sevenmirror.") }
+                .take(3)
+                .joinToString(">") { frame ->
+                    val symbol = "${frame.className}.${frame.methodName}"
+                        .filter { it.isLetterOrDigit() || it == '.' || it == '$' }
+                    "$symbol:${frame.lineNumber}"
+                }.take(512)
+            if (origins.isNotEmpty()) append(" origin=$origins")
         })
     }
 

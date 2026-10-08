@@ -79,8 +79,9 @@ Two sinks receive the same lines:
 The ring is the first diagnostic artifact that persists inside the app's own
 storage. It therefore falls under the `filesDir` canary scope above, and it is
 bound to the same input restriction as the tag: the recording API accepts typed
-scalars and exception class names only, so no forbidden class from the top of
-this document can reach it. These traces still reveal local timing and
+scalars, exception class names and bounded project-owned class/method names with
+line numbers. It excludes exception messages and source file paths, so no
+forbidden class from the top of this document can reach it. These traces still reveal local timing and
 connectivity metadata, they outlive the process, and they must be reviewed before
 sharing. Exception-message exclusion has app unit tests; see
 [transport-diagnostics.md](transport-diagnostics.md) for scope, ring behavior,

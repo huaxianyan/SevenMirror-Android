@@ -69,7 +69,19 @@ class TransportDiagnosticsTest {
             diagnostics.measure(CoordinatorDiagnosticEvent.MEMBERSHIP_REFRESH, 7L) { throw failure }
         }
         assertSame(failure, observed)
+        failure.stackTrace = arrayOf(
+            StackTraceElement("java.io.InputStream", "read", "private-source-canary", 8),
+            StackTraceElement(
+                "com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1",
+                "validateText", "private-source-canary", 274,
+            ),
+        )
+        diagnostics.recordFailure(CoordinatorDiagnosticEvent.LOCAL_FAILURE_RETRY, 7L, failure)
         assertTrue(output.any { it.contains("phase=END completed=false") })
+        assertTrue(output.any {
+            it.contains("origin=com.neko7ina.sevenmirror.protocol.EncryptedPayloadCodecV1.validateText:274")
+        })
         assertFalse(output.any { it.contains("private-diagnostic-canary") })
+        assertFalse(output.any { it.contains("private-source-canary") })
     }
 }
