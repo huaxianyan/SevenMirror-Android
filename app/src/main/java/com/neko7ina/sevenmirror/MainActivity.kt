@@ -81,6 +81,7 @@ class MainActivity : ComponentActivity() {
     private var notificationAccessGranted by mutableStateOf(false)
     private var foregroundNotificationGranted by mutableStateOf(false)
     private var backgroundConnectionEnabled by mutableStateOf(false)
+    private var notificationStabilityEnabled by mutableStateOf(false)
     private var batteryOptimizationExempt by mutableStateOf(false)
     private var pendingDebugNotification = false
     private var pendingTestNotification = false
@@ -125,6 +126,7 @@ class MainActivity : ComponentActivity() {
         notificationSharingSettings = productPreferences.notificationSharingSettings()
         remoteOperationSettings = productPreferences.remoteOperationSettings()
         backgroundConnectionEnabled = productPreferences.isBackgroundConnectionEnabled()
+        notificationStabilityEnabled = productPreferences.isNotificationStabilityEnabled()
         refreshSystemStatus()
         loadApplications()
         reconcileBackgroundConnection()
@@ -146,6 +148,7 @@ class MainActivity : ComponentActivity() {
                     notificationSharingSettings = notificationSharingSettings,
                     remoteOperationSettings = remoteOperationSettings,
                     backgroundConnectionEnabled = backgroundConnectionEnabled,
+                    notificationStabilityEnabled = notificationStabilityEnabled,
                     foregroundNotificationGranted = foregroundNotificationGranted,
                     batteryOptimizationExempt = batteryOptimizationExempt,
                     onCompleteWelcome = {
@@ -197,6 +200,11 @@ class MainActivity : ComponentActivity() {
                         remoteOperationSettings = productPreferences.remoteOperationSettings()
                     },
 
+                    onSetNotificationStabilityEnabled = { enabled ->
+                        productPreferences.saveNotificationStabilityEnabled(enabled)
+                        LocalNotificationController.setNotificationStabilityEnabled(this, enabled)
+                        notificationStabilityEnabled = enabled
+                    },
                     onSetBackgroundConnectionEnabled = { enabled ->
                         productPreferences.saveBackgroundConnectionEnabled(enabled)
                         backgroundConnectionEnabled = enabled
@@ -352,6 +360,7 @@ private fun SevenMirrorApp(
     notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
     backgroundConnectionEnabled: Boolean,
+    notificationStabilityEnabled: Boolean,
     foregroundNotificationGranted: Boolean,
     batteryOptimizationExempt: Boolean,
     onCompleteWelcome: () -> Unit,
@@ -364,6 +373,7 @@ private fun SevenMirrorApp(
     onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
+    onSetNotificationStabilityEnabled: (Boolean) -> Unit,
     onOpenStatusNotificationSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onPostTestNotification: () -> Unit,
@@ -462,6 +472,7 @@ private fun SevenMirrorApp(
                         notificationSharingSettings = notificationSharingSettings,
                         remoteOperationSettings = remoteOperationSettings,
                         backgroundConnectionEnabled = backgroundConnectionEnabled,
+                        notificationStabilityEnabled = notificationStabilityEnabled,
                         foregroundNotificationGranted = foregroundNotificationGranted,
                         batteryOptimizationExempt = batteryOptimizationExempt,
                         omittedNotificationCount = omittedNotificationCount,
@@ -474,6 +485,7 @@ private fun SevenMirrorApp(
                         onOpenNotificationAccess = onOpenNotificationAccess,
                         onReconnect = transportCoordinator::retryConnection,
                         onSetBackgroundConnectionEnabled = onSetBackgroundConnectionEnabled,
+                        onSetNotificationStabilityEnabled = onSetNotificationStabilityEnabled,
                         onOpenStatusNotificationSettings = onOpenStatusNotificationSettings,
                         onRequestBatteryExemption = onRequestBatteryExemption,
                         onPostTestNotification = onPostTestNotification,

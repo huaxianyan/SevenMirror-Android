@@ -136,6 +136,7 @@ internal fun MainScreen(
     notificationSharingSettings: NotificationSharingSettings,
     remoteOperationSettings: RemoteOperationSettings,
     backgroundConnectionEnabled: Boolean,
+    notificationStabilityEnabled: Boolean,
     foregroundNotificationGranted: Boolean,
     batteryOptimizationExempt: Boolean,
     omittedNotificationCount: Int,
@@ -148,6 +149,7 @@ internal fun MainScreen(
     onOpenNotificationAccess: () -> Unit,
     onReconnect: () -> Unit,
     onSetBackgroundConnectionEnabled: (Boolean) -> Unit,
+    onSetNotificationStabilityEnabled: (Boolean) -> Unit,
     onOpenStatusNotificationSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onReloadApplications: () -> Unit,
@@ -388,6 +390,12 @@ internal fun MainScreen(
                                     }
                                     item { SettingsLink(R.string.permissions_and_runtime) { navigate(ProductPage.PERMISSIONS) } }
                                     item { SectionHeading(R.string.notification_sharing) }
+                                    item {
+                                        PermissionSwitchRow(stringResource(R.string.wait_for_notification_stability), notificationStabilityEnabled) {
+                                            save { onSetNotificationStabilityEnabled(it) }
+                                        }
+                                        Text(stringResource(R.string.wait_for_notification_stability_body), style = MaterialTheme.typography.bodySmall)
+                                    }
                                     item { PermissionSwitchRow(stringResource(R.string.sync_silent_notifications), notificationSharingSettings.syncSilent) { save { onSaveSyncSilentNotifications(it) } } }
                                     item {
                                         SectionHeading(R.string.remote_operations)

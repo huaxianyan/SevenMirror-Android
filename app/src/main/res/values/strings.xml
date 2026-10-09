@@ -36,6 +36,8 @@
     <string name="no_selectable_apps">No launchable applications are visible on this device.</string>
     <string name="no_apps_match_filters">No apps match this search and category.</string>
     <string name="notification_sharing">Notification sharing</string>
+    <string name="wait_for_notification_stability">Wait for notifications to settle</string>
+    <string name="wait_for_notification_stability_body">Wait briefly before syncing to reduce repeated alerts when notifications change quickly.</string>
     <string name="sync_silent_notifications">Synchronize silent notifications</string>
     <string name="notification_content">Notification content</string>
     <string name="show_notification_content">Show title, message, and actions in Chrome</string>

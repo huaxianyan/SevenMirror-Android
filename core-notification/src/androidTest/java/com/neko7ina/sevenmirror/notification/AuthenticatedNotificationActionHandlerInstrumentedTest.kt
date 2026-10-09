@@ -114,6 +114,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             context.registerReceiver(sideEffectReceiver, IntentFilter(TEST_ACTION))
         }
         LocalNotificationController.clear()
+        LocalNotificationController.setNotificationStabilityEnabled(context, true)
         LocalNotificationController.installMirroringPolicy(
             NotificationMirroringPolicy { currentContext, snapshot ->
                 snapshot.takeIf { it.packageName == currentContext.packageName }

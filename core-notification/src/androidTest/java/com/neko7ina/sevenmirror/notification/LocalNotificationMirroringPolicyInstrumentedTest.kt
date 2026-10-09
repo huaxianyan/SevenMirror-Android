@@ -15,6 +15,7 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
@@ -23,6 +24,13 @@ import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class LocalNotificationMirroringPolicyInstrumentedTest {
+    @Before
+    fun enableNotificationStability() {
+        LocalNotificationController.setNotificationStabilityEnabled(
+            ApplicationProvider.getApplicationContext<Context>(), true,
+        )
+    }
+
     @Test
     fun selectionChangesEmitFreshUpsertRemovalAndSnapshotRevisions() {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -332,6 +340,22 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
             events.clear()
             LocalNotificationController.onRemoved(context, changing.key)
             awaitState { events.filterIsInstance<MirrorEvent.Removed>().isNotEmpty() }
+            assertTrue(requireNotNull(LocalNotificationController.currentActiveSnapshot(context)).notifications.isEmpty())
+
+            events.clear()
+            val waiting = testNotification(context, "com.example.selected", id = 203, title = "Waiting message")
+            LocalNotificationController.onPosted(context, waiting, isSilent = false)
+            assertTrue(events.isEmpty())
+            LocalNotificationController.setNotificationStabilityEnabled(context, false)
+            assertEquals("Waiting message", events.filterIsInstance<MirrorEvent.Upsert>().single().value.title)
+
+            events.clear()
+            LocalNotificationController.onPosted(
+                context, testNotification(context, "com.example.selected", id = 203, title = "Immediate update"), isSilent = false,
+            )
+            assertEquals("Immediate update", events.filterIsInstance<MirrorEvent.Upsert>().single().value.title)
+            LocalNotificationController.onRemoved(context, waiting.key)
+            assertEquals(waiting.key, events.filterIsInstance<MirrorEvent.Removed>().single().notificationId)
             assertTrue(requireNotNull(LocalNotificationController.currentActiveSnapshot(context)).notifications.isEmpty())
         } finally {
             LocalNotificationController.installNotificationMirrorSink(null)

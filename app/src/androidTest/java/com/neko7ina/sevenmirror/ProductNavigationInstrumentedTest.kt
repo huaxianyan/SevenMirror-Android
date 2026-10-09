@@ -1,5 +1,9 @@
 package com.neko7ina.sevenmirror
 
+import android.annotation.SuppressLint
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -23,6 +27,35 @@ import org.junit.Test
 /** Production screen integration with a fixed catalog and supplied platform status, not enrollment or OS permission E2E. */
 class ProductNavigationInstrumentedTest {
     @get:Rule val compose = createComposeRule()
+
+    @SuppressLint("UseKtx")
+    @Test
+    fun newInstallStartsWithoutWaitingAndUpgradePreservesTheChoice() {
+        val host = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = host.getSharedPreferences("notification-stability-migration-test", Context.MODE_PRIVATE)
+        val context = object : ContextWrapper(host) {
+            override fun getApplicationContext(): Context = this
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences = store
+        }
+        try {
+            check(store.edit().clear().commit())
+            val fresh = AndroidProductPreferences(context)
+            assertEquals(false, fresh.isNotificationStabilityEnabled())
+            fresh.completeWelcome()
+            assertEquals(false, AndroidProductPreferences(context).isNotificationStabilityEnabled())
+
+            // Simulate an already configured development build with no switch stored yet.
+            check(store.edit().clear().putBoolean("welcome-completed", true).commit())
+            val upgraded = AndroidProductPreferences(context)
+            assertEquals(true, upgraded.isNotificationStabilityEnabled())
+            upgraded.saveNotificationStabilityEnabled(false)
+            assertEquals(false, AndroidProductPreferences(context).isNotificationStabilityEnabled())
+            upgraded.saveNotificationStabilityEnabled(true)
+            assertEquals(true, AndroidProductPreferences(context).isNotificationStabilityEnabled())
+        } finally {
+            check(store.edit().clear().commit())
+        }
+    }
 
     @Test
     fun savedProductSettingsRestoreAppPolicyAndPausedSynchronization() {
@@ -84,6 +117,7 @@ class ProductNavigationInstrumentedTest {
         )
         var paused by mutableStateOf(false)
         var background by mutableStateOf(false)
+        var stability by mutableStateOf(false)
         var batteryExemptionRequests = 0
         compose.setContent {
             MaterialTheme {
@@ -101,6 +135,7 @@ class ProductNavigationInstrumentedTest {
                     notificationSharingSettings = sharing,
                     remoteOperationSettings = operations,
                     backgroundConnectionEnabled = background,
+                    notificationStabilityEnabled = stability,
                     foregroundNotificationGranted = true,
                     batteryOptimizationExempt = false,
                     omittedNotificationCount = 0,
@@ -121,6 +156,7 @@ class ProductNavigationInstrumentedTest {
                     onOpenNotificationAccess = { access = true },
                     onReconnect = {},
                     onSetBackgroundConnectionEnabled = { background = it },
+                    onSetNotificationStabilityEnabled = { stability = it },
                     onOpenStatusNotificationSettings = {},
                     onRequestBatteryExemption = { batteryExemptionRequests++ },
                     onReloadApplications = {},
@@ -160,6 +196,11 @@ class ProductNavigationInstrumentedTest {
         compose.onNodeWithContentDescription(text(R.string.back)).performClick()
         compose.onNode(hasText(text(R.string.applications)) and hasClickAction()).assertIsSelected()
         compose.onNodeWithText(text(R.string.settings)).performClick()
+        compose.onNodeWithText(text(R.string.sync_defaults)).performClick()
+        compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.wait_for_notification_stability)))
+        compose.onNodeWithText(text(R.string.wait_for_notification_stability)).performClick()
+        compose.runOnIdle { assertEquals(true, stability) }
+        compose.onNodeWithContentDescription(text(R.string.back)).performClick()
         compose.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(text(R.string.permissions_and_runtime)))
         compose.onNodeWithText(text(R.string.permissions_and_runtime)).performClick()
         compose.runOnIdle { access = false }

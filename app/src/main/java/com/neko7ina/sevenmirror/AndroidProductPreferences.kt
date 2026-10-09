@@ -246,6 +246,24 @@ internal class AndroidProductPreferences(context: Context) {
         Context.MODE_PRIVATE,
     )
 
+    init {
+        if (!preferences.contains(KEY_NOTIFICATION_STABILITY_ENABLED)) {
+            // Existing configured development installs already used the stability window.
+            // Persist once so finishing onboarding cannot change a new install's default.
+            saveNotificationStabilityEnabled(isWelcomeCompleted())
+        }
+    }
+
+    fun isNotificationStabilityEnabled(): Boolean =
+        preferences.getBoolean(KEY_NOTIFICATION_STABILITY_ENABLED, false)
+
+    @SuppressLint("UseKtx")
+    fun saveNotificationStabilityEnabled(enabled: Boolean) {
+        check(preferences.edit().putBoolean(KEY_NOTIFICATION_STABILITY_ENABLED, enabled).commit()) {
+            "Unable to persist notification stability preference"
+        }
+    }
+
     fun isWelcomeCompleted(): Boolean = preferences.getBoolean(KEY_WELCOME_COMPLETED, false)
 
     fun isCertifiedReEnrollmentResetPending(): Boolean =
@@ -446,6 +464,7 @@ internal class AndroidProductPreferences(context: Context) {
     companion object {
         private const val PREFERENCES_NAME = "syncnotifications.product-preferences.v1"
         private const val KEY_WELCOME_COMPLETED = "welcome-completed"
+        private const val KEY_NOTIFICATION_STABILITY_ENABLED = "notification-stability.enabled"
         private const val KEY_CERTIFIED_RE_ENROLLMENT_RESET_PENDING =
             "certified-re-enrollment-reset-pending"
         private const val KEY_APPLICATION_SELECTION_CONFIRMED = "application-selection-confirmed"

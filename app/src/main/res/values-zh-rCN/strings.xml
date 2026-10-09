@@ -34,6 +34,8 @@
     <string name="no_selectable_apps">这台设备上没有可见的可启动应用。</string>
     <string name="no_apps_match_filters">当前搜索和分类下没有应用。</string>
     <string name="notification_sharing">通知同步</string>
+    <string name="wait_for_notification_stability">等待通知稳定</string>
+    <string name="wait_for_notification_stability_body">稍等片刻再同步，减少通知快速变化时的反复提醒。</string>
     <string name="sync_silent_notifications">同步静默通知</string>
     <string name="notification_content">通知内容</string>
     <string name="show_notification_content">在 Chrome 中显示标题、正文和操作</string>

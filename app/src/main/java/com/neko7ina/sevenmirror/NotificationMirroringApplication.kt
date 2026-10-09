@@ -15,6 +15,9 @@ class NotificationMirroringApplication : Application() {
         super.onCreate()
         ProductDebugActions.restore(this)
         val productPreferences = AndroidProductPreferences(this)
+        LocalNotificationController.setNotificationStabilityEnabled(
+            this, productPreferences.isNotificationStabilityEnabled(),
+        )
         LocalNotificationController.installMirroringPolicy(
             NotificationMirroringPolicy { context, snapshot ->
                 prepareNotificationForMirroring(

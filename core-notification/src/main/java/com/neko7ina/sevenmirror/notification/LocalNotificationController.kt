@@ -90,6 +90,7 @@ object LocalNotificationController {
     private val mirrored = mutableMapOf<String, NotificationSnapshot>()
     private val pendingChanges = mutableMapOf<String, PendingMirrorChange>()
     private var initialSnapshotPending = false
+    private var notificationStabilityEnabled = false
 
     private val secureRandom = SecureRandom()
     @Volatile
@@ -118,6 +119,13 @@ object LocalNotificationController {
 
     fun installDismissSink(sink: ((String) -> Unit)?) {
         dismissSink = sink
+    }
+
+    @Synchronized
+    fun setNotificationStabilityEnabled(context: Context, enabled: Boolean) {
+        if (notificationStabilityEnabled == enabled) return
+        notificationStabilityEnabled = enabled
+        if (!enabled) refreshMirroringPolicy(context)
     }
 
     @Synchronized
@@ -406,7 +414,7 @@ object LocalNotificationController {
                 cancelPendingChange(key)
                 continue
             }
-            if (immediate || key == readyKey) {
+            if (immediate || !notificationStabilityEnabled || key == readyKey) {
                 cancelPendingChange(key)
                 // A recovery snapshot may have advanced the barrier while this item waited.
                 // Allocate at publication, not at scheduling, so this version stays above it.
