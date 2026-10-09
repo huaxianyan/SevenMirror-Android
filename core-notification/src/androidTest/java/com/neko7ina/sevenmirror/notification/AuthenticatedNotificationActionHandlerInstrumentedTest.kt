@@ -125,6 +125,8 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
         try {
             val sbn = testNotification(context)
             LocalNotificationController.onPosted(context, sbn, isSilent = false)
+            LocalNotificationController.onActiveSetReady(context)
+            awaitPublishedNotification(context)
             val original = LocalNotificationController.notifications.value.single()
             val token = original.actions.single().token
 
@@ -293,6 +295,7 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             )
             assertEquals(1, ActionSideEffectReceiver.count.get())
 
+            awaitPublishedNotification(context)
             val current = LocalNotificationController.notifications.value.single().actions.single().token
             val unknownAction = current.copy(actionId = NotificationActionId("00".repeat(16)))
             val unknown = actionFrame(
@@ -351,6 +354,17 @@ class AuthenticatedNotificationActionHandlerInstrumentedTest {
             operations.clear()
             outbox.clear()
         }
+    }
+
+    private fun awaitPublishedNotification(context: Context) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        fun published(): Boolean {
+            val source = LocalNotificationController.notifications.value.singleOrNull() ?: return false
+            return LocalNotificationController.currentActiveSnapshot(context)?.notifications
+                ?.any { it.key == source.key && it.revision == source.revision } == true
+        }
+        while (!published() && System.nanoTime() < deadline) Thread.sleep(10)
+        assertTrue("Expected notification was not published", published())
     }
 
     private fun testNotification(context: Context, title: String = "Test"): StatusBarNotification {

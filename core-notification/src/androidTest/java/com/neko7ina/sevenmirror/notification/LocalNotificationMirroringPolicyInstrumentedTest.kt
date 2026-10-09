@@ -18,6 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
@@ -27,7 +28,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val selectedPackages = mutableSetOf<String>()
         var hideContent = false
-        val events = mutableListOf<MirrorEvent>()
+        val events = CopyOnWriteArrayList<MirrorEvent>()
         LocalNotificationController.clear()
         LocalNotificationController.installMirroringPolicy(
             NotificationMirroringPolicy { _, snapshot ->
@@ -111,7 +112,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
     @Test
     fun repeatedCallbackKeepsChromeRevisionAndExecutesLatestAppAction() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val events = mutableListOf<MirrorEvent>()
+        val events = CopyOnWriteArrayList<MirrorEvent>()
         val received = CountDownLatch(1)
         val secondAction = "com.neko7ina.sevenmirror.TEST_UPDATED_ACTION"
         val receiver = object : BroadcastReceiver() {
@@ -142,6 +143,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                 actionRequestCode = 101,
             )
             LocalNotificationController.onPosted(context, first, isSilent = false)
+            awaitState { events.isNotEmpty() }
             val firstUpsert = (events.single() as MirrorEvent.Upsert).value
 
             val updatedAction = testNotification(
@@ -174,7 +176,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
     @Test
     fun groupChildReplacesSummaryAndSummaryReturnsAfterChildRemoval() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val events = mutableListOf<MirrorEvent>()
+        val events = CopyOnWriteArrayList<MirrorEvent>()
         LocalNotificationController.clear()
         LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
         LocalNotificationController.installNotificationMirrorSink(
@@ -210,10 +212,12 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                 groupKey = "messages",
             )
             LocalNotificationController.onPosted(context, summary, isSilent = false)
+            awaitState { events.isNotEmpty() }
             val firstSummary = (events.single() as MirrorEvent.Upsert).value
 
             events.clear()
             LocalNotificationController.onPosted(context, child, isSilent = false)
+            awaitState { events.filterIsInstance<MirrorEvent.Upsert>().isNotEmpty() }
             val childUpsert = events.filterIsInstance<MirrorEvent.Upsert>().single().value
             val summaryRemoval = events.filterIsInstance<MirrorEvent.Removed>().single()
             assertEquals(child.key, childUpsert.key)
@@ -222,6 +226,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
 
             events.clear()
             LocalNotificationController.onRemoved(context, child.key)
+            awaitState { events.filterIsInstance<MirrorEvent.Upsert>().isNotEmpty() }
             val childRemoval = events.filterIsInstance<MirrorEvent.Removed>().single()
             val restoredSummary = events.filterIsInstance<MirrorEvent.Upsert>().single().value
             assertEquals(child.key, childRemoval.notificationId)
@@ -237,7 +242,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
     @Test
     fun unavailableListenerPublishesEmptySnapshotAbovePreviousNotification() {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val snapshots = mutableListOf<ActiveNotificationSnapshot>()
+        val snapshots = CopyOnWriteArrayList<ActiveNotificationSnapshot>()
         LocalNotificationController.clear()
         LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
         LocalNotificationController.installNotificationMirrorSink(
@@ -257,6 +262,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
                 isSilent = false,
             )
             LocalNotificationController.onActiveSetReady(context)
+            awaitState { snapshots.isNotEmpty() }
             val active = snapshots.single()
             assertEquals(1, active.notifications.size)
 
@@ -271,6 +277,73 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
             LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, _ -> null })
             LocalNotificationController.clear()
         }
+    }
+
+    @Test
+    fun filteredAndRapidlyChangedNotificationsReachChromeOnlyAsStableContent() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val events = CopyOnWriteArrayList<MirrorEvent>()
+        LocalNotificationController.clear()
+        LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, snapshot -> snapshot })
+        LocalNotificationController.installNotificationMirrorSink(
+            object : NotificationMirrorSink {
+                override fun onUpsert(snapshot: NotificationSnapshot) { events += MirrorEvent.Upsert(snapshot) }
+                override fun onRemoved(notificationId: String, revision: Long) { events += MirrorEvent.Removed(notificationId, revision) }
+                override fun onSnapshot(snapshot: ActiveNotificationSnapshot) { events += MirrorEvent.Snapshot(snapshot) }
+            },
+        )
+        try {
+            val filtered = testNotification(context, "com.example.selected", id = 201, title = "Filtered offer")
+            val changing = testNotification(context, "com.example.selected", id = 202, title = "Draft message")
+            LocalNotificationController.onPosted(context, filtered, isSilent = false)
+            LocalNotificationController.onPosted(context, changing, isSilent = false)
+            LocalNotificationController.onActiveSetReady(context)
+            LocalNotificationController.onRemoved(context, filtered.key)
+            LocalNotificationController.onPosted(
+                context, testNotification(context, "com.example.selected", id = 202, title = "Final message"), isSilent = false,
+            )
+            assertEquals(null, LocalNotificationController.currentActiveSnapshot(context))
+            awaitState { events.filterIsInstance<MirrorEvent.Snapshot>().isNotEmpty() }
+            val first = events.filterIsInstance<MirrorEvent.Upsert>().single().value
+            assertEquals("Final message", first.title)
+            assertEquals(changing.key, first.key)
+            assertEquals(listOf(first), events.filterIsInstance<MirrorEvent.Snapshot>().single().value.notifications)
+
+            events.clear()
+            LocalNotificationController.onPosted(
+                context, testNotification(context, "com.example.selected", id = 202, title = "Updated message"), isSilent = false,
+            )
+            val recovery = requireNotNull(LocalNotificationController.currentActiveSnapshot(context))
+            assertEquals(listOf(first), recovery.notifications)
+            awaitState { events.filterIsInstance<MirrorEvent.Upsert>().isNotEmpty() }
+            val updated = events.filterIsInstance<MirrorEvent.Upsert>().single().value
+            assertEquals("Updated message", updated.title)
+            assertTrue(updated.revision > recovery.highWaterRevision)
+
+            events.clear()
+            LocalNotificationController.onRemoved(context, changing.key)
+            LocalNotificationController.onPosted(
+                context, testNotification(context, "com.example.selected", id = 202, title = "Reposted message"), isSilent = false,
+            )
+            awaitState { events.filterIsInstance<MirrorEvent.Upsert>().isNotEmpty() }
+            assertEquals("Reposted message", events.filterIsInstance<MirrorEvent.Upsert>().single().value.title)
+            assertTrue(events.filterIsInstance<MirrorEvent.Removed>().isEmpty())
+
+            events.clear()
+            LocalNotificationController.onRemoved(context, changing.key)
+            awaitState { events.filterIsInstance<MirrorEvent.Removed>().isNotEmpty() }
+            assertTrue(requireNotNull(LocalNotificationController.currentActiveSnapshot(context)).notifications.isEmpty())
+        } finally {
+            LocalNotificationController.installNotificationMirrorSink(null)
+            LocalNotificationController.installMirroringPolicy(NotificationMirroringPolicy { _, _ -> null })
+            LocalNotificationController.clear()
+        }
+    }
+
+    private fun awaitState(condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (!condition() && System.nanoTime() < deadline) Thread.sleep(10)
+        assertTrue("Expected mirrored notification state was not reached", condition())
     }
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
@@ -297,6 +370,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         postTime: Long = System.currentTimeMillis(),
         actionRequestCode: Int = id,
         actionIntentAction: String = "com.neko7ina.sevenmirror.TEST_SELECTED_ACTION",
+        title: String = "Selected notification",
     ): StatusBarNotification {
         val pendingIntent = PendingIntent.getBroadcast(
             context,
@@ -306,7 +380,7 @@ class LocalNotificationMirroringPolicyInstrumentedTest {
         )
         val notification = Notification.Builder(context, "test")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Selected notification")
+            .setContentTitle(title)
             .addAction(Notification.Action.Builder(0, "Open", pendingIntent).build())
             .also { builder -> groupKey?.let(builder::setGroup) }
             .setGroupSummary(isGroupSummary)
