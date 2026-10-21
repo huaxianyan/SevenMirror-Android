@@ -126,6 +126,8 @@ class ProductNavigationInstrumentedTest {
                     workspaceDevices = emptyList(),
                     recipientSettings = recipients,
                     synchronizationPaused = paused,
+                    networkSyncSettings = SyncNetworkSettings(),
+                    networkSyncBlock = NetworkSyncBlock.NONE,
                     serverOrigin = "https://mirror.example",
                     notificationAccessGranted = access,
                     applications = listOf(SelectableApplication("com.example.calendar", "Calendar example", false)),
@@ -141,6 +143,7 @@ class ProductNavigationInstrumentedTest {
                     omittedNotificationCount = 0,
                     onSaveApplicationSelection = { selected = it },
                     onSetSynchronizationPaused = { paused = it },
+                    onSaveSyncNetworkSettings = {},
                     onSaveReceivingDevices = { selected ->
                         recipients = recipients.copy(
                             configured = true,

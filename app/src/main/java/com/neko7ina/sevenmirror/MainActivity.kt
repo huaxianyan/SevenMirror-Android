@@ -385,6 +385,8 @@ private fun SevenMirrorApp(
     val workspaceDevices by transportCoordinator.workspaceDevices.collectAsState()
     val recipientSettings by transportCoordinator.recipientSettings.collectAsState()
     val synchronizationPaused by transportCoordinator.synchronizationPaused.collectAsState()
+    val syncNetworkSettings by transportCoordinator.syncNetworkSettings.collectAsState()
+    val networkSyncBlock by transportCoordinator.networkSyncBlock.collectAsState()
     val serverOrigin by transportCoordinator.serverOrigin.collectAsState()
     val securityRecovery by transportCoordinator.securityRecovery.collectAsState()
     val omittedNotificationCount by LocalNotificationController.omittedNotificationCount.collectAsState()
@@ -462,6 +464,8 @@ private fun SevenMirrorApp(
                         workspaceDevices = workspaceDevices,
                         recipientSettings = recipientSettings,
                         synchronizationPaused = synchronizationPaused,
+                        networkSyncSettings = syncNetworkSettings,
+                        networkSyncBlock = networkSyncBlock,
                         serverOrigin = serverOrigin,
                         notificationAccessGranted = notificationAccessGranted,
                         applications = applications,
@@ -479,6 +483,7 @@ private fun SevenMirrorApp(
                         onSaveApplicationSelection = onSaveApplicationSelection,
                         onSaveReceivingDevices = transportCoordinator::saveReceivingDevices,
                         onSetSynchronizationPaused = transportCoordinator::setSynchronizationPaused,
+                        onSaveSyncNetworkSettings = transportCoordinator::saveSyncNetworkSettings,
                         onSaveSyncSilentNotifications = onSaveSyncSilentNotifications,
                         onSaveApplicationSettings = onSaveApplicationSettings,
                         onSaveGlobalRemoteOperations = onSaveGlobalRemoteOperations,

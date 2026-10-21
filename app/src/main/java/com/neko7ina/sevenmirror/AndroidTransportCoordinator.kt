@@ -198,6 +198,12 @@ class AndroidTransportCoordinator(context: Context) {
     private val mutableWorkspaceDevices = MutableStateFlow<List<WorkspaceDeviceSummary>>(emptyList())
     private val mutableRecipientSettings = MutableStateFlow(RecipientSettingsState("", false, emptyList()))
     private val mutableSynchronizationPaused = MutableStateFlow(productPreferences.isSynchronizationPaused())
+    private val mutableSyncNetworkSettings = MutableStateFlow(productPreferences.syncNetworkSettings())
+    // The network the saved settings exclude right now. Seeded from the route in hand so the first
+    // frame after process start already reports the hold instead of a connection attempt.
+    private val mutableNetworkSyncBlock = MutableStateFlow(
+        networkSyncBlock(productPreferences.syncNetworkSettings(), currentNetworkRoute()?.transports),
+    )
     private val mutableServerOrigin = MutableStateFlow<String?>(null)
     private val mutableSecurityRecovery = MutableStateFlow(AndroidSecurityRecovery.NONE)
     private val diagnosticsRing = TransportDiagnosticsRing(
@@ -233,6 +239,8 @@ class AndroidTransportCoordinator(context: Context) {
         mutableWorkspaceDevices.asStateFlow()
     internal val recipientSettings: StateFlow<RecipientSettingsState> = mutableRecipientSettings.asStateFlow()
     internal val synchronizationPaused: StateFlow<Boolean> = mutableSynchronizationPaused.asStateFlow()
+    internal val syncNetworkSettings: StateFlow<SyncNetworkSettings> = mutableSyncNetworkSettings.asStateFlow()
+    internal val networkSyncBlock: StateFlow<NetworkSyncBlock> = mutableNetworkSyncBlock.asStateFlow()
     val serverOrigin: StateFlow<String?> = mutableServerOrigin.asStateFlow()
     val securityRecovery: StateFlow<AndroidSecurityRecovery> =
         mutableSecurityRecovery.asStateFlow()
@@ -249,6 +257,25 @@ class AndroidTransportCoordinator(context: Context) {
                     LocalNotificationController.currentActiveSnapshot(applicationContext)
                         ?.let(::sendSnapshot)
                 }
+            }
+        }
+    }
+
+    /**
+     * Saves which networks synchronization may use and applies the change to the live connection.
+     *
+     * A network the settings exclude is not a failure: the socket is dropped on purpose and no
+     * retry follows until an allowed network appears or the setting is turned back on.
+     */
+    internal fun saveSyncNetworkSettings(settings: SyncNetworkSettings) {
+        productPreferences.saveSyncNetworkSettings(settings)
+        mutableSyncNetworkSettings.value = settings
+        executor.execute {
+            // The setting can change while the network does not, so this cannot wait for the next
+            // network callback to take effect.
+            if (holdOffNetworkSync(currentNetworkRoute())) return@execute
+            if (hasConnectionOwner() && mutableState.value == AndroidTransportState.OFFLINE) {
+                retryConnection()
             }
         }
     }
@@ -428,6 +455,7 @@ class AndroidTransportCoordinator(context: Context) {
             current != AndroidTransportState.CONNECTING &&
             current != AndroidTransportState.OFFLINE
         ) return
+        if (holdOffNetworkSync(route)) return
         if (route == connectionRoute) return
         connectionRoute = route
         if (current == AndroidTransportState.OFFLINE) {
@@ -468,20 +496,60 @@ class AndroidTransportCoordinator(context: Context) {
         return mask
     }
 
+    /**
+     * Applies the saved network settings to [route], returning true when synchronization must stay
+     * offline on it.
+     *
+     * The hold is not a route to reconnect to: nothing may be attempted until an allowed network
+     * appears or the setting changes, and each of those reports itself. Callers that are already
+     * online or mid-attempt lose that socket here, because keeping it open would keep sending over
+     * a network the user excluded.
+     */
+    private fun holdOffNetworkSync(route: NetworkRoute?): Boolean {
+        val block = networkSyncBlock(productPreferences.syncNetworkSettings(), route?.transports)
+        val changed = block != mutableNetworkSyncBlock.value
+        mutableNetworkSyncBlock.value = block
+        if (block == NetworkSyncBlock.NONE) return false
+        if (changed) {
+            diagnostics.record(
+                CoordinatorDiagnosticEvent.NETWORK_SYNC_HELD,
+                generation.get(),
+                networkHandle = route?.handle,
+                wifi = route?.hasTransport(TRANSPORT_WIFI),
+                cellular = route?.hasTransport(TRANSPORT_CELLULAR),
+                vpn = route?.hasTransport(TRANSPORT_VPN),
+            )
+        }
+        // Registration and rotation are one-off exchanges the user started by hand, so a hold only
+        // ends the synchronization connection that already exists or is being opened. Every path
+        // that opens one re-reads the setting before it does.
+        when (mutableState.value) {
+            AndroidTransportState.ONLINE,
+            AndroidTransportState.CONNECTING,
+            AndroidTransportState.OFFLINE,
+            -> retireConnection("sync is off for this network")
+            else -> Unit
+        }
+        return true
+    }
+
     private fun disconnect() {
         generation.incrementAndGet()
-        executor.execute {
-            cancelReconnect()
-            cancelMembershipRefresh()
-            clearConnectionHandlers()
-            webSocket?.close(1000, "connection owners released")
-            webSocket = null
-            connectionRoute = null
-            if (mutableState.value != AndroidTransportState.NOT_CONFIGURED &&
-                mutableState.value != AndroidTransportState.SECURITY_ERROR
-            ) {
-                mutableState.value = AndroidTransportState.OFFLINE
-            }
+        executor.execute { retireConnection("connection owners released") }
+    }
+
+    /** Drops the socket and every timer behind it. Runs on the serialized executor. */
+    private fun retireConnection(reason: String) {
+        cancelReconnect()
+        cancelMembershipRefresh()
+        clearConnectionHandlers()
+        webSocket?.close(1000, reason)
+        webSocket = null
+        connectionRoute = null
+        if (mutableState.value != AndroidTransportState.NOT_CONFIGURED &&
+            mutableState.value != AndroidTransportState.SECURITY_ERROR
+        ) {
+            mutableState.value = AndroidTransportState.OFFLINE
         }
     }
 
@@ -605,6 +673,9 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun connectInternal(requestedGeneration: Long) {
         if (!hasConnectionOwner() || generation.get() != requestedGeneration) return
+        // A network excluded by the settings is a deliberate hold rather than a stall, so nothing
+        // below this line runs on it: no membership request, no credential work, no socket.
+        if (holdOffNetworkSync(currentNetworkRoute())) return
         diagnostics.record(CoordinatorDiagnosticEvent.CONNECTION_ATTEMPT, requestedGeneration)
         if (productPreferences.isCertifiedReEnrollmentResetPending()) {
             try {
@@ -1514,6 +1585,10 @@ class AndroidTransportCoordinator(context: Context) {
     private fun rearmStalledConnection() {
         if (!hasConnectionOwner()) return
         if (reconnectFuture != null) return
+        // Held by the saved network settings: the re-arm exists to break an unaccountable stall, and
+        // a deliberate hold is accountable. Attempting anyway would also fill the diagnostics ring
+        // with one attempt a minute for as long as the hold lasts.
+        if (mutableNetworkSyncBlock.value != NetworkSyncBlock.NONE) return
         val retryable = when (mutableState.value) {
             AndroidTransportState.OFFLINE -> true
             // Both proven states stay terminal. Every other way onto the recovery page is

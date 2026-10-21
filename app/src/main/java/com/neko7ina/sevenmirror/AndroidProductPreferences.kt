@@ -68,14 +68,17 @@ internal fun onboardingStage(
 internal enum class StatusTone { POSITIVE, PENDING, NEGATIVE }
 
 /**
- * The tone for the current headline. Synchronization being paused is reported as pending rather
- * than negative: the user asked for it, so nothing is wrong, but nothing is being delivered either.
+ * The tone for the current headline. A hold the user asked for is reported as pending rather than
+ * negative: nothing is wrong, but nothing is being delivered either. That covers both the pause
+ * switch and a network the settings exclude.
  */
 internal fun statusTone(
     transportState: AndroidTransportState,
     synchronizationPaused: Boolean,
+    networkSyncBlock: NetworkSyncBlock = NetworkSyncBlock.NONE,
 ): StatusTone = when {
     synchronizationPaused -> StatusTone.PENDING
+    networkSyncBlock != NetworkSyncBlock.NONE -> StatusTone.PENDING
     transportState == AndroidTransportState.ONLINE -> StatusTone.POSITIVE
     transportState == AndroidTransportState.OFFLINE -> StatusTone.NEGATIVE
     transportState == AndroidTransportState.SECURITY_ERROR -> StatusTone.NEGATIVE
@@ -83,20 +86,24 @@ internal fun statusTone(
 }
 
 /** What the single control under the connection headline does right now. */
-internal enum class ConnectionControl { RESUME, PAUSE, RECONNECT }
+internal enum class ConnectionControl { RESUME, PAUSE, RECONNECT, SYNC_NETWORK }
 
 /**
  * The one action worth offering for the current headline.
  *
  * Pausing only means something while notifications are actually being delivered, so a device that
  * is not connected is offered the reconnect instead: that is what the user wants at that moment,
- * and it is the only way to act on a connection the transport has given up on.
+ * and it is the only way to act on a connection the transport has given up on. A device held
+ * offline by its own network setting is different again: reconnecting would change nothing, so the
+ * control leads to the setting that is keeping it offline.
  */
 internal fun connectionControl(
     transportState: AndroidTransportState,
     synchronizationPaused: Boolean,
+    networkSyncBlock: NetworkSyncBlock = NetworkSyncBlock.NONE,
 ): ConnectionControl = when {
     synchronizationPaused -> ConnectionControl.RESUME
+    networkSyncBlock != NetworkSyncBlock.NONE -> ConnectionControl.SYNC_NETWORK
     transportState == AndroidTransportState.ONLINE -> ConnectionControl.PAUSE
     else -> ConnectionControl.RECONNECT
 }
@@ -333,6 +340,21 @@ internal class AndroidProductPreferences(context: Context) {
     fun isSynchronizationPaused(): Boolean =
         preferences.getBoolean(KEY_SYNCHRONIZATION_PAUSED, false)
 
+    fun syncNetworkSettings(): SyncNetworkSettings = SyncNetworkSettings(
+        wifi = preferences.getBoolean(KEY_SYNC_NETWORK_WIFI, true),
+        cellular = preferences.getBoolean(KEY_SYNC_NETWORK_CELLULAR, true),
+    )
+
+    @SuppressLint("UseKtx")
+    fun saveSyncNetworkSettings(settings: SyncNetworkSettings) {
+        check(
+            preferences.edit()
+                .putBoolean(KEY_SYNC_NETWORK_WIFI, settings.wifi)
+                .putBoolean(KEY_SYNC_NETWORK_CELLULAR, settings.cellular)
+                .commit(),
+        ) { "Unable to persist sync network settings" }
+    }
+
     fun isBackgroundConnectionEnabled(): Boolean = backgroundConnectionEnabled(
         savedPreference = if (preferences.contains(KEY_BACKGROUND_CONNECTION_ENABLED)) {
             preferences.getBoolean(KEY_BACKGROUND_CONNECTION_ENABLED, false)
@@ -471,6 +493,8 @@ internal class AndroidProductPreferences(context: Context) {
         private const val KEY_BACKGROUND_SYNC_DECIDED = "background-sync-decided"
         private const val KEY_ONBOARDING_FLOW_VERSION = "onboarding-flow.version"
         private const val KEY_SYNCHRONIZATION_PAUSED = "synchronization.paused"
+        private const val KEY_SYNC_NETWORK_WIFI = "sync-network.wifi"
+        private const val KEY_SYNC_NETWORK_CELLULAR = "sync-network.cellular"
         private const val KEY_BACKGROUND_CONNECTION_ENABLED = "background-connection.enabled"
         private const val KEY_SELECTED_PACKAGES = "selected-packages"
         private const val KEY_SYNC_SILENT = "notification-sharing.sync-silent"

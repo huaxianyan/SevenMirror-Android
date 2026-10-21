@@ -7,6 +7,9 @@ internal enum class CoordinatorDiagnosticEvent {
     NETWORK_AVAILABLE,
     NETWORK_LOST,
     NETWORK_CAPABILITIES_CHANGED,
+
+    /** The saved network settings exclude the network in hand, so sync is held offline on purpose. */
+    NETWORK_SYNC_HELD,
     CONNECTION_NETWORK_REPLACED,
     CONNECTION_REQUESTED,
     CONNECTION_ATTEMPT,

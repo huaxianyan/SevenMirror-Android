@@ -1,6 +1,15 @@
 <resources>
     <string name="sync_defaults">同步与默认设置</string>
-    <string name="sync_defaults_summary">后台同步、静默通知和远程操作</string>
+    <string name="sync_defaults_summary">同步网络、后台同步、静默通知和远程操作</string>
+    <string name="sync_network">同步网络</string>
+    <string name="sync_network_wifi">在 Wi-Fi 下同步</string>
+    <string name="sync_network_cellular">在移动数据下同步</string>
+    <string name="sync_network_body">关掉某一种网络后，SevenMirror 在该网络下会保持离线：不发出通知，也不接收回复或清除。回到允许的网络后会自动恢复。</string>
+    <string name="sync_network_wifi_held">Wi-Fi 下不同步</string>
+    <string name="sync_network_cellular_held">移动数据下不同步</string>
+    <string name="sync_network_wifi_body">当前使用 Wi-Fi，而你在设置里关掉了 Wi-Fi 同步。放到移动数据，或重新打开 Wi-Fi 同步即可恢复。</string>
+    <string name="sync_network_cellular_body">当前使用移动数据，而你在设置里关掉了移动数据同步。连上 Wi-Fi，或重新打开移动数据同步即可恢复。</string>
+    <string name="sync_network_settings">同步网络设置</string>
     <string name="application_settings_title">单个应用设置</string>
     <string name="application_settings_summary">正文、持续通知和操作权限覆盖</string>
     <string name="permissions_and_runtime">权限与运行条件</string>

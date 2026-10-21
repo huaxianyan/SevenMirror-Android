@@ -1,6 +1,15 @@
 <resources>
     <string name="sync_defaults">Sync and defaults</string>
-    <string name="sync_defaults_summary">Background sync, silent notifications, and remote operations</string>
+    <string name="sync_defaults_summary">Sync networks, background sync, silent notifications, and remote operations</string>
+    <string name="sync_network">Sync networks</string>
+    <string name="sync_network_wifi">Sync on Wi-Fi</string>
+    <string name="sync_network_cellular">Sync on mobile data</string>
+    <string name="sync_network_body">A network switched off here keeps SevenMirror offline on it: notifications are not sent and replies or clears are not received. Returning to an allowed network resumes sync automatically.</string>
+    <string name="sync_network_wifi_held">Sync is off on Wi-Fi</string>
+    <string name="sync_network_cellular_held">Sync is off on mobile data</string>
+    <string name="sync_network_wifi_body">You are on Wi-Fi and Wi-Fi sync is switched off. Switch to mobile data, or turn Wi-Fi sync back on, to resume.</string>
+    <string name="sync_network_cellular_body">You are on mobile data and mobile data sync is switched off. Connect to Wi-Fi, or turn mobile data sync back on, to resume.</string>
+    <string name="sync_network_settings">Sync network settings</string>
     <string name="application_settings_title">Individual app settings</string>
     <string name="application_settings_summary">Notification content, ongoing notifications, and permission overrides</string>
     <string name="permissions_and_runtime">Permissions and background activity</string>

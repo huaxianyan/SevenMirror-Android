@@ -17,6 +17,37 @@ internal data class NetworkRoute(val handle: Long, val transports: Int) {
     fun hasTransport(transport: Int): Boolean = transports and transport != 0
 }
 
+/** Which networks the user lets this device synchronize over. Both are on for a new install. */
+internal data class SyncNetworkSettings(val wifi: Boolean = true, val cellular: Boolean = true)
+
+/**
+ * The network a saved setting puts off-limits right now, or [NONE] when synchronization may run.
+ *
+ * The value names the network that is excluded, so the screen can say which setting is holding the
+ * device offline instead of reporting a generic outage.
+ */
+internal enum class NetworkSyncBlock { NONE, WIFI, CELLULAR }
+
+/**
+ * Reads a route's transports against the saved network settings.
+ *
+ * A VPN keeps the transport underneath it in the same capabilities (the measured trace showed
+ * `WIFI|VPN` and `CELLULAR|VPN`), so the underlying network decides and the tunnel does not make
+ * mobile data look like an unmetered route. Ethernet and Bluetooth are always allowed: the setting
+ * only speaks about the two networks a user chooses between. Failures and missing routes are not
+ * a policy decision at all, so they read as [NetworkSyncBlock.NONE] and keep their ordinary
+ * offline handling.
+ */
+internal fun networkSyncBlock(settings: SyncNetworkSettings, transports: Int?): NetworkSyncBlock {
+    if (transports == null) return NetworkSyncBlock.NONE
+    val wifi = transports and TRANSPORT_WIFI != 0
+    val cellular = transports and TRANSPORT_CELLULAR != 0
+    val ethernet = transports and TRANSPORT_ETHERNET != 0
+    if (wifi && !settings.wifi) return NetworkSyncBlock.WIFI
+    if (cellular && !wifi && !ethernet && !settings.cellular) return NetworkSyncBlock.CELLULAR
+    return NetworkSyncBlock.NONE
+}
+
 /** Transports carried by [NetworkRoute.transports]. Values are private to this application. */
 internal const val TRANSPORT_WIFI = 1
 internal const val TRANSPORT_CELLULAR = 2

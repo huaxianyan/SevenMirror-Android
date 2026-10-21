@@ -412,6 +412,15 @@ class AndroidProductPreferencesTest {
             StatusTone.PENDING,
             statusTone(AndroidTransportState.ONLINE, synchronizationPaused = true),
         )
+        // A network the settings exclude is the same kind of deliberate hold.
+        assertEquals(
+            StatusTone.PENDING,
+            statusTone(
+                AndroidTransportState.OFFLINE,
+                synchronizationPaused = false,
+                networkSyncBlock = NetworkSyncBlock.CELLULAR,
+            ),
+        )
     }
 
     @Test
@@ -436,11 +445,28 @@ class AndroidProductPreferencesTest {
             ConnectionControl.RECONNECT,
             connectionControl(AndroidTransportState.SECURITY_ERROR, synchronizationPaused = false),
         )
+        // A held network has nothing to reconnect to, so the control leads to the setting instead.
+        assertEquals(
+            ConnectionControl.SYNC_NETWORK,
+            connectionControl(
+                AndroidTransportState.OFFLINE,
+                synchronizationPaused = false,
+                networkSyncBlock = NetworkSyncBlock.WIFI,
+            ),
+        )
         // Undoing a pause stays available while the connection is down, because that is the only
         // way back to the state the user left.
         assertEquals(
             ConnectionControl.RESUME,
             connectionControl(AndroidTransportState.OFFLINE, synchronizationPaused = true),
+        )
+        assertEquals(
+            ConnectionControl.RESUME,
+            connectionControl(
+                AndroidTransportState.OFFLINE,
+                synchronizationPaused = true,
+                networkSyncBlock = NetworkSyncBlock.WIFI,
+            ),
         )
     }
 

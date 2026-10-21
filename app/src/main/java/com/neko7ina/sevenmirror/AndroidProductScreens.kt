@@ -127,6 +127,8 @@ internal fun MainScreen(
     workspaceDevices: List<WorkspaceDeviceSummary>,
     recipientSettings: RecipientSettingsState,
     synchronizationPaused: Boolean,
+    networkSyncSettings: SyncNetworkSettings,
+    networkSyncBlock: NetworkSyncBlock,
     serverOrigin: String?,
     notificationAccessGranted: Boolean,
     applications: List<SelectableApplication>,
@@ -143,6 +145,7 @@ internal fun MainScreen(
     onSaveApplicationSelection: (Set<String>) -> Unit,
     onSaveReceivingDevices: (Set<String>) -> Unit,
     onSetSynchronizationPaused: (Boolean) -> Unit,
+    onSaveSyncNetworkSettings: (SyncNetworkSettings) -> Unit,
     onSaveSyncSilentNotifications: (Boolean) -> Unit,
     onSaveApplicationSettings: (String, ApplicationNotificationSettings, ApplicationOperationOverride?) -> Unit,
     onSaveGlobalRemoteOperations: (RemoteOperationPermissions) -> Unit,
@@ -288,7 +291,7 @@ internal fun MainScreen(
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                                                     ) {
-                                                        StatusIndicator(statusTone(transportState, synchronizationPaused))
+                                                        StatusIndicator(statusTone(transportState, synchronizationPaused, networkSyncBlock))
                                                         Text(headline, style = MaterialTheme.typography.headlineSmall)
                                                     }
                                                 }
@@ -298,6 +301,8 @@ internal fun MainScreen(
                                                 Text(stringResource(
                                                     when {
                                                         synchronizationPaused -> R.string.synchronization_paused_body
+                                                        networkSyncBlock == NetworkSyncBlock.WIFI -> R.string.sync_network_wifi_body
+                                                        networkSyncBlock == NetworkSyncBlock.CELLULAR -> R.string.sync_network_cellular_body
                                                         transportState == AndroidTransportState.ONLINE -> R.string.connection_delivery_boundary
                                                         else -> R.string.connection_offline_body
                                                     },
@@ -307,7 +312,7 @@ internal fun MainScreen(
                                                 // while nothing is being delivered, so reconnecting is what the
                                                 // user needs at that moment.
                                                 AnimatedContent(
-                                                    targetState = connectionControl(transportState, synchronizationPaused),
+                                                    targetState = connectionControl(transportState, synchronizationPaused, networkSyncBlock),
                                                     transitionSpec = {
                                                         fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
                                                             fadeOut(tween(AndroidMotion.FEEDBACK_MILLIS, easing = AndroidMotion.exitEasing))
@@ -324,6 +329,9 @@ internal fun MainScreen(
                                                         ConnectionControl.RECONNECT -> Button(onClick = onReconnect) {
                                                             Text(stringResource(R.string.retry_connection))
                                                         }
+                                                        ConnectionControl.SYNC_NETWORK -> Button(
+                                                            onClick = { navigate(ProductPage.DEFAULTS) },
+                                                        ) { Text(stringResource(R.string.sync_network_settings)) }
                                                     }
                                                 }
                                             }
@@ -381,6 +389,16 @@ internal fun MainScreen(
                                 }
                                 ProductPage.DEFAULTS -> ProductList {
                                     item { Text(stringResource(R.string.settings_apply_immediately)) }
+                                    item { SectionHeading(R.string.sync_network) }
+                                    item {
+                                        PermissionSwitchRow(stringResource(R.string.sync_network_wifi), networkSyncSettings.wifi) {
+                                            save { onSaveSyncNetworkSettings(networkSyncSettings.copy(wifi = it)) }
+                                        }
+                                        PermissionSwitchRow(stringResource(R.string.sync_network_cellular), networkSyncSettings.cellular) {
+                                            save { onSaveSyncNetworkSettings(networkSyncSettings.copy(cellular = it)) }
+                                        }
+                                        Text(stringResource(R.string.sync_network_body), style = MaterialTheme.typography.bodySmall)
+                                    }
                                     item { SectionHeading(R.string.background_connection) }
                                     item {
                                         PermissionSwitchRow(stringResource(R.string.keep_connection_active), backgroundConnectionEnabled) {
