@@ -1549,6 +1549,9 @@ class AndroidTransportCoordinator(context: Context) {
 
     private fun scheduleReconnect(requestedGeneration: Long) {
         if (!hasConnectionOwner() || generation.get() != requestedGeneration || reconnectFuture != null) return
+        // The socket the hold just closed reports its own close, and that report must not queue a
+        // retry: a held network has nothing to retry until the network or the setting changes.
+        if (mutableNetworkSyncBlock.value != NetworkSyncBlock.NONE) return
         val delayMs = reconnectBackoff.nextDelayMs()
         diagnostics.record(CoordinatorDiagnosticEvent.RECONNECT_SCHEDULED, requestedGeneration, delayMs = delayMs)
         reconnectFuture = executor.schedule(

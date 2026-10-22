@@ -276,10 +276,15 @@ internal fun MainScreen(
                                                 // connection or the pause flag changes. The dot beside it
                                                 // reads the same state at a glance.
                                                 AnimatedContent(
-                                                    targetState = if (synchronizationPaused) {
-                                                        stringResource(R.string.synchronization_paused)
-                                                    } else {
-                                                        connectionLabel(transportState)
+                                                    targetState = when {
+                                                        synchronizationPaused -> stringResource(R.string.synchronization_paused)
+                                                        // Naming the excluded network keeps the headline from
+                                                        // reading as a failure the user should fix by waiting.
+                                                        networkSyncBlock == NetworkSyncBlock.WIFI ->
+                                                            stringResource(R.string.sync_network_wifi_held)
+                                                        networkSyncBlock == NetworkSyncBlock.CELLULAR ->
+                                                            stringResource(R.string.sync_network_cellular_held)
+                                                        else -> connectionLabel(transportState)
                                                     },
                                                     transitionSpec = {
                                                         fadeIn(tween(AndroidMotion.CONTENT_MILLIS, easing = AndroidMotion.enterEasing)) togetherWith
