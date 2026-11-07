@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -19,6 +20,13 @@ def fake_tool(arguments: list[str]) -> str:
     if "apksigner" in Path(arguments[0]).name:
         encoded = base64.b64encode(CERTIFICATE_DER).decode("ascii")
         return f"-----BEGIN CERTIFICATE-----\n{encoded}\n-----END CERTIFICATE-----\n"
+    if arguments[1:3] == ["files", "list"]:
+        return "\n".join([
+            "/lib/arm64-v8a/libfixture.so",
+            "/lib/x86_64/libfixture.so",
+            "assets/keep.txt",
+            "AndroidManifest.xml",
+        ])
     command = arguments[2]
     return {
         "application-id": "example.fixture.app\n",
@@ -51,7 +59,9 @@ class AndroidReleaseArtifactTest(unittest.TestCase):
 
             build(apk, output, REVISION, apksigner, apkanalyzer, identity)
             verify(output, REVISION, apksigner, apkanalyzer, identity)
-            packaged_apk = output / "sevenmirror-android-1.2.3-42.apk"
+            manifest = json.loads((output / "release-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["abis"], ["arm64-v8a", "x86_64"])
+            packaged_apk = output / "sevenmirror-android-1.2.3.apk"
             packaged_apk.write_bytes(b"tampered")
             with self.assertRaisesRegex(RuntimeError, "does not match its manifest"):
                 verify(output, REVISION, apksigner, apkanalyzer, identity)

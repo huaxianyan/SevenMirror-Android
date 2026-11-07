@@ -1,7 +1,6 @@
 name: Release artifacts
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
@@ -154,12 +153,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           notes_out="$RUNNER_TEMP/release-notes.md"
+          manifest="release/release-manifest.json"
+          # The table has to answer what this APK is, whether it installs over the previous one and
+          # which commit produced it, so every value is read from the verified manifest.
+          abis="$(jq -r '.abis | if length == 0 then "无原生库" else join(", ") end' "$manifest")"
           {
             cat "docs/release-notes/${GITHUB_REF_NAME}.md"
             printf '\n## 构建信息\n\n'
             printf '| 项目 | 值 |\n'
             printf '| --- | --- |\n'
             printf '| 版本 | `%s` |\n' "$GITHUB_REF_NAME"
+            printf '| 版本号 | `%s` |\n' "$(jq -r '.version_code' "$manifest")"
+            printf '| 架构 | `%s` |\n' "$abis"
+            printf '| min / target SDK | `%s / %s` |\n' \
+              "$(jq -r '.min_sdk' "$manifest")" "$(jq -r '.target_sdk' "$manifest")"
+            printf '| 包名 | `%s` |\n' "$(jq -r '.application_id' "$manifest")"
+            printf '| 签名证书 SHA-256 | `%s` |\n' "$(jq -r '.signing_certificate_sha256' "$manifest")"
+            printf '| 源码提交 | `%s` |\n' "$(jq -r '.source_revision' "$manifest")"
             for asset in release/*; do
               printf '| %s SHA-256 | `%s` |\n' "${asset##*/}" "$(sha256sum "$asset" | cut -d' ' -f1)"
             done

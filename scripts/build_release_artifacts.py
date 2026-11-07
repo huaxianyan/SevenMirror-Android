@@ -129,10 +129,22 @@ def inspect_apk(
         raise RuntimeError("APK application or version identity is invalid")
     if not min_sdk.isdigit() or not target_sdk.isdigit():
         raise RuntimeError("APK SDK metadata is invalid")
+    # The release page states which ABIs the single APK installs on, so it is read from the
+    # archive rather than assumed: an empty list means the APK carries no native library.
+    file_listing = run_tool([str(apkanalyzer), "files", "list", str(apk)])
+    # An APK always contains a manifest; an empty listing means the tool failed instead of
+    # reporting a package without native libraries, which would hide the ABI it installs on.
+    if "AndroidManifest.xml" not in file_listing:
+        raise RuntimeError("APK file listing is empty")
+    abis = sorted({
+        match.group(1)
+        for match in re.finditer(r"^/?lib/([A-Za-z0-9_-]+)/", file_listing, re.MULTILINE)
+    })
     return {
         "application_id": application_id,
         "version_code": int(version_code),
         "version_name": version_name,
+        "abis": abis,
         "min_sdk": int(min_sdk),
         "target_sdk": int(target_sdk),
         "signing_certificate_sha256": identity["signingCertificateSha256"],
@@ -155,10 +167,7 @@ def build(
     identity = read_identity(identity_path)
     apk_metadata = inspect_apk(apk, apksigner, apkanalyzer, identity)
     output.mkdir(mode=0o700)
-    apk_name = (
-        f"sevenmirror-android-{apk_metadata['version_name']}-"
-        f"{apk_metadata['version_code']}.apk"
-    )
+    apk_name = f"sevenmirror-android-{apk_metadata['version_name']}.apk"
     destination = output / apk_name
     shutil.copyfile(apk, destination)
     archive = {
@@ -206,9 +215,7 @@ def verify(
     if not isinstance(apk_record, dict):
         raise RuntimeError("release APK record is invalid")
     identity = read_identity(identity_path)
-    expected_name = (
-        f"sevenmirror-android-{identity['versionName']}-{identity['versionCode']}.apk"
-    )
+    expected_name = f"sevenmirror-android-{identity['versionName']}.apk"
     expected_entries = {expected_name, "release-manifest.json", "SHA256SUMS"}
     entries = list(output.iterdir())
     if {entry.name for entry in entries} != expected_entries or any(

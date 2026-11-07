@@ -1,74 +1,82 @@
-# SevenMirror Android
+<div align="center">
+  <img src="docs/images/icon.png" width="120" alt="SevenMirror Android 图标">
 
-把手机上的通知送到你自己的浏览器。本应用是发送端，负责在本机捕获通知、按收件人加密，再发给你指定的浏览器。三个独立仓库之一。
+  # SevenMirror Android
+</div>
 
-仓库地址：<https://github.com/huaxianyan/SevenMirror-Android>
+把手机上的通知送到你自己的浏览器。本应用是发送端，在手机上捕获通知、按收件浏览器分别加密，再由中继服务器转发密文。正文离开手机后，中继读不到。
 
-> 状态：日常使用已经可用。通知镜像、远程操作与回复、接收浏览器选择、暂停与恢复、开机自启都已实现。厂商 ROM 兼容性与第二台不同品牌真机的验证尚未完成。
+SevenMirror 是自托管的三仓库项目：本仓库是 Android 发送端，另有 [服务端](https://github.com/huaxianyan/SevenMirror-Server)与 [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension)。
 
-## 能做什么
+## 截图
 
-- **把通知发到浏览器**：只发送你在手机上选中的应用。离开手机的正文已经加密，中继服务器读不到内容。
-- **在电脑上处理通知**：可以直接标记完成、发送回复，或清除这条通知。
-- **自己决定发给谁**：在「设置 → 接收设备」里勾选接收通知的浏览器。不勾选就不发送。
-- **暂停与恢复**：不想被打扰时暂停同步。恢复后自动对账，补上当前状态。
-- **逐应用控制**：每个应用都可以单独决定是否镜像、是否显示正文、是否允许远程操作。
-- **持续通知单独开关**：常驻式通知默认不镜像，需要时可以按应用打开。
-- **后台保持连接**：退出应用或锁屏后连接仍然保持，新通知即时送达。
-- **重启后自动恢复**：重启手机并解锁后连接自行恢复，不需要手动打开应用。
-- **掉线自己重连**：网络抖动导致的断开会自动退避重连，界面不会跳到需要重新注册的页面。
-- **隐私默认收紧**：通知正文与点击能力只留在内存里，远程操作默认关闭，需要时逐应用开启。
+<p align="center">
+  <img src="docs/images/sync-home.png" width="32%" alt="同步首页">
+  <img src="docs/images/sync-settings.png" width="32%" alt="同步与默认设置">
+</p>
 
-## 怎么用
+## 特性
 
-SevenMirror 是自托管项目，你需要先有一台运行中继服务的服务器。服务器可以自己搭建，搭建方式见服务端仓库。
+- **通知镜像**：只发送你在手机上选中的应用，离机前按收件浏览器分别加密。
+- **在电脑上处理通知**：标记完成、回复、清除都能从浏览器发起，手机执行前重新核对通知版本。
+- **自己决定发给谁**：在「设置 → 接收设备」里选择接收的浏览器，未选中的浏览器收不到内容。
+- **按网络开关同步**：Wi-Fi 与移动数据可以分别关闭，关掉的网络下整条连接不存在，换到允许的网络自动恢复。
+- **暂停与恢复**：一键暂停发送、远程操作与快照响应，不释放后台连接，重启后保留。
+- **逐应用控制**：每个应用单独决定是否镜像、是否同步正文、是否允许远程操作。
+- **后台与重启**：退出应用、锁屏与重启之后连接自行恢复，不需要手动打开应用。
+- **掉线自己重连**：网络抖动导致的断开会退避重连，不会跳到要求重新注册的页面。
 
-1. 安装应用。可以从本仓库的 Releases 下载 APK，也可以自行构建。
-2. 打开应用，走完首次引导。其中会问你是否开启后台同步。
-3. 输入运维者签发的一次性加入码，加入你的私有空间。
-4. 选择要镜像哪些应用。
-5. 在「设置 → 接收设备」里勾选接收通知的浏览器。
+## 快速开始
+
+前提是一台已经跑起来的 SevenMirror 中继服务，搭建方式见 [服务端仓库](https://github.com/huaxianyan/SevenMirror-Server)。
+
+1. 安装应用：从 [Releases](https://github.com/huaxianyan/SevenMirror-Android/releases) 下载 `sevenmirror-android-<版本>.apk`，或者自行构建。
+2. 打开应用走完首次引导，其中会问是否开启后台同步。
+3. 输入运维者签发的一次性加入码，加入私有空间。
+4. 选择要镜像的应用，再到「设置 → 接收设备」勾选接收通知的浏览器。
 
 设备显示名由运维者在管理端设定，应用里只读展示。
 
-## 运行要求
+### 自行构建
 
-- Android 10（API 29）或更高版本
-- 一个已经搭好的 SevenMirror 中继服务
-- 手机上的通知使用权，以及通知权限
-
-## 自行构建
-
-需要 JDK 17、Android SDK 37（`compileSdk` 为 37，`targetSdk` 为 35），以及 Android Studio 或仓库自带的 Gradle wrapper。
+需要 JDK 17 与 Android SDK（`compileSdk` 37、`targetSdk` 35、`minSdk` 29），构建用仓库自带的 Gradle wrapper：
 
 ```sh
 ./gradlew verifyKotlinKaptAdvisoryGuard verifyVendoredProtocol test lint assembleDebug
 ```
 
-Windows 的 PowerShell 或命令提示符下改用 `gradlew.bat`。
+Windows 的 PowerShell 或命令提示符下改用 `gradlew.bat`。产物在 `app/build/outputs/apk/debug/app-debug.apk`。
 
-## 发布
+## 使用与配置
 
-推送形如 `v0.1.0` 的标签即触发发布。标签必须与 `release/release-identity.properties` 里的 `versionName` 一致，带 `-dev` 的版本不能按标签发布。
+首页按四块排列：已选应用、接收设备、后台同步、服务与设备。连接状态用三色点表示，绿为已连接、黄为进行中或已暂停、红为未连接。未连接时唯一的手动动作是「重新连接」，因为没在传输时暂停不改变任何事。
 
-工作流用固定的签名身份构建并签署 release APK，校验它的公开身份，再生成 GitHub provenance。发布页正文来自 `docs/release-notes/<标签>.md`，标题只写标签本身。完整规则见 [发布溯源](docs/release-provenance.md)。
+设置分四组：
 
-## 更多文档
+- **同步与默认设置**：同步网络（Wi-Fi 与移动数据分别开关）、后台同步、通知稳定等待、静默通知与远程操作的默认值。
+- **接收设备**：本手机向哪些浏览器发送，空选择合法。
+- **权限与运行条件**：常驻页面，显示通知使用权、通知权限与电池优化豁免的实际状态、用途和缺失影响，从系统设置返回后重新核对。
+- **测试通知**：生成一条真实通知，按正常发送路径走一遍，用来确认浏览器端能否收到。
 
-面向开发与运维的细节拆到独立文档，不放在这里。
+单个应用是否镜像、是否同步正文、是否允许远程操作，在「应用」列表进入的策略页里设置。持续通知默认不镜像，需要时按应用打开。
+
+## 文档
 
 | 主题 | 文档 |
 | --- | --- |
 | 界面结构、业务边界与已知待办 | [产品界面](docs/product-interface.md) |
 | 后台连接、前台服务与重连策略 | [后台连接](docs/background-connection.md) |
+| 通知稳定等待的窗口与开关 | [通知稳定等待](docs/notification-stability.md) |
 | 传输诊断与故障排查 | [传输时间线](docs/transport-diagnostics.md) |
-| 本地敏感数据清单与审计 | [敏感数据](docs/SENSITIVE_DATA.md) |
 | 签名身份、备份与恢复 | [签名](docs/SIGNING.md) |
 | 发布产物、离线校验与回滚 | [发布溯源](docs/release-provenance.md) |
 | 发布流程用到的 Action 与权限 | [发布 Action](docs/release-actions.md) |
 | 依赖清单与漏洞证据 | [漏洞证据](docs/vulnerability-evidence.md) |
+| 本地敏感数据清单 | [敏感数据](docs/SENSITIVE_DATA.md) |
 | Kotlin 插件告警与无 KAPT 边界 | [KAPT 分析](docs/kotlin-kapt-advisory-analysis.md) |
 | 协议资产、版本与校验方式 | [协议资产](protocol/README.md) |
+
+跨组件的进度与交接记录在 [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project)的 `docs/STATUS.md`。
 
 ## 许可证
 
