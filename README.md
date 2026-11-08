@@ -4,9 +4,9 @@
   # SevenMirror Android
 </div>
 
-把手机上的通知送到你自己的浏览器。本应用是发送端，在手机上捕获通知、按收件浏览器分别加密，再由中继服务器转发密文。正文离开手机后，中继读不到。
+把手机上的通知送到你自己的浏览器。应用在手机上捕获通知，按收件浏览器分别加密，再由中继服务器转发密文，正文离开手机后中继读不到。
 
-SevenMirror 是自托管的三仓库项目：本仓库是 Android 发送端，另有 [服务端](https://github.com/huaxianyan/SevenMirror-Server)与 [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension)。
+SevenMirror 是自托管的三仓库项目，本仓库是其中的 Android 客户端，另有 [服务端](https://github.com/huaxianyan/SevenMirror-Server) 与 [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension)。
 
 ## 截图
 
@@ -30,12 +30,26 @@ SevenMirror 是自托管的三仓库项目：本仓库是 Android 发送端，�
 
 前提是一台已经跑起来的 SevenMirror 中继服务，搭建方式见 [服务端仓库](https://github.com/huaxianyan/SevenMirror-Server)。
 
-1. 安装应用：从 [Releases](https://github.com/huaxianyan/SevenMirror-Android/releases) 下载 `sevenmirror-android-<版本>.apk`，或者自行构建。
+1. 安装应用，见下面的「下载」与「自行构建」两节。
 2. 打开应用走完首次引导，其中会问是否开启后台同步。
 3. 输入运维者签发的一次性加入码，加入私有空间。
 4. 选择要镜像的应用，再到「设置 → 接收设备」勾选接收通知的浏览器。
 
 设备显示名由运维者在管理端设定，应用里只读展示。
+
+### 下载
+
+正式安装包从 [GitHub Releases](https://github.com/huaxianyan/SevenMirror-Android/releases) 下载，文件名形如 `sevenmirror-android-0.1.0.apk`。
+
+<a href="https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.neko7ina.sevenmirror%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fhuaxianyan%2FSevenMirror-Android%22%2C%22author%22%3A%22huaxianyan%22%2C%22name%22%3A%22SevenMirror%22%7D"><img src="docs/images/obtainium-badge.png" alt="Get it on Obtainium" height="48"></a>
+
+装了 [Obtainium](https://github.com/ImranR98/Obtainium) 的话，点上面的按钮即可把本项目加入更新列表，之后新版本会自动检查。
+
+```text
+Application ID: com.neko7ina.sevenmirror
+min SDK:        29（Android 10）
+target SDK:     35（Android 15）
+```
 
 ### 自行构建
 
@@ -62,21 +76,19 @@ Windows 的 PowerShell 或命令提示符下改用 `gradlew.bat`。产物在 `ap
 
 ## 文档
 
-| 主题 | 文档 |
-| --- | --- |
-| 界面结构、业务边界与已知待办 | [产品界面](docs/product-interface.md) |
-| 后台连接、前台服务与重连策略 | [后台连接](docs/background-connection.md) |
-| 通知稳定等待的窗口与开关 | [通知稳定等待](docs/notification-stability.md) |
-| 传输诊断与故障排查 | [传输时间线](docs/transport-diagnostics.md) |
-| 签名身份、备份与恢复 | [签名](docs/SIGNING.md) |
-| 发布产物、离线校验与回滚 | [发布溯源](docs/release-provenance.md) |
-| 发布流程用到的 Action 与权限 | [发布 Action](docs/release-actions.md) |
-| 依赖清单与漏洞证据 | [漏洞证据](docs/vulnerability-evidence.md) |
-| 本地敏感数据清单 | [敏感数据](docs/SENSITIVE_DATA.md) |
-| Kotlin 插件告警与无 KAPT 边界 | [KAPT 分析](docs/kotlin-kapt-advisory-analysis.md) |
-| 协议资产、版本与校验方式 | [协议资产](protocol/README.md) |
+- [产品界面](docs/product-interface.md)：界面结构、业务边界与已知待办。
+- [后台连接](docs/background-connection.md)：前台服务、心跳与重连策略。
+- [通知稳定等待](docs/notification-stability.md)：等待窗口的计算与开关行为。
+- [传输时间线](docs/transport-diagnostics.md)：诊断事件的字段与排查步骤。
+- [签名](docs/SIGNING.md)：签名身份、备份与恢复。
+- [发布溯源](docs/release-provenance.md)：发布产物、离线校验与回滚。
+- [发布 Action](docs/release-actions.md)：发布流程用到的 Action 与权限。
+- [漏洞证据](docs/vulnerability-evidence.md)：依赖清单与漏洞扫描证据。
+- [敏感数据](docs/SENSITIVE_DATA.md)：本机敏感数据清单。
+- [KAPT 分析](docs/kotlin-kapt-advisory-analysis.md)：Kotlin 插件告警与无 KAPT 边界。
+- [协议资产](protocol/README.md)：协议 schema 的版本与校验方式。
 
-跨组件的进度与交接记录在 [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project)的 `docs/STATUS.md`。
+跨组件的进度与交接记录在 [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) 的 `docs/STATUS.md`。
 
 ## 许可证
 
