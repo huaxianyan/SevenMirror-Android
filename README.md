@@ -3,7 +3,7 @@
 
   # SevenMirror Android
 
-  [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · 本仓库 · [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension) · [服务端](https://github.com/huaxianyan/SevenMirror-Server)
+[项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · Android 应用 · [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension) · [服务端](https://github.com/huaxianyan/SevenMirror-Server)
 </div>
 
 把手机上的通知送到你自己的浏览器。应用在手机上捕获通知，按收件浏览器分别加密，再由中继服务器转发密文，正文离开手机后中继读不到。
