@@ -1,12 +1,14 @@
 <div align="center">
-  <img src="docs/images/icon.png" width="120" alt="SevenMirror Android 图标">
+  <img src="docs/images/icon.png" width="120" alt="SevenMirror 图标">
 
   # SevenMirror Android
+
+  [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · 本仓库 · [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension) · [服务端](https://github.com/huaxianyan/SevenMirror-Server)
 </div>
 
 把手机上的通知送到你自己的浏览器。应用在手机上捕获通知，按收件浏览器分别加密，再由中继服务器转发密文，正文离开手机后中继读不到。
 
-SevenMirror 是自托管的三仓库项目，本仓库是其中的 Android 客户端，另有 [服务端](https://github.com/huaxianyan/SevenMirror-Server) 与 [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension)。
+SevenMirror 是自托管的多仓库项目，本仓库是其中的 Android 客户端。
 
 ## 截图
 
