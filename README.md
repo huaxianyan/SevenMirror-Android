@@ -3,7 +3,9 @@
 
   # SevenMirror Android
 
-[项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · Android 应用 · [浏览器扩展](https://github.com/huaxianyan/SevenMirror-Extension) · [服务端](https://github.com/huaxianyan/SevenMirror-Server)
+[项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · [服务端](https://github.com/huaxianyan/SevenMirror-Server) · [Chrome 扩展](https://github.com/huaxianyan/SevenMirror-Extension) · Android 应用
+
+[简体中文](README.md) | [English](README.en.md)
 </div>
 
 把手机上的通知送到你自己的浏览器。应用在手机上捕获通知，按收件浏览器分别加密，再由中继服务器转发密文，正文离开手机后中继读不到。
@@ -35,7 +37,7 @@ SevenMirror 是自托管的多仓库项目，本仓库是其中的 Android 客�
 1. 安装应用，见下面的「下载」与「自行构建」两节。
 2. 打开应用走完首次引导，其中会问是否开启后台同步。
 3. 输入运维者签发的一次性加入码，加入私有空间。
-4. 选择要镜像的应用，再到「设置 → 接收设备」勾选接收通知的浏览器。
+4. 选择要镜像的应用，再到「设置 → 接收设备」勾选接收通知的浏览器。浏览器端从 [Chrome 应用商店](https://chromewebstore.google.com/detail/fibpoeijlejjkokmngpcoahdhbjigcma) 安装扩展。
 
 设备显示名由运维者在管理端设定，应用里只读展示。
 
