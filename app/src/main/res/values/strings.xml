@@ -125,7 +125,7 @@
     <string name="test_notification_help">Send a real phone notification through your existing sync settings. Check the selected browser for delivery, then open the extension to inspect its card. The phone notification expires after five minutes.</string>
     <string name="send_test_notification">Send test notification</string>
     <string name="test_notification_title">SevenMirror test notification</string>
-    <string name="test_notification_body">This is a test notification from your phone. Check your selected browser.</string>
+    <string name="test_notification_body">A test notification from your phone, sent at %1$s.</string>
     <string name="test_notification_expanded">This is a test notification from your phone. Check your selected browser.\nSent at: %1$s</string>
     <string name="test_notification_posted">The phone has generated a test notification. Check the receiving browser to confirm delivery.</string>
     <string name="test_notification_permission_required">Allow notification permission to generate the test notification.</string>

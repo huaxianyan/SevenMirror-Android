@@ -121,7 +121,7 @@
     <string name="test_notification_help">通过当前同步设置发送一条真实手机通知。请在所选浏览器确认是否收到，再打开扩展查看通知卡片。手机通知将在 5 分钟后自动结束。</string>
     <string name="send_test_notification">发送测试通知</string>
     <string name="test_notification_title">SevenMirror 测试通知</string>
-    <string name="test_notification_body">这是一条来自手机的测试通知，请在所选浏览器中查看。</string>
+    <string name="test_notification_body">这是一条来自手机的测试通知，发送于 %1$s。</string>
     <string name="test_notification_expanded">这是一条来自手机的测试通知，请在所选浏览器中查看。\n发送时间：%1$s</string>
     <string name="test_notification_posted">手机已生成测试通知，请在接收浏览器确认是否收到。</string>
     <string name="test_notification_permission_required">请允许通知权限，以生成测试通知。</string>
