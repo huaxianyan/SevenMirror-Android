@@ -5,7 +5,7 @@
 
 [项目总仓库](https://github.com/huaxianyan/SevenMirror-Project) · [服务端](https://github.com/huaxianyan/SevenMirror-Server) · [Chrome 扩展](https://github.com/huaxianyan/SevenMirror-Extension) · Android 应用
 
-[简体中文](README.md) | [English](README.en.md)
+简体中文 | [English](README.en.md)
 </div>
 
 把手机上的通知送到你自己的浏览器。应用在手机上捕获通知，按收件浏览器分别加密，再由中继服务器转发密文，正文离开手机后中继读不到。
@@ -19,7 +19,7 @@ SevenMirror 是自托管的多仓库项目，本仓库是其中的 Android 客�
   <img src="docs/images/sync-settings.png" width="32%" alt="同步与默认设置">
 </p>
 
-## 特性
+## 功能
 
 - **通知镜像**：只发送你在手机上选中的应用，离机前按收件浏览器分别加密。
 - **在电脑上处理通知**：标记完成、回复、清除都能从浏览器发起，手机执行前重新核对通知版本。
