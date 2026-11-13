@@ -5,7 +5,7 @@
 
 [Project hub](https://github.com/huaxianyan/SevenMirror-Project) · [Server](https://github.com/huaxianyan/SevenMirror-Server) · [Chrome extension](https://github.com/huaxianyan/SevenMirror-Extension) · Android app
 
-English | [简体中文](README.md)
+[简体中文](README.md) | English
 </div>
 
 Sends the notifications on your phone to your own browsers. The app captures notifications on the phone, encrypts each one per receiving browser, and the relay server forwards the ciphertext; once content leaves the phone, the relay cannot read it.
